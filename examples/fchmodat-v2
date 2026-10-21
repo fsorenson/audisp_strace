@@ -1,0 +1,17 @@
+type=SYSCALL msg=audit(1792536833.872:1672477): arch=c000003e syscall=268 success=yes exit=0 a0=ffffff9c a1=5594d557f670 a2=1e4 a3=fff items=1 ppid=2526901 pid=2527038 auid=0 ui
+d=501 gid=501 euid=501 suid=501 fsuid=501 egid=501 sgid=501 fsgid=501 tty=pts3 ses=65053 comm="chmod" exe="/usr/bin/chmod" subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c
+1023 key="perm_mod"^]ARCH=x86_64 SYSCALL=fchmodat AUID="root" UID="user1" GID="group1" EUID="user1" SUID="user1" FSUID="user1" EGID="group1" SGID="group1" FSGID="group1"
+type=CWD msg=audit(1792536833.872:1672477): cwd="/home/user1"
+type=PATH msg=audit(1792536833.872:1672477): item=0 name="/var/tmp/foo" inode=201645608 dev=fd:00 mode=0100777 ouid=501 ogid=0 rdev=00:00 obj=unconfined_u:object_r:user_tmp_t:s0
+ nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0^]OUID="user1" OGID="root"
+type=PROCTITLE msg=audit(1792536833.872:1672477): proctitle="-bash"
+
+
+
+2527038<chmod> 17:53:53.872621 fchmodat(AT_FDCWD</home/user1>, "/var/tmp/foo", 0744) = 0 <0.000055>
+
+
+
+2527038<chmod> 17:53:53.872 fchmodat(AT_FDCWD</home/user1>, "/var/tmp/foo", 0744) = 0
+    uid=501 (user1), gid=501 (user1), auid=0 (root), agid=0 (root), euid=0 (root), egid=0 (root), suid=0 (root), sgid=0 (root), fsuid=0 (root), fsgid=0 (root)
+    1 (systemd)->1149 (sshd)->2517349 (sshd)->2517352 (sshd)->2526900 (bash)->2526901 (su)->2527038 (chmod)
