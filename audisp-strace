@@ -1,0 +1,835 @@
+#!/usr/bin/env python3
+"""
+audisp-strace - Linux audisp plugin and audit log trace formatter.
+
+Reads Linux audit events (from stdin or audit logs) and pretty-prints strace-like
+traces with enriched process ancestry and process credentials.
+"""
+
+import argparse
+import datetime
+import grp
+import os
+import pwd
+import signal
+import string
+import sys
+from pathlib import Path
+
+try:
+    import auparse
+except ImportError:
+    sys.stderr.write("Error: 'auparse' python module is required.\n")
+    sys.exit(1)
+
+AT_FDCWD = -100  # 0xffffff9c as signed 32-bit int
+
+# Event types that are purely daemon or user authentication bookkeeping
+IGNORE_RECORD_TYPES = {
+    'DAEMON_CONFIG', 'USER_END', 'CRED_DISP', 'CRED_ACQ', 'LOGIN',
+    'USER_START', 'USER_ACCT', 'CONFIG_CHANGE', 'CRED_REFR',
+    'SERVICE_START', 'SERVICE_STOP', 'SYSTEM_SHUTDOWN', 'USER_ERR'
+}
+
+# Syscalls tracked for process hierarchy & state
+PROCESS_TRACKING_SYSCALLS = {
+    'clone', 'clone3', 'fork', 'vfork', 'execve', 'execveat', 'exit', 'exit_group'
+}
+
+# Syscalls tracked for permission & ownership changes
+PERMISSION_SYSCALLS = {
+    'chmod', 'fchmod', 'fchmodat',
+    'chown', 'fchown', 'fchownat', 'lchown'
+}
+
+
+def unescape_audit_str(val):
+    """Strips quotes and decodes hex-encoded audit strings if applicable."""
+    if not val:
+        return ""
+    val = val.strip('"')
+    if len(val) >= 2 and len(val) % 2 == 0:
+        if all(c in string.hexdigits for c in val):
+            try:
+                raw_bytes = bytes.fromhex(val)
+                # Replace NUL bytes if coming from proctitle or argv
+                decoded = raw_bytes.replace(b'\x00', b' ').decode('utf-8', errors='replace').strip()
+                if decoded and all(c.isprintable() or c in '\t\n\r ' for c in decoded):
+                    return decoded
+            except (ValueError, UnicodeDecodeError):
+                pass
+    return val
+
+
+class ProcResolver:
+    """Helper for reading /proc metadata when running live."""
+
+    def __init__(self, is_live=False):
+        self.is_live = is_live
+
+    def get_fd_path(self, pid, fd):
+        if not self.is_live:
+            return None
+        try:
+            return os.readlink(f"/proc/{pid}/fd/{fd}")
+        except OSError:
+            return None
+
+    def get_exe(self, pid):
+        if not self.is_live:
+            return None
+        try:
+            return os.readlink(f"/proc/{pid}/exe")
+        except OSError:
+            return None
+
+    def get_proc_stat(self, pid):
+        """Returns (ppid, comm) from /proc/<pid>/stat if accessible."""
+        if not self.is_live:
+            return None, None
+        try:
+            with open(f"/proc/{pid}/stat", "r") as f:
+                content = f.read().strip()
+            # stat format: pid (comm) state ppid ...
+            rparen = content.rfind(')')
+            if rparen != -1:
+                comm = content[content.find('(') + 1:rparen]
+                rest = content[rparen + 2:].split()
+                ppid = int(rest[1])
+                return ppid, comm
+        except (OSError, ValueError, IndexError):
+            pass
+        return None, None
+
+
+class ProcessTracker:
+    """Maintains known process tree, credentials, and ancestry."""
+
+    def __init__(self, proc_resolver):
+        self.resolver = proc_resolver
+        self.procs = {}  # pid -> dict(ppid, comm, exe, cmdline, ses)
+
+    def update(self, pid, ppid=None, comm=None, exe=None, cmdline=None, ses=None):
+        if pid is None:
+            return
+        try:
+            pid = int(pid)
+        except ValueError:
+            return
+
+        if pid not in self.procs:
+            self.procs[pid] = {
+                'ppid': None,
+                'comm': None,
+                'exe': None,
+                'cmdline': None,
+                'ses': None
+            }
+
+        proc = self.procs[pid]
+        if ppid is not None:
+            try:
+                proc['ppid'] = int(ppid)
+            except ValueError:
+                pass
+        if comm:
+            proc['comm'] = comm.strip('"')
+        if exe:
+            proc['exe'] = exe.strip('"')
+        if cmdline:
+            proc['cmdline'] = cmdline
+        if ses is not None:
+            proc['ses'] = ses
+
+    def exit_process(self, pid):
+        # We retain information for ancestry lookups of already-finished parents,
+        # but mark as exited or let it persist in memory.
+        pass
+
+    def get_proc(self, pid):
+        return self.procs.get(pid)
+
+    def _resolve_name(self, pid):
+        proc = self.procs.get(pid)
+        if proc:
+            if proc.get('comm'):
+                return proc['comm']
+            if proc.get('exe'):
+                return os.path.basename(proc['exe'])
+
+        # Live /proc fallback
+        if self.resolver.is_live:
+            exe = self.resolver.get_exe(pid)
+            if exe:
+                name = os.path.basename(exe)
+                if proc:
+                    proc['exe'] = exe
+                return name
+            _, comm = self.resolver.get_proc_stat(pid)
+            if comm:
+                if proc:
+                    proc['comm'] = comm
+                return comm
+
+        if pid == 1:
+            return "systemd"
+        return "unknown"
+
+    def get_ancestry(self, pid):
+        """Returns full ancestry list [(pid, name), ...] from root ancestor to pid."""
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            return []
+
+        chain = []
+        curr = pid
+        visited = set()
+
+        while curr and curr not in visited:
+            visited.add(curr)
+            proc = self.procs.get(curr)
+
+            ppid = proc.get('ppid') if proc else None
+
+            # If ppid missing and live, check /proc
+            if (ppid is None or curr not in self.procs) and self.resolver.is_live:
+                live_ppid, live_comm = self.resolver.get_proc_stat(curr)
+                if live_ppid is not None:
+                    ppid = live_ppid
+                    self.update(curr, ppid=live_ppid, comm=live_comm)
+
+            name = self._resolve_name(curr)
+            chain.append((curr, name))
+
+            if curr == 1 or ppid == 0 or ppid == curr or ppid is None:
+                break
+            curr = ppid
+
+        chain.reverse()
+        return chain
+
+
+class AuditEvent:
+    """Represents a parsed multi-record audit event."""
+
+    def __init__(self, au):
+        ts = au.get_timestamp()
+        self.sec = ts.sec
+        self.milli = ts.milli
+        self.serial = ts.serial
+
+        self.records = []
+        self.syscall = {}
+        self.syscall_interp = {}
+        self.cwd = None
+        self.paths = []
+        self.execve_args = []
+        self.proctitle = None
+
+        au.first_record()
+        while True:
+            rectype = au.get_type_name()
+            fields = {}
+            interp_fields = {}
+            au.first_field()
+            while True:
+                fname = au.get_field_name()
+                try:
+                    fstr = au.get_field_str()
+                except Exception:
+                    fstr = ""
+                fields[fname] = fstr
+
+                try:
+                    interp = au.interpret_field()
+                except Exception:
+                    interp = None
+
+                if interp is not None:
+                    interp_fields[fname] = interp
+                if not au.next_field():
+                    break
+
+            self.records.append((rectype, fields, interp_fields))
+
+            if rectype == "SYSCALL":
+                self.syscall = fields
+                self.syscall_interp = interp_fields
+            elif rectype == "CWD":
+                cwd_val = fields.get("cwd", "")
+                self.cwd = unescape_audit_str(cwd_val)
+            elif rectype == "PATH":
+                # Unescape path names
+                p_copy = dict(fields)
+                if "name" in p_copy:
+                    p_copy["name"] = unescape_audit_str(p_copy["name"])
+                self.paths.append(p_copy)
+            elif rectype == "EXECVE":
+                try:
+                    argc = int(fields.get("argc", 0))
+                except ValueError:
+                    argc = 0
+                args = []
+                for i in range(argc):
+                    arg = fields.get(f"a{i}")
+                    if arg is not None:
+                        args.append(unescape_audit_str(arg))
+                self.execve_args = args
+            elif rectype == "PROCTITLE":
+                proctitle = interp_fields.get("proctitle") or fields.get("proctitle")
+                if proctitle:
+                    self.proctitle = unescape_audit_str(proctitle)
+
+            if not au.next_record():
+                break
+
+    @property
+    def syscall_name(self):
+        return self.syscall_interp.get("syscall") or self.syscall.get("syscall")
+
+    @property
+    def pid(self):
+        val = self.syscall.get("pid")
+        return int(val) if val is not None else None
+
+    @property
+    def ppid(self):
+        val = self.syscall.get("ppid")
+        return int(val) if val is not None else None
+
+    @property
+    def comm(self):
+        val = self.syscall.get("comm")
+        return val.strip('"') if val else None
+
+    @property
+    def exe(self):
+        val = self.syscall.get("exe")
+        return val.strip('"') if val else None
+
+    @property
+    def exit_code(self):
+        val = self.syscall.get("exit")
+        return int(val) if val is not None else None
+
+    @property
+    def exit_str(self):
+        exit_val = self.exit_code
+        if exit_val is None:
+            return "?"
+        if exit_val < 0:
+            interp = self.syscall_interp.get("exit")
+            return f"-1 {interp}" if interp else str(exit_val)
+        return str(exit_val)
+
+
+class TraceFormatter:
+    """Formats 3-line strace-like output."""
+
+    def __init__(self, time_format="time"):
+        self.time_format = time_format
+        self._uid_cache = {}
+        self._gid_cache = {}
+
+    def resolve_user(self, uid_str, fallback=""):
+        if uid_str is None or uid_str == "" or uid_str in ("4294967295", "-1"):
+            return "unset"
+        if uid_str in self._uid_cache:
+            return self._uid_cache[uid_str]
+        try:
+            name = pwd.getpwuid(int(uid_str)).pw_name
+        except (KeyError, ValueError, OverflowError):
+            name = fallback if fallback else uid_str
+        self._uid_cache[uid_str] = name
+        return name
+
+    def resolve_group(self, gid_str, fallback=""):
+        if gid_str is None or gid_str == "" or gid_str in ("4294967295", "-1"):
+            return "unset"
+        if gid_str in self._gid_cache:
+            return self._gid_cache[gid_str]
+        try:
+            name = grp.getgrgid(int(gid_str)).gr_name
+        except (KeyError, ValueError, OverflowError):
+            name = fallback if fallback else gid_str
+        self._gid_cache[gid_str] = name
+        return name
+
+    def format_timestamp(self, sec, milli):
+        dt = datetime.datetime.fromtimestamp(sec).astimezone()
+        if self.time_format == "time":
+            return f"{dt.strftime('%H:%M:%S')}.{milli:03d}"
+        elif self.time_format == "datetime":
+            return f"{dt.strftime('%Y-%m-%d %H:%M:%S')}.{milli:03d} {dt.strftime('%z')}"
+        elif self.time_format == "epoch":
+            return f"{sec}.{milli:03d}"
+        return f"{dt.strftime('%H:%M:%S')}.{milli:03d}"
+
+    def format_credentials(self, event):
+        fields = event.syscall
+        interp = event.syscall_interp
+
+        def clean_name(val):
+            if not val:
+                return ""
+            val = val.strip('"')
+            if val.startswith("unknown(") and val.endswith(")"):
+                return val[8:-1]
+            return val
+
+        # Expected credentials: uid, gid, auid, agid, euid, egid, suid, sgid, fsuid, fsgid
+        auid_str = fields.get("auid", "0")
+        raw_auid_name = clean_name(fields.get("AUID") or interp.get("auid"))
+        auid_name = self.resolve_user(auid_str, raw_auid_name or "root")
+
+        # Derive agid from auid primary group if possible
+        agid_str = fields.get("agid")
+        raw_agid_name = clean_name(fields.get("AGID"))
+        if agid_str is None:
+            try:
+                pw = pwd.getpwuid(int(auid_str))
+                agid_str = str(pw.pw_gid)
+                agid_name = raw_agid_name or self.resolve_group(agid_str)
+            except (KeyError, ValueError, OverflowError):
+                agid_str = "0"
+                agid_name = raw_agid_name or "root"
+        else:
+            agid_name = raw_agid_name or self.resolve_group(agid_str)
+
+        items = [
+            ("uid", fields.get("uid", "0"), clean_name(fields.get("UID") or interp.get("uid"))),
+            ("gid", fields.get("gid", "0"), clean_name(fields.get("GID") or interp.get("gid"))),
+            ("auid", auid_str, auid_name),
+            ("agid", agid_str, agid_name),
+            ("euid", fields.get("euid", "0"), clean_name(fields.get("EUID") or interp.get("euid"))),
+            ("egid", fields.get("egid", "0"), clean_name(fields.get("EGID") or interp.get("egid"))),
+            ("suid", fields.get("suid", "0"), clean_name(fields.get("SUID") or interp.get("suid"))),
+            ("sgid", fields.get("sgid", "0"), clean_name(fields.get("SGID") or interp.get("sgid"))),
+            ("fsuid", fields.get("fsuid", "0"), clean_name(fields.get("FSUID") or interp.get("fsuid"))),
+            ("fsgid", fields.get("fsgid", "0"), clean_name(fields.get("FSGID") or interp.get("fsgid"))),
+        ]
+
+        formatted_creds = []
+        for key, val_id, hint_name in items:
+            if "gid" in key:
+                name = hint_name or self.resolve_group(val_id)
+            else:
+                name = hint_name or self.resolve_user(val_id)
+            name = clean_name(name)
+            formatted_creds.append(f"{key}={val_id} ({name})")
+
+        return "    " + ", ".join(formatted_creds)
+
+    def format_ancestry(self, ancestry):
+        if not ancestry:
+            return "    ???"
+        parts = [f"{pid} ({name})" for pid, name in ancestry]
+        return "    " + "->".join(parts)
+
+
+class SyscallHandler:
+    """Dispatches and formats specific syscall events."""
+
+    def __init__(self, tracker, resolver, formatter):
+        self.tracker = tracker
+        self.resolver = resolver
+        self.formatter = formatter
+
+    def _resolve_dirfd(self, event, a0_val):
+        try:
+            val_int = int(a0_val, 16) if isinstance(a0_val, str) and a0_val.startswith(('0x', 'ff')) else int(a0_val)
+        except (ValueError, TypeError):
+            val_int = 0
+
+        # Check for AT_FDCWD
+        if val_int in (-100, 0xffffff9c, 4294967196):
+            cwd = event.cwd or "unknown"
+            return f"AT_FDCWD<{cwd}>"
+
+        # Otherwise it's a numeric fd
+        path = self.resolver.get_fd_path(event.pid, val_int)
+        if path:
+            return f"{val_int}<{path}>"
+        return str(val_int)
+
+    def _resolve_mode(self, raw_mode, interp_mode):
+        if interp_mode and interp_mode.startswith('0'):
+            return interp_mode
+        try:
+            int_val = int(raw_mode, 16) if str(raw_mode).startswith('0x') else int(str(raw_mode), 16)
+            return f"0{int_val:o}"
+        except (ValueError, TypeError):
+            return str(raw_mode)
+
+    def handle_fchmodat(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        # Path name from PATH record or a1
+        name = event.paths[0].get("name") if event.paths else event.syscall.get("a1", "")
+        name = name.strip('"')
+        mode_str = self._resolve_mode(event.syscall.get("a2"), event.syscall_interp.get("a2"))
+
+        call_str = f"fchmodat({dirfd_str}, \"{name}\", {mode_str}) = {event.exit_str}"
+        return call_str
+
+    def handle_chmod(self, event):
+        name = event.paths[0].get("name") if event.paths else event.syscall.get("a0", "")
+        name = name.strip('"')
+        mode_str = self._resolve_mode(event.syscall.get("a1"), event.syscall_interp.get("a1"))
+
+        call_str = f"chmod(\"{name}\", {mode_str}) = {event.exit_str}"
+        return call_str
+
+    def handle_fchmod(self, event):
+        fd_raw = event.syscall.get("a0", "0")
+        try:
+            fd = int(fd_raw, 16) if fd_raw.startswith('0x') else int(fd_raw)
+        except ValueError:
+            fd = fd_raw
+        path = self.resolver.get_fd_path(event.pid, fd)
+        fd_str = f"{fd}<{path}>" if path else str(fd)
+        mode_str = self._resolve_mode(event.syscall.get("a1"), event.syscall_interp.get("a1"))
+
+        call_str = f"fchmod({fd_str}, {mode_str}) = {event.exit_str}"
+        return call_str
+
+    def handle_fchownat(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = event.paths[0].get("name") if event.paths else event.syscall.get("a1", "")
+        name = name.strip('"')
+        uid_val = event.syscall.get("a2", "-1")
+        gid_val = event.syscall.get("a3", "-1")
+        try:
+            uid_int = int(uid_val, 16) if uid_val.startswith('0x') else int(uid_val)
+        except ValueError:
+            uid_int = uid_val
+        try:
+            gid_int = int(gid_val, 16) if gid_val.startswith('0x') else int(gid_val)
+        except ValueError:
+            gid_int = gid_val
+
+        call_str = f"fchownat({dirfd_str}, \"{name}\", {uid_int}, {gid_int}) = {event.exit_str}"
+        return call_str
+
+    def handle_chown_lchown(self, event, scname):
+        name = event.paths[0].get("name") if event.paths else event.syscall.get("a0", "")
+        name = name.strip('"')
+        uid_val = event.syscall.get("a1", "-1")
+        gid_val = event.syscall.get("a2", "-1")
+        try:
+            uid_int = int(uid_val, 16) if uid_val.startswith('0x') else int(uid_val)
+        except ValueError:
+            uid_int = uid_val
+        try:
+            gid_int = int(gid_val, 16) if gid_val.startswith('0x') else int(gid_val)
+        except ValueError:
+            gid_int = gid_val
+
+        call_str = f"{scname}(\"{name}\", {uid_int}, {gid_int}) = {event.exit_str}"
+        return call_str
+
+    def handle_fchown(self, event):
+        fd_raw = event.syscall.get("a0", "0")
+        try:
+            fd = int(fd_raw, 16) if fd_raw.startswith('0x') else int(fd_raw)
+        except ValueError:
+            fd = fd_raw
+        path = self.resolver.get_fd_path(event.pid, fd)
+        fd_str = f"{fd}<{path}>" if path else str(fd)
+        uid_val = event.syscall.get("a1", "-1")
+        gid_val = event.syscall.get("a2", "-1")
+
+        call_str = f"fchown({fd_str}, {uid_val}, {gid_val}) = {event.exit_str}"
+        return call_str
+
+    def handle_clone(self, event):
+        child_pid = event.syscall.get("exit")
+        call_str = f"clone(...) = {child_pid}"
+        return call_str
+
+    def handle_execve(self, event):
+        name = event.paths[0].get("name") if event.paths else event.exe or "unknown"
+        name = name.strip('"')
+        args = event.execve_args
+        if args:
+            args_str = "[" + ", ".join(f'"{a}"' for a in args) + "], ..."
+        else:
+            args_str = "..."
+        call_str = f"execve(\"{name}\", {args_str}) = {event.exit_str}"
+        return call_str
+
+    def handle_exit(self, event):
+        exit_code = event.syscall.get("a0", "0")
+        call_str = f"exit({exit_code}) = ?"
+        return call_str
+
+    def format_event(self, event, caller_comm=None):
+        scname = event.syscall_name
+        if not scname:
+            return None
+
+        # Build Line 1 syscall description
+        if scname == 'fchmodat':
+            call_str = self.handle_fchmodat(event)
+        elif scname == 'chmod':
+            call_str = self.handle_chmod(event)
+        elif scname == 'fchmod':
+            call_str = self.handle_fchmod(event)
+        elif scname == 'fchownat':
+            call_str = self.handle_fchownat(event)
+        elif scname in ('chown', 'lchown'):
+            call_str = self.handle_chown_lchown(event, scname)
+        elif scname == 'fchown':
+            call_str = self.handle_fchown(event)
+        elif scname in ('clone', 'clone3', 'fork', 'vfork'):
+            call_str = self.handle_clone(event)
+        elif scname in ('execve', 'execveat'):
+            call_str = self.handle_execve(event)
+        elif scname in ('exit', 'exit_group'):
+            call_str = self.handle_exit(event)
+        else:
+            call_str = f"{scname}(...) = {event.exit_str}"
+
+        # Line 1 header: <pid><comm> <timestamp> <call_str>
+        comm = caller_comm or event.comm or self.tracker._resolve_name(event.pid)
+        ts_str = self.formatter.format_timestamp(event.sec, event.milli)
+        line1 = f"{event.pid}<{comm}> {ts_str} {call_str}"
+
+        # Line 2: Process credentials
+        line2 = self.formatter.format_credentials(event)
+
+        # Line 3: Process ancestry tree
+        ancestry = self.tracker.get_ancestry(event.pid)
+        line3 = self.formatter.format_ancestry(ancestry)
+
+        return f"{line1}\n{line2}\n{line3}"
+
+
+def _auparse_callback(au, event_type, user_data):
+    if user_data:
+        user_data.on_audit_event(au, event_type)
+
+
+class AudispStraceApp:
+    """Coordinates parsing, state tracking, and output generation."""
+
+    def __init__(self, is_live=False, time_format="time", all_syscalls=False):
+        self.is_live = is_live
+        self.all_syscalls = all_syscalls
+        self.resolver = ProcResolver(is_live=is_live)
+        self.tracker = ProcessTracker(self.resolver)
+        self.formatter = TraceFormatter(time_format=time_format)
+        self.handler = SyscallHandler(self.tracker, self.resolver, self.formatter)
+
+        self.au = auparse.AuParser(auparse.AUSOURCE_FEED)
+        self.au.add_callback(_auparse_callback, self)
+
+    def on_audit_event(self, au, event_type):
+        if event_type != auparse.AUPARSE_CB_EVENT_READY:
+            return
+
+        au.first_record()
+        rectype = au.get_type_name()
+        if rectype in IGNORE_RECORD_TYPES:
+            return
+
+        event = AuditEvent(au)
+        scname = event.syscall_name
+        if not scname:
+            return
+
+        pid = event.pid
+        ppid = event.ppid
+        comm = event.comm
+        exe = event.exe
+        ses = event.syscall.get("ses")
+
+        # For execve, preserve prior caller comm if available
+        caller_comm = None
+        if scname in ('execve', 'execveat'):
+            prior = self.tracker.get_proc(pid)
+            if prior and prior.get('comm'):
+                caller_comm = prior['comm']
+            elif event.proctitle:
+                caller_comm = event.proctitle.lstrip('-').split()[0]
+
+        self.tracker.update(pid, ppid=ppid, comm=comm, exe=exe, ses=ses)
+
+        # Handle clone: child PID is in 'exit' field
+        if scname in ('clone', 'clone3', 'fork', 'vfork'):
+            child_pid = event.exit_code
+            if child_pid and child_pid > 0:
+                self.tracker.update(child_pid, ppid=pid, comm=comm, exe=exe, ses=ses)
+
+        # Handle execve: update command line and binary
+        if scname in ('execve', 'execveat'):
+            self.tracker.update(pid, ppid=ppid, comm=comm, exe=exe, cmdline=event.execve_args, ses=ses)
+
+        # Filter: should we display this syscall?
+        should_display = (
+            self.all_syscalls or
+            scname in PERMISSION_SYSCALLS or
+            scname in ('clone', 'clone3', 'execve', 'execveat')
+        )
+
+        if not should_display:
+            return
+
+        formatted = self.handler.format_event(event, caller_comm=caller_comm)
+        if formatted:
+            try:
+                sys.stdout.write(formatted + "\n\n")
+                sys.stdout.flush()
+            except BrokenPipeError:
+                # Python pipe closed (e.g. piped to head)
+                devnull = os.open(os.devnull, os.O_WRONLY)
+                os.dup2(devnull, sys.stdout.fileno())
+                sys.exit(0)
+
+    def process_stream(self, stream):
+        """Feeds audit lines into auparse, handling wrapped/partial lines safely."""
+        buffer = ""
+        for line in stream:
+            line = line.strip("\r\n")
+            if not line:
+                continue
+
+            # Strip ASCII group separator ^] (0x1d) if present from ausearch
+            line = line.replace('\x1d', ' ')
+
+            # If line is human-added text (e.g. from examples or annotations)
+            if line.startswith(("    ", "strace:", "audit event:", "audisp-strace entry:")):
+                continue
+
+            if line.startswith(("type=", "node=")):
+                if buffer:
+                    try:
+                        self.au.feed(buffer + "\n")
+                    except OSError:
+                        pass
+                buffer = line
+            else:
+                # Continuation of wrapped line or non-header record
+                if buffer:
+                    buffer += line
+                else:
+                    try:
+                        self.au.feed(line + "\n")
+                    except OSError:
+                        pass
+
+        if buffer:
+            try:
+                self.au.feed(buffer + "\n")
+            except OSError:
+                pass
+
+        try:
+            self.au.flush_feed()
+        except OSError:
+            pass
+
+
+def detect_live():
+    """Detect if running under auditd or audispd."""
+    ppid = os.getppid()
+    try:
+        ppexe = os.readlink(f"/proc/{ppid}/exe")
+        if "auditd" in ppexe or "audispd" in ppexe:
+            return True
+    except OSError:
+        pass
+    try:
+        with open(f"/proc/{ppid}/comm", "r") as f:
+            comm = f.read().strip()
+            if comm in ("auditd", "audispd"):
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def setup_signals():
+    def signal_handler(sig, frame):
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGHUP, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    try:
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    except (AttributeError, ValueError):
+        pass
+
+
+def main():
+    setup_signals()
+
+    parser = argparse.ArgumentParser(
+        description="Linux audisp plugin & audit log strace-like trace formatter"
+    )
+    parser.add_argument(
+        "files",
+        nargs="*",
+        help="Audit log files to read (default: stdin)"
+    )
+    parser.add_argument(
+        "-l", "--live",
+        action="store_true",
+        default=None,
+        help="Force live mode (/proc lookups enabled)"
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Force offline mode (/proc lookups disabled)"
+    )
+    parser.add_argument(
+        "-t", "--timestamp-format",
+        choices=["time", "datetime", "epoch"],
+        default="time",
+        help="Timestamp format (default: time, e.g. 17:53:01.027)"
+    )
+    parser.add_argument(
+        "-a", "--all",
+        dest="all_syscalls",
+        action="store_true",
+        help="Display all captured syscalls, not just permissions and process lifecycle"
+    )
+
+    args = parser.parse_args()
+
+    # Determine live mode
+    if args.offline:
+        is_live = False
+    elif args.live is True:
+        is_live = True
+    else:
+        is_live = detect_live()
+
+    app = AudispStraceApp(
+        is_live=is_live,
+        time_format=args.timestamp_format,
+        all_syscalls=args.all_syscalls
+    )
+
+    if args.files:
+        for file_path in args.files:
+            if file_path == "-":
+                app.process_stream(sys.stdin)
+            else:
+                try:
+                    with open(file_path, "r", errors="replace") as f:
+                        app.process_stream(f)
+                except OSError as e:
+                    sys.stderr.write(f"audisp-strace: cannot read {file_path}: {e}\n")
+    else:
+        app.process_stream(sys.stdin)
+
+
+if __name__ == "__main__":
+    main()
