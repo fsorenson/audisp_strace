@@ -44,10 +44,9 @@ Sample 3-line format per monitored event:
      - **`TraceFormatter`**: Formats credentials (with uppercase interpreted field precedence and local passwd/group resolution) and timestamps (`time`, `datetime`, `epoch`).
      - **`SyscallHandler`**: Dispatches specific formatting for all supported syscalls.
      - **`AudispStraceApp`**: Stream line un-wrapper, `auparse` feed manager, and signal lifecycle coordinator.
-5. **Resilience**:
-   - Safely un-wraps terminal-wrapped audit lines.
-   - Decodes hex-encoded audit strings (such as space-separated command-line arguments in `EXECVE` and `PROCTITLE`).
-   - Clean `BrokenPipeError` handling allowing seamless piping into pager tools like `head` or `less`.
+5. **Testing & Audit Event Generation**:
+   - **`test_syscalls.c` / `test_syscalls`**: C test generator that exercises every handled syscall across AT_FDCWD, dir_fd, relative paths, and absolute paths, creating a full parent->child->execve process tree.
+   - **`setup_audit_rules.sh`**: Helper script to configure `auditctl` rules for capturing the generated events on a test system.
 
 ---
 
@@ -85,10 +84,12 @@ Sample 3-line format per monitored event:
   - [x] `examples/clone`
   - [x] `examples/execve`
   - [x] `examples/audit-log.out`
-  - [x] `examples/audit-log-v2.out` (verified `fchownat`, `chown`, `fchmod`, `rename`, `renameat2`, `unlink`, `openat`, `close`)
-  - [x] `examples/audit-log-v3.out` (verified `mkdir`, `rmdir`, `link`, `symlinkat`, `setuid`, `setgid`)
+  - [x] `examples/audit-log-v2.out`
+  - [x] `examples/audit-log-v3.out`
+- [x] Created C test generator `test_syscalls.c` and `Makefile`.
+- [x] Created `setup_audit_rules.sh` to configure `auditctl` rules for all tested syscalls.
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
 
 ### Next Steps / Ideas
-- [ ] Add audit rule generator or documentation for recommended auditctl rules (e.g. for chmod, chown, clone, execve).
-- [ ] VM live integration testing with auditd daemon.
+- [ ] Live integration test on test VM with auditd daemon active.
+- [ ] Add support for additional syscalls as needed.
