@@ -39,8 +39,24 @@ PROCESS_TRACKING_SYSCALLS = {
 # Syscalls tracked for permission & ownership changes
 PERMISSION_SYSCALLS = {
     'chmod', 'fchmod', 'fchmodat',
-    'chown', 'fchown', 'fchownat', 'lchown'
+    'chown', 'fchown', 'fchownat', 'lchown',
+    'setuid', 'setgid'
 }
+
+# Syscalls tracked for file lifecycle / management
+FILE_MGMT_SYSCALLS = {
+    'open', 'openat', 'openat2', 'creat', 'close',
+    'unlink', 'unlinkat',
+    'rename', 'renameat', 'renameat2',
+    'mkdir', 'mkdirat', 'rmdir',
+    'link', 'linkat', 'symlink', 'symlinkat'
+}
+
+DEFAULT_MONITORED_SYSCALLS = (
+    PERMISSION_SYSCALLS | FILE_MGMT_SYSCALLS | {
+        'clone', 'clone3', 'fork', 'vfork', 'execve', 'execveat'
+    }
+)
 
 
 def unescape_audit_str(val):
@@ -493,54 +509,261 @@ class SyscallHandler:
         call_str = f"fchmod({fd_str}, {mode_str}) = {event.exit_str}"
         return call_str
 
+    def _parse_id(self, val):
+        if val is None or val == "":
+            return -1
+        try:
+            val_int = int(str(val), 16) if not str(val).startswith("-") else int(val)
+            if val_int in (4294967295, 0xffffffff):
+                return -1
+            return val_int
+        except (ValueError, TypeError):
+            return val
+
     def handle_fchownat(self, event):
         dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
         name = event.paths[0].get("name") if event.paths else event.syscall.get("a1", "")
         name = name.strip('"')
-        uid_val = event.syscall.get("a2", "-1")
-        gid_val = event.syscall.get("a3", "-1")
-        try:
-            uid_int = int(uid_val, 16) if uid_val.startswith('0x') else int(uid_val)
-        except ValueError:
-            uid_int = uid_val
-        try:
-            gid_int = int(gid_val, 16) if gid_val.startswith('0x') else int(gid_val)
-        except ValueError:
-            gid_int = gid_val
+        uid_val = self._parse_id(event.syscall.get("a2", "-1"))
+        gid_val = self._parse_id(event.syscall.get("a3", "-1"))
 
-        call_str = f"fchownat({dirfd_str}, \"{name}\", {uid_int}, {gid_int}) = {event.exit_str}"
+        flags_val = event.syscall.get("a4") or "0"
+        try:
+            flags_int = int(str(flags_val), 16) if not str(flags_val).startswith('-') else int(flags_val)
+        except ValueError:
+            flags_int = 0
+        flags_str = "AT_SYMLINK_NOFOLLOW" if flags_int == 0x100 else str(flags_int)
+
+        call_str = f"fchownat({dirfd_str}, \"{name}\", {uid_val}, {gid_val}, {flags_str}) = {event.exit_str}"
         return call_str
 
     def handle_chown_lchown(self, event, scname):
         name = event.paths[0].get("name") if event.paths else event.syscall.get("a0", "")
         name = name.strip('"')
-        uid_val = event.syscall.get("a1", "-1")
-        gid_val = event.syscall.get("a2", "-1")
-        try:
-            uid_int = int(uid_val, 16) if uid_val.startswith('0x') else int(uid_val)
-        except ValueError:
-            uid_int = uid_val
-        try:
-            gid_int = int(gid_val, 16) if gid_val.startswith('0x') else int(gid_val)
-        except ValueError:
-            gid_int = gid_val
+        uid_val = self._parse_id(event.syscall.get("a1", "-1"))
+        gid_val = self._parse_id(event.syscall.get("a2", "-1"))
 
-        call_str = f"{scname}(\"{name}\", {uid_int}, {gid_int}) = {event.exit_str}"
+        call_str = f"{scname}(\"{name}\", {uid_val}, {gid_val}) = {event.exit_str}"
         return call_str
 
-    def handle_fchown(self, event):
+    def handle_mkdir(self, event):
+        name = self._get_path_by_nametype(event, ("CREATE", "NORMAL"), default_idx=len(event.paths) - 1)
+        name = name.strip('"')
+        mode_str = self._resolve_mode(event.syscall.get("a1", "0777"), event.syscall_interp.get("a1"))
+        return f"mkdir(\"{name}\", {mode_str}) = {event.exit_str}"
+
+    def handle_mkdirat(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_path_by_nametype(event, ("CREATE", "NORMAL"), default_idx=len(event.paths) - 1)
+        name = name.strip('"')
+        mode_str = self._resolve_mode(event.syscall.get("a2", "0777"), event.syscall_interp.get("a2"))
+        return f"mkdirat({dirfd_str}, \"{name}\", {mode_str}) = {event.exit_str}"
+
+    def handle_rmdir(self, event):
+        name = self._get_path_by_nametype(event, ("DELETE", "NORMAL"), default_idx=len(event.paths) - 1)
+        name = name.strip('"')
+        return f"rmdir(\"{name}\") = {event.exit_str}"
+
+    def _resolve_link_paths(self, event):
+        old_path = ""
+        new_path = ""
+        create_items = [p.get("name", "").strip('"') for p in event.paths if p.get("nametype") == "CREATE"]
+        other_items = [p.get("name", "").strip('"') for p in event.paths if p.get("nametype") not in ("CREATE", "PARENT")]
+        if other_items:
+            old_path = other_items[0]
+        if create_items:
+            new_path = create_items[-1]
+
+        if not old_path or not new_path:
+            non_parents = [p.get("name", "").strip('"') for p in event.paths if p.get("nametype") != "PARENT"]
+            if len(non_parents) >= 2:
+                old_path = non_parents[0]
+                new_path = non_parents[1]
+            elif len(non_parents) == 1:
+                if not old_path:
+                    old_path = non_parents[0]
+                else:
+                    new_path = non_parents[0]
+
+        if (not old_path or not new_path) and event.proctitle:
+            parts = event.proctitle.split()
+            args = [p for p in parts if not p.startswith('-') and os.path.basename(p) not in ('ln', 'xauth')]
+            if len(args) >= 2:
+                old_path = old_path or args[-2]
+                new_path = new_path or args[-1]
+
+        return old_path or "unknown", new_path or "unknown"
+
+    def handle_link(self, event):
+        old_path, new_path = self._resolve_link_paths(event)
+        return f"link(\"{old_path}\", \"{new_path}\") = {event.exit_str}"
+
+    def handle_linkat(self, event):
+        old_dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        new_dirfd_str = self._resolve_dirfd(event, event.syscall.get("a2"))
+        old_path, new_path = self._resolve_link_paths(event)
+        flags_val = event.syscall.get("a4", "0")
+        try:
+            flags_int = int(str(flags_val), 16) if not str(flags_val).startswith('-') else int(flags_val)
+        except ValueError:
+            flags_int = 0
+        flags_str = "AT_SYMLINK_FOLLOW" if flags_int == 0x400 else str(flags_int)
+        return f"linkat({old_dirfd_str}, \"{old_path}\", {new_dirfd_str}, \"{new_path}\", {flags_str}) = {event.exit_str}"
+
+    def handle_symlink(self, event):
+        target, linkpath = self._resolve_link_paths(event)
+        return f"symlink(\"{target}\", \"{linkpath}\") = {event.exit_str}"
+
+    def handle_symlinkat(self, event):
+        target, linkpath = self._resolve_link_paths(event)
+        new_dirfd_str = self._resolve_dirfd(event, event.syscall.get("a1"))
+        return f"symlinkat(\"{target}\", {new_dirfd_str}, \"{linkpath}\") = {event.exit_str}"
+
+    def handle_setuid(self, event):
+        uid = self._parse_id(event.syscall.get("a0", "0"))
+        return f"setuid({uid}) = {event.exit_str}"
+
+    def handle_setgid(self, event):
+        gid = self._parse_id(event.syscall.get("a0", "0"))
+        return f"setgid({gid}) = {event.exit_str}"
+
+    def _get_path_by_nametype(self, event, nametypes, default_idx=0):
+        for p in event.paths:
+            nt = p.get("nametype", "")
+            if nt in nametypes:
+                return p.get("name", "")
+        if event.paths and 0 <= default_idx < len(event.paths):
+            return event.paths[default_idx].get("name", "")
+        return ""
+
+    def handle_unlink(self, event):
+        name = self._get_path_by_nametype(event, ("DELETE", "NORMAL"), default_idx=len(event.paths) - 1)
+        name = name.strip('"')
+        return f"unlink(\"{name}\") = {event.exit_str}"
+
+    def handle_unlinkat(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_path_by_nametype(event, ("DELETE", "NORMAL"), default_idx=len(event.paths) - 1)
+        name = name.strip('"')
+        flags_val = event.syscall.get("a2", "0")
+        try:
+            flags_int = int(flags_val, 16) if str(flags_val).startswith("0x") else int(flags_val)
+        except ValueError:
+            flags_int = 0
+        flags_str = "AT_REMOVEDIR" if flags_int == 0x200 else str(flags_int)
+        return f"unlinkat({dirfd_str}, \"{name}\", {flags_str}) = {event.exit_str}"
+
+    def _resolve_rename_paths(self, event):
+        old_path = ""
+        new_path = ""
+        delete_items = [p.get("name", "").strip('"') for p in event.paths if p.get("nametype") == "DELETE"]
+        create_items = [p.get("name", "").strip('"') for p in event.paths if p.get("nametype") == "CREATE"]
+        if delete_items:
+            old_path = delete_items[0]
+        if create_items:
+            new_path = create_items[-1]
+        elif len(delete_items) > 1:
+            new_path = delete_items[-1]
+
+        if not old_path or not new_path:
+            non_parents = [p.get("name", "").strip('"') for p in event.paths if p.get("nametype") != "PARENT"]
+            if len(non_parents) >= 2:
+                old_path = non_parents[0]
+                new_path = non_parents[1]
+            elif len(non_parents) == 1:
+                if not old_path:
+                    old_path = non_parents[0]
+                else:
+                    new_path = non_parents[0]
+
+        if (not old_path or not new_path) and event.proctitle:
+            parts = event.proctitle.split()
+            if len(parts) >= 3 and os.path.basename(parts[0]) == "mv":
+                old_path = old_path or parts[-2]
+                new_path = new_path or parts[-1]
+
+        return old_path or "unknown", new_path or "unknown"
+
+    def handle_rename(self, event):
+        old_path, new_path = self._resolve_rename_paths(event)
+        return f"rename(\"{old_path}\", \"{new_path}\") = {event.exit_str}"
+
+    def handle_renameat(self, event):
+        old_dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        new_dirfd_str = self._resolve_dirfd(event, event.syscall.get("a2"))
+        old_path, new_path = self._resolve_rename_paths(event)
+        return f"renameat({old_dirfd_str}, \"{old_path}\", {new_dirfd_str}, \"{new_path}\") = {event.exit_str}"
+
+    def handle_renameat2(self, event):
+        old_dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        new_dirfd_str = self._resolve_dirfd(event, event.syscall.get("a2"))
+        old_path, new_path = self._resolve_rename_paths(event)
+        flags_val = event.syscall.get("a4") or event.syscall.get("a3", "0")
+        try:
+            flags_int = int(flags_val, 16) if str(flags_val).startswith("0x") else int(str(flags_val))
+        except ValueError:
+            flags_int = 0
+        if flags_int == 1:
+            flags_str = "RENAME_NOREPLACE"
+        elif flags_int == 2:
+            flags_str = "RENAME_EXCHANGE"
+        elif flags_int == 4:
+            flags_str = "RENAME_WHITEOUT"
+        else:
+            flags_str = str(flags_int)
+        return f"renameat2({old_dirfd_str}, \"{old_path}\", {new_dirfd_str}, \"{new_path}\", {flags_str}) = {event.exit_str}"
+
+    def handle_open(self, event):
+        name = event.paths[0].get("name", "") if event.paths else event.syscall.get("a0", "")
+        name = name.strip('"')
+        flags_interp = event.syscall_interp.get("a1") or event.syscall.get("a1", "O_RDONLY")
+        if "O_CREAT" in flags_interp or "O_TMPFILE" in flags_interp:
+            mode_str = self._resolve_mode(event.syscall.get("a2", "0"), event.syscall_interp.get("a2"))
+            call_str = f"open(\"{name}\", {flags_interp}, {mode_str}) = {event.exit_str}"
+        else:
+            call_str = f"open(\"{name}\", {flags_interp}) = {event.exit_str}"
+        return call_str
+
+    def handle_openat(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = ""
+        for p in event.paths:
+            if p.get("nametype") != "PARENT":
+                name = p.get("name", "")
+                break
+        if not name and event.paths:
+            name = event.paths[0].get("name", "")
+        name = name.strip('"')
+
+        flags_interp = event.syscall_interp.get("a2") or event.syscall.get("a2", "O_RDONLY")
+        if "O_CREAT" in flags_interp or "O_TMPFILE" in flags_interp:
+            mode_str = self._resolve_mode(event.syscall.get("a3", "0"), event.syscall_interp.get("a3"))
+            call_str = f"openat({dirfd_str}, \"{name}\", {flags_interp}, {mode_str}) = {event.exit_str}"
+        else:
+            call_str = f"openat({dirfd_str}, \"{name}\", {flags_interp}) = {event.exit_str}"
+        return call_str
+
+    def handle_openat2(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = event.paths[0].get("name", "") if event.paths else ""
+        name = name.strip('"')
+        return f"openat2({dirfd_str}, \"{name}\", {{...}}) = {event.exit_str}"
+
+    def handle_creat(self, event):
+        name = event.paths[0].get("name", "") if event.paths else ""
+        name = name.strip('"')
+        mode_str = self._resolve_mode(event.syscall.get("a1", "0"), event.syscall_interp.get("a1"))
+        return f"creat(\"{name}\", {mode_str}) = {event.exit_str}"
+
+    def handle_close(self, event):
         fd_raw = event.syscall.get("a0", "0")
         try:
-            fd = int(fd_raw, 16) if fd_raw.startswith('0x') else int(fd_raw)
+            fd = int(fd_raw, 16) if str(fd_raw).startswith("0x") else int(fd_raw)
         except ValueError:
             fd = fd_raw
         path = self.resolver.get_fd_path(event.pid, fd)
         fd_str = f"{fd}<{path}>" if path else str(fd)
-        uid_val = event.syscall.get("a1", "-1")
-        gid_val = event.syscall.get("a2", "-1")
-
-        call_str = f"fchown({fd_str}, {uid_val}, {gid_val}) = {event.exit_str}"
-        return call_str
+        return f"close({fd_str}) = {event.exit_str}"
 
     def handle_clone(self, event):
         child_pid = event.syscall.get("exit")
@@ -581,6 +804,44 @@ class SyscallHandler:
             call_str = self.handle_chown_lchown(event, scname)
         elif scname == 'fchown':
             call_str = self.handle_fchown(event)
+        elif scname == 'open':
+            call_str = self.handle_open(event)
+        elif scname == 'openat':
+            call_str = self.handle_openat(event)
+        elif scname == 'openat2':
+            call_str = self.handle_openat2(event)
+        elif scname == 'creat':
+            call_str = self.handle_creat(event)
+        elif scname == 'close':
+            call_str = self.handle_close(event)
+        elif scname == 'unlink':
+            call_str = self.handle_unlink(event)
+        elif scname == 'unlinkat':
+            call_str = self.handle_unlinkat(event)
+        elif scname == 'rename':
+            call_str = self.handle_rename(event)
+        elif scname == 'renameat':
+            call_str = self.handle_renameat(event)
+        elif scname == 'renameat2':
+            call_str = self.handle_renameat2(event)
+        elif scname == 'mkdir':
+            call_str = self.handle_mkdir(event)
+        elif scname == 'mkdirat':
+            call_str = self.handle_mkdirat(event)
+        elif scname == 'rmdir':
+            call_str = self.handle_rmdir(event)
+        elif scname == 'link':
+            call_str = self.handle_link(event)
+        elif scname == 'linkat':
+            call_str = self.handle_linkat(event)
+        elif scname == 'symlink':
+            call_str = self.handle_symlink(event)
+        elif scname == 'symlinkat':
+            call_str = self.handle_symlinkat(event)
+        elif scname == 'setuid':
+            call_str = self.handle_setuid(event)
+        elif scname == 'setgid':
+            call_str = self.handle_setgid(event)
         elif scname in ('clone', 'clone3', 'fork', 'vfork'):
             call_str = self.handle_clone(event)
         elif scname in ('execve', 'execveat'):
@@ -613,9 +874,12 @@ def _auparse_callback(au, event_type, user_data):
 class AudispStraceApp:
     """Coordinates parsing, state tracking, and output generation."""
 
-    def __init__(self, is_live=False, time_format="time", all_syscalls=False):
+    def __init__(self, is_live=False, time_format="time", all_syscalls=False,
+                 syscalls=None, exclude_syscalls=None):
         self.is_live = is_live
         self.all_syscalls = all_syscalls
+        self.syscall_filter = set(syscalls) if syscalls else None
+        self.exclude_filter = set(exclude_syscalls) if exclude_syscalls else set()
         self.resolver = ProcResolver(is_live=is_live)
         self.tracker = ProcessTracker(self.resolver)
         self.formatter = TraceFormatter(time_format=time_format)
@@ -665,12 +929,17 @@ class AudispStraceApp:
         if scname in ('execve', 'execveat'):
             self.tracker.update(pid, ppid=ppid, comm=comm, exe=exe, cmdline=event.execve_args, ses=ses)
 
+        # Check exclusion filter
+        if scname in self.exclude_filter:
+            return
+
         # Filter: should we display this syscall?
-        should_display = (
-            self.all_syscalls or
-            scname in PERMISSION_SYSCALLS or
-            scname in ('clone', 'clone3', 'execve', 'execveat')
-        )
+        if self.syscall_filter is not None:
+            should_display = scname in self.syscall_filter
+        elif self.all_syscalls:
+            should_display = True
+        else:
+            should_display = scname in DEFAULT_MONITORED_SYSCALLS
 
         if not should_display:
             return
@@ -795,6 +1064,14 @@ def main():
         help="Timestamp format (default: time, e.g. 17:53:01.027)"
     )
     parser.add_argument(
+        "-s", "--syscalls",
+        help="Comma-separated list of syscalls to monitor (e.g. chown,rename,unlink)"
+    )
+    parser.add_argument(
+        "-x", "--exclude",
+        help="Comma-separated list of syscalls to exclude (e.g. close,openat)"
+    )
+    parser.add_argument(
         "-a", "--all",
         dest="all_syscalls",
         action="store_true",
@@ -811,10 +1088,20 @@ def main():
     else:
         is_live = detect_live()
 
+    syscalls_filter = None
+    if args.syscalls:
+        syscalls_filter = {s.strip() for s in args.syscalls.split(",") if s.strip()}
+
+    exclude_filter = None
+    if args.exclude:
+        exclude_filter = {s.strip() for s in args.exclude.split(",") if s.strip()}
+
     app = AudispStraceApp(
         is_live=is_live,
         time_format=args.timestamp_format,
-        all_syscalls=args.all_syscalls
+        all_syscalls=args.all_syscalls,
+        syscalls=syscalls_filter,
+        exclude_syscalls=exclude_filter
     )
 
     if args.files:
