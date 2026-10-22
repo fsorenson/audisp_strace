@@ -546,6 +546,20 @@ class SyscallHandler:
         call_str = f"{scname}(\"{name}\", {uid_val}, {gid_val}) = {event.exit_str}"
         return call_str
 
+    def handle_fchown(self, event):
+        fd_raw = event.syscall.get("a0", "0")
+        try:
+            fd = int(str(fd_raw), 16) if not str(fd_raw).startswith("-") else int(fd_raw)
+        except ValueError:
+            fd = fd_raw
+        path = self.resolver.get_fd_path(event.pid, fd)
+        fd_str = f"{fd}<{path}>" if path else str(fd)
+        uid_val = self._parse_id(event.syscall.get("a1", "-1"))
+        gid_val = self._parse_id(event.syscall.get("a2", "-1"))
+
+        call_str = f"fchown({fd_str}, {uid_val}, {gid_val}) = {event.exit_str}"
+        return call_str
+
     def handle_mkdir(self, event):
         name = self._get_path_by_nametype(event, ("CREATE", "NORMAL"), default_idx=len(event.paths) - 1)
         name = name.strip('"')
@@ -647,7 +661,7 @@ class SyscallHandler:
         name = name.strip('"')
         flags_val = event.syscall.get("a2", "0")
         try:
-            flags_int = int(flags_val, 16) if str(flags_val).startswith("0x") else int(flags_val)
+            flags_int = int(str(flags_val), 16) if not str(flags_val).startswith("-") else int(flags_val)
         except ValueError:
             flags_int = 0
         flags_str = "AT_REMOVEDIR" if flags_int == 0x200 else str(flags_int)
@@ -698,20 +712,8 @@ class SyscallHandler:
         old_dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
         new_dirfd_str = self._resolve_dirfd(event, event.syscall.get("a2"))
         old_path, new_path = self._resolve_rename_paths(event)
-        flags_val = event.syscall.get("a4") or event.syscall.get("a3", "0")
-        try:
-            flags_int = int(flags_val, 16) if str(flags_val).startswith("0x") else int(str(flags_val))
-        except ValueError:
-            flags_int = 0
-        if flags_int == 1:
-            flags_str = "RENAME_NOREPLACE"
-        elif flags_int == 2:
-            flags_str = "RENAME_EXCHANGE"
-        elif flags_int == 4:
-            flags_str = "RENAME_WHITEOUT"
-        else:
-            flags_str = str(flags_int)
-        return f"renameat2({old_dirfd_str}, \"{old_path}\", {new_dirfd_str}, \"{new_path}\", {flags_str}) = {event.exit_str}"
+        # Note: Linux audit only records a0..a3 in SYSCALL records, so flags (the 5th argument) is not stored
+        return f"renameat2({old_dirfd_str}, \"{old_path}\", {new_dirfd_str}, \"{new_path}\", ...) = {event.exit_str}"
 
     def handle_open(self, event):
         name = event.paths[0].get("name", "") if event.paths else event.syscall.get("a0", "")

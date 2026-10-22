@@ -86,10 +86,13 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log.out`
   - [x] `examples/audit-log-v2.out`
   - [x] `examples/audit-log-v3.out`
+  - [x] `examples/audit-log-v4.out` (verified complete run with `test_syscalls` process tree and all 25+ syscall combinations)
+- [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
+- [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile`.
 - [x] Created `setup_audit_rules.sh` to configure `auditctl` rules for all tested syscalls.
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
 
 ### Next Steps / Ideas
 - [ ] Live integration test on test VM with auditd daemon active.
-- [ ] Add support for additional syscalls as needed.
+- [ ] Support additional syscalls if requested (e.g. `dup`/`dup2`/`dup3`, `pipe`, `truncate`/`ftruncate`).
