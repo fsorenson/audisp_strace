@@ -156,10 +156,13 @@ class ProcessTracker:
                 'comm': None,
                 'exe': None,
                 'cmdline': None,
-                'ses': None
+                'ses': None,
+                'fds': {}
             }
 
         proc = self.procs[pid]
+        if 'fds' not in proc:
+            proc['fds'] = {}
         if ppid is not None:
             try:
                 proc['ppid'] = int(ppid)
@@ -174,10 +177,129 @@ class ProcessTracker:
         if ses is not None:
             proc['ses'] = ses
 
+    def _parse_fd(self, val):
+        if val is None:
+            return None
+        if isinstance(val, int):
+            return val
+        s = str(val).strip()
+        if not s:
+            return None
+        try:
+            return int(s) if s.startswith('-') else int(s, 16)
+        except ValueError:
+            return None
+
+    def get_fd_path(self, pid, fd):
+        if pid is None:
+            return None
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            return None
+        fd_num = self._parse_fd(fd)
+        if fd_num is None:
+            return None
+
+        proc = self.procs.get(pid)
+        if proc and 'fds' in proc and fd_num in proc['fds']:
+            return proc['fds'][fd_num]['path']
+
+        # Fall back to live /proc resolver if available
+        if self.resolver and self.resolver.is_live:
+            path = self.resolver.get_fd_path(pid, fd_num)
+            if path:
+                if proc is None:
+                    self.update(pid)
+                    proc = self.procs[pid]
+                if 'fds' not in proc:
+                    proc['fds'] = {}
+                proc['fds'][fd_num] = {'path': path, 'cloexec': False}
+                return path
+        return None
+
+    def set_fd(self, pid, fd, path, cloexec=False):
+        if pid is None or not path:
+            return
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            return
+        fd_num = self._parse_fd(fd)
+        if fd_num is None:
+            return
+        if pid not in self.procs:
+            self.update(pid)
+        proc = self.procs[pid]
+        if 'fds' not in proc:
+            proc['fds'] = {}
+        proc['fds'][fd_num] = {'path': path, 'cloexec': cloexec}
+
+    def close_fd(self, pid, fd):
+        if pid is None:
+            return
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            return
+        fd_num = self._parse_fd(fd)
+        if fd_num is None:
+            return
+        proc = self.procs.get(pid)
+        if proc and 'fds' in proc:
+            proc['fds'].pop(fd_num, None)
+
+    def dup_fd(self, pid, oldfd, newfd, cloexec=False):
+        if pid is None:
+            return
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            return
+        old_num = self._parse_fd(oldfd)
+        new_num = self._parse_fd(newfd)
+        if old_num is None or new_num is None:
+            return
+        path = self.get_fd_path(pid, old_num)
+        if path:
+            self.set_fd(pid, new_num, path, cloexec=cloexec)
+
+    def copy_fds(self, parent_pid, child_pid):
+        try:
+            parent_pid = int(parent_pid)
+            child_pid = int(child_pid)
+        except (ValueError, TypeError):
+            return
+        parent_proc = self.procs.get(parent_pid)
+        if not parent_proc or 'fds' not in parent_proc:
+            return
+        if child_pid not in self.procs:
+            self.update(child_pid)
+        child_proc = self.procs[child_pid]
+        if 'fds' not in child_proc:
+            child_proc['fds'] = {}
+        for fd, info in parent_proc['fds'].items():
+            child_proc['fds'][fd] = dict(info)
+
+    def handle_exec(self, pid):
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            return
+        proc = self.procs.get(pid)
+        if proc and 'fds' in proc:
+            proc['fds'] = {fd: info for fd, info in proc['fds'].items() if not info.get('cloexec')}
+
     def exit_process(self, pid):
         # We retain information for ancestry lookups of already-finished parents,
-        # but mark as exited or let it persist in memory.
-        pass
+        # but clear open file descriptors.
+        try:
+            pid = int(pid)
+            proc = self.procs.get(pid)
+            if proc and 'fds' in proc:
+                proc['fds'].clear()
+        except (ValueError, TypeError):
+            pass
 
     def get_proc(self, pid):
         return self.procs.get(pid)
@@ -259,6 +381,7 @@ class AuditEvent:
         self.paths = []
         self.execve_args = []
         self.proctitle = None
+        self.fd_pair = None
 
         au.first_record()
         while True:
@@ -313,6 +436,8 @@ class AuditEvent:
                 proctitle = interp_fields.get("proctitle") or fields.get("proctitle")
                 if proctitle:
                     self.proctitle = unescape_audit_str(proctitle)
+            elif rectype == "FD_PAIR":
+                self.fd_pair = fields
 
             if not au.next_record():
                 break
@@ -345,6 +470,10 @@ class AuditEvent:
     def exit_code(self):
         val = self.syscall.get("exit")
         return int(val) if val is not None else None
+
+    @property
+    def success(self):
+        return self.syscall.get("success")
 
     @property
     def exit_str(self):
@@ -471,7 +600,7 @@ class SyscallHandler:
 
     def _resolve_dirfd(self, event, a0_val):
         try:
-            val_int = int(a0_val, 16) if isinstance(a0_val, str) and a0_val.startswith(('0x', 'ff')) else int(a0_val)
+            val_int = int(str(a0_val), 16) if isinstance(a0_val, str) and not str(a0_val).startswith("-") else int(a0_val)
         except (ValueError, TypeError):
             val_int = 0
 
@@ -481,7 +610,7 @@ class SyscallHandler:
             return f"AT_FDCWD<{cwd}>"
 
         # Otherwise it's a numeric fd
-        path = self.resolver.get_fd_path(event.pid, val_int)
+        path = self.tracker.get_fd_path(event.pid, val_int)
         if path:
             return f"{val_int}<{path}>"
         return str(val_int)
@@ -498,11 +627,71 @@ class SyscallHandler:
     def _resolve_fd(self, event, field_name="a0"):
         fd_raw = event.syscall.get(field_name, "0")
         try:
-            fd = int(str(fd_raw), 16) if not str(fd_raw).startswith("-") else int(fd_raw)
-        except ValueError:
-            fd = fd_raw
-        path = self.resolver.get_fd_path(event.pid, fd)
-        return f"{fd}<{path}>" if path else str(fd)
+            val_int = int(str(fd_raw), 16) if not str(fd_raw).startswith("-") else int(fd_raw)
+        except (ValueError, TypeError):
+            val_int = 0
+        path = self.tracker.get_fd_path(event.pid, val_int)
+        return f"{val_int}<{path}>" if path else str(val_int)
+
+    def get_opened_path(self, event):
+        scname = event.syscall_name
+        name = ""
+        if scname in ('openat', 'openat2'):
+            for p in event.paths:
+                if p.get("nametype") != "PARENT":
+                    name = p.get("name", "")
+                    if name:
+                        break
+            if not name and event.paths:
+                name = event.paths[0].get("name", "")
+            if not name:
+                name = event.syscall.get("a1", "")
+        else:
+            if event.paths:
+                for p in event.paths:
+                    if p.get("nametype") != "PARENT":
+                        name = p.get("name", "")
+                        if name:
+                            break
+                if not name:
+                    name = event.paths[0].get("name", "")
+            if not name:
+                name = event.syscall.get("a0", "")
+
+        name = name.strip('"')
+        if not name:
+            return None
+
+        # Absolute path
+        if name.startswith('/'):
+            return name
+
+        # Relative path: resolve against dirfd or cwd
+        if scname in ('openat', 'openat2'):
+            dirfd_val = event.syscall.get("a0")
+            try:
+                dfd_int = int(str(dirfd_val), 16) if not str(dirfd_val).startswith("-") else int(dirfd_val)
+            except (ValueError, TypeError):
+                dfd_int = 0
+            if dfd_int not in (-100, 0xffffff9c, 4294967196):
+                dirfd_path = self.tracker.get_fd_path(event.pid, dfd_int)
+                if dirfd_path:
+                    return os.path.normpath(os.path.join(dirfd_path, name))
+
+        if event.cwd:
+            return os.path.normpath(os.path.join(event.cwd, name))
+
+        return name
+
+    def is_cloexec_opened(self, event):
+        scname = event.syscall_name
+        if scname == 'open':
+            flags = event.syscall_interp.get("a1") or str(event.syscall.get("a1", ""))
+            return "O_CLOEXEC" in flags or (self._parse_id(event.syscall.get("a1", "0")) & 0x80000 != 0)
+        elif scname == 'openat':
+            flags = event.syscall_interp.get("a2") or str(event.syscall.get("a2", ""))
+            return "O_CLOEXEC" in flags or (self._parse_id(event.syscall.get("a2", "0")) & 0x80000 != 0)
+        return False
 
     def _format_access_mode(self, mode_val):
         try:
@@ -561,17 +750,9 @@ class SyscallHandler:
         return call_str
 
     def handle_fchmod(self, event):
-        fd_raw = event.syscall.get("a0", "0")
-        try:
-            fd = int(fd_raw, 16) if fd_raw.startswith('0x') else int(fd_raw)
-        except ValueError:
-            fd = fd_raw
-        path = self.resolver.get_fd_path(event.pid, fd)
-        fd_str = f"{fd}<{path}>" if path else str(fd)
+        fd_str = self._resolve_fd(event, "a0")
         mode_str = self._resolve_mode(event.syscall.get("a1"), event.syscall_interp.get("a1"))
-
-        call_str = f"fchmod({fd_str}, {mode_str}) = {event.exit_str}"
-        return call_str
+        return f"fchmod({fd_str}, {mode_str}) = {event.exit_str}"
 
     def _parse_id(self, val):
         if val is None or val == "":
@@ -611,18 +792,10 @@ class SyscallHandler:
         return call_str
 
     def handle_fchown(self, event):
-        fd_raw = event.syscall.get("a0", "0")
-        try:
-            fd = int(str(fd_raw), 16) if not str(fd_raw).startswith("-") else int(fd_raw)
-        except ValueError:
-            fd = fd_raw
-        path = self.resolver.get_fd_path(event.pid, fd)
-        fd_str = f"{fd}<{path}>" if path else str(fd)
+        fd_str = self._resolve_fd(event, "a0")
         uid_val = self._parse_id(event.syscall.get("a1", "-1"))
         gid_val = self._parse_id(event.syscall.get("a2", "-1"))
-
-        call_str = f"fchown({fd_str}, {uid_val}, {gid_val}) = {event.exit_str}"
-        return call_str
+        return f"fchown({fd_str}, {uid_val}, {gid_val}) = {event.exit_str}"
 
     def handle_mkdir(self, event):
         name = self._get_path_by_nametype(event, ("CREATE", "NORMAL"), default_idx=len(event.paths) - 1)
@@ -822,13 +995,7 @@ class SyscallHandler:
         return f"creat(\"{name}\", {mode_str}) = {event.exit_str}"
 
     def handle_close(self, event):
-        fd_raw = event.syscall.get("a0", "0")
-        try:
-            fd = int(fd_raw, 16) if str(fd_raw).startswith("0x") else int(fd_raw)
-        except ValueError:
-            fd = fd_raw
-        path = self.resolver.get_fd_path(event.pid, fd)
-        fd_str = f"{fd}<{path}>" if path else str(fd)
+        fd_str = self._resolve_fd(event, "a0")
         return f"close({fd_str}) = {event.exit_str}"
 
     def handle_readlink(self, event):
@@ -966,6 +1133,10 @@ class SyscallHandler:
         if scname == "pipe2":
             fval = self._parse_id(event.syscall.get("a1", "0"))
             flags = ", O_CLOEXEC" if fval == 0x80000 else f", {fval}"
+        if event.fd_pair:
+            fd0 = event.fd_pair.get("fd0", "?")
+            fd1 = event.fd_pair.get("fd1", "?")
+            return f"{scname}([{fd0}, {fd1}]{flags}) = {event.exit_str}"
         return f"{scname}([...]{flags}) = {event.exit_str}"
 
     def handle_utime(self, event, scname):
@@ -1181,27 +1352,83 @@ class AudispStraceApp:
             child_pid = event.exit_code
             if child_pid and child_pid > 0:
                 self.tracker.update(child_pid, ppid=pid, comm=comm, exe=exe, ses=ses)
+                self.tracker.copy_fds(pid, child_pid)
 
         # Handle execve: update command line and binary
         if scname in ('execve', 'execveat'):
             self.tracker.update(pid, ppid=ppid, comm=comm, exe=exe, cmdline=event.execve_args, ses=ses)
 
-        # Check exclusion filter
-        if scname in self.exclude_filter:
-            return
+        # Format event FIRST (so calls like close(fd) can resolve the path before removal)
+        formatted = None
+        should_display = False
+        if scname not in self.exclude_filter:
+            if self.syscall_filter is not None:
+                should_display = scname in self.syscall_filter
+            elif self.all_syscalls:
+                should_display = True
+            else:
+                should_display = scname in DEFAULT_MONITORED_SYSCALLS
 
-        # Filter: should we display this syscall?
-        if self.syscall_filter is not None:
-            should_display = scname in self.syscall_filter
-        elif self.all_syscalls:
-            should_display = True
-        else:
-            should_display = scname in DEFAULT_MONITORED_SYSCALLS
+        if should_display:
+            formatted = self.handler.format_event(event, caller_comm=caller_comm)
 
-        if not should_display:
-            return
+        # Update FD table based on syscall
+        if scname in ('open', 'openat', 'openat2', 'creat'):
+            if event.exit_code is not None and event.exit_code >= 0:
+                opened_path = self.handler.get_opened_path(event)
+                is_cloexec = self.handler.is_cloexec_opened(event)
+                if opened_path:
+                    self.tracker.set_fd(pid, event.exit_code, opened_path, cloexec=is_cloexec)
 
-        formatted = self.handler.format_event(event, caller_comm=caller_comm)
+        elif scname == 'close':
+            if event.exit_code == 0 or event.success == 'yes':
+                fd_raw = event.syscall.get("a0", "0")
+                self.tracker.close_fd(pid, fd_raw)
+
+        elif scname == 'dup':
+            if event.exit_code is not None and event.exit_code >= 0:
+                oldfd = event.syscall.get("a0", "0")
+                self.tracker.dup_fd(pid, oldfd, event.exit_code, cloexec=False)
+
+        elif scname == 'dup2':
+            if event.exit_code is not None and event.exit_code >= 0:
+                oldfd = event.syscall.get("a0", "0")
+                newfd = event.syscall.get("a1", "0")
+                self.tracker.dup_fd(pid, oldfd, newfd, cloexec=False)
+
+        elif scname == 'dup3':
+            if event.exit_code is not None and event.exit_code >= 0:
+                oldfd = event.syscall.get("a0", "0")
+                newfd = event.syscall.get("a1", "0")
+                flags_raw = event.syscall.get("a2", "0")
+                try:
+                    fval = int(str(flags_raw), 16) if not str(flags_raw).startswith("-") else int(flags_raw)
+                except (ValueError, TypeError):
+                    fval = 0
+                self.tracker.dup_fd(pid, oldfd, newfd, cloexec=(fval == 0x80000))
+
+        elif scname in ('pipe', 'pipe2'):
+            if (event.exit_code == 0 or event.success == 'yes') and event.fd_pair:
+                fd0 = event.fd_pair.get("fd0")
+                fd1 = event.fd_pair.get("fd1")
+                flags_raw = event.syscall.get("a1", "0")
+                try:
+                    fval = int(str(flags_raw), 16) if not str(flags_raw).startswith("-") else int(flags_raw)
+                except (ValueError, TypeError):
+                    fval = 0
+                cloexec = (scname == "pipe2" and fval == 0x80000)
+                if fd0 is not None:
+                    self.tracker.set_fd(pid, fd0, "pipe:[...]", cloexec=cloexec)
+                if fd1 is not None:
+                    self.tracker.set_fd(pid, fd1, "pipe:[...]", cloexec=cloexec)
+
+        elif scname in ('execve', 'execveat'):
+            if event.exit_code == 0 or event.success == 'yes':
+                self.tracker.handle_exec(pid)
+
+        elif scname in ('exit', 'exit_group'):
+            self.tracker.exit_process(pid)
+
         if formatted:
             try:
                 sys.stdout.write(formatted + "\n\n")

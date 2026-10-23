@@ -97,6 +97,12 @@ Sample 3-line format per monitored event:
     - [x] `execve`, `execveat`
     - [x] `exit`, `exit_group`
   - [x] String unescaping & hex-decoding for command line arguments (`argv`, `proctitle`).
+  - [x] Full in-memory file descriptor lifecycle tracking (`ProcessTracker`):
+    - [x] Tracks descriptors opened by `open`, `openat`, `openat2`, `creat` (with relative-to-cwd and relative-to-dirfd resolution).
+    - [x] Tracks descriptor duplication via `dup`, `dup2`, `dup3`.
+    - [x] Tracks `FD_PAIR` records from `pipe`, `pipe2`.
+    - [x] In-flight resolution for `fstat`, `fchmod`, `fchown`, `ftruncate`, `fallocate`, `f*xattr`, directory descriptors in `*at` syscalls, and `close(fd<path>)`.
+    - [x] Inherits open descriptors across `fork`/`clone`, handles `O_CLOEXEC` closure on `execve`, and cleans up on `exit`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`
@@ -105,7 +111,8 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log.out`
   - [x] `examples/audit-log-v2.out`
   - [x] `examples/audit-log-v3.out`
-  - [x] `examples/audit-log-v4.out` (verified complete run with `test_syscalls` process tree and all 25+ syscall combinations)
+  - [x] `examples/audit-log-v4.out`
+  - [x] `examples/audit-log-v5.out` (verified complete run with `test_syscalls` process tree, 45+ syscalls, and full FD resolution)
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 45+ syscalls across descriptor/path combinations.
