@@ -45,11 +45,28 @@ PERMISSION_SYSCALLS = {
 
 # Syscalls tracked for file lifecycle / management
 FILE_MGMT_SYSCALLS = {
+    # Open, create, close
     'open', 'openat', 'openat2', 'creat', 'close',
+    # Unlink & Rename
     'unlink', 'unlinkat',
     'rename', 'renameat', 'renameat2',
+    # Directories
     'mkdir', 'mkdirat', 'rmdir',
-    'link', 'linkat', 'symlink', 'symlinkat'
+    # Links & Symlinks
+    'link', 'linkat', 'symlink', 'symlinkat', 'readlink', 'readlinkat',
+    # Stat & Access
+    'stat', 'fstat', 'lstat', 'newfstatat', 'fstatat', 'statx', 'statfs', 'fstatfs',
+    'access', 'faccessat', 'faccessat2',
+    # Descriptors & Truncate & Allocate
+    'dup', 'dup2', 'dup3', 'truncate', 'ftruncate', 'fallocate',
+    # Extended attributes
+    'setxattr', 'lsetxattr', 'fsetxattr',
+    'getxattr', 'lgetxattr', 'fgetxattr',
+    'listxattr', 'llistxattr', 'flistxattr',
+    'removexattr', 'lremovexattr', 'fremovexattr',
+    # Nodes, Pipes, Timestamps
+    'mknod', 'mknodat', 'pipe', 'pipe2',
+    'utime', 'utimes', 'futimesat', 'utimensat'
 }
 
 DEFAULT_MONITORED_SYSCALLS = (
@@ -478,6 +495,53 @@ class SyscallHandler:
         except (ValueError, TypeError):
             return str(raw_mode)
 
+    def _resolve_fd(self, event, field_name="a0"):
+        fd_raw = event.syscall.get(field_name, "0")
+        try:
+            fd = int(str(fd_raw), 16) if not str(fd_raw).startswith("-") else int(fd_raw)
+        except ValueError:
+            fd = fd_raw
+        path = self.resolver.get_fd_path(event.pid, fd)
+        return f"{fd}<{path}>" if path else str(fd)
+
+    def _format_access_mode(self, mode_val):
+        try:
+            m = int(str(mode_val), 16) if not str(mode_val).startswith("-") else int(mode_val)
+        except (ValueError, TypeError):
+            return str(mode_val)
+        if m == 0:
+            return "F_OK"
+        flags = []
+        if m & 4:
+            flags.append("R_OK")
+        if m & 2:
+            flags.append("W_OK")
+        if m & 1:
+            flags.append("X_OK")
+        return "|".join(flags) if flags else str(m)
+
+    def _format_dev(self, dev_val):
+        try:
+            d = int(str(dev_val), 16) if not str(dev_val).startswith("-") else int(dev_val)
+            major = ((d >> 8) & 0xfff) | ((d >> 32) & ~0xfff)
+            minor = (d & 0xff) | ((d >> 12) & ~0xff)
+            return f"makedev(0x{major:x}, 0x{minor:x})"
+        except (ValueError, TypeError):
+            return str(dev_val)
+
+    def _get_pathname(self, event, default_arg="a0"):
+        if event.paths:
+            for p in event.paths:
+                if p.get("nametype") != "PARENT":
+                    name = p.get("name", "").strip('"')
+                    if name:
+                        return name
+            name = event.paths[0].get("name", "").strip('"')
+            if name:
+                return name
+        raw = event.syscall.get(default_arg, "")
+        return raw.strip('"')
+
     def handle_fchmodat(self, event):
         dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
         # Path name from PATH record or a1
@@ -767,6 +831,155 @@ class SyscallHandler:
         fd_str = f"{fd}<{path}>" if path else str(fd)
         return f"close({fd_str}) = {event.exit_str}"
 
+    def handle_readlink(self, event):
+        name = self._get_pathname(event, "a0")
+        bufsiz = self._parse_id(event.syscall.get("a2", "1024"))
+        return f"readlink(\"{name}\", ..., {bufsiz}) = {event.exit_str}"
+
+    def handle_readlinkat(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        bufsiz = self._parse_id(event.syscall.get("a3", "1024"))
+        return f"readlinkat({dirfd_str}, \"{name}\", ..., {bufsiz}) = {event.exit_str}"
+
+    def handle_stat_lstat(self, event, scname):
+        name = self._get_pathname(event, "a0")
+        return f"{scname}(\"{name}\", {{...}}) = {event.exit_str}"
+
+    def handle_fstat(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        return f"fstat({fd_str}, {{...}}) = {event.exit_str}"
+
+    def handle_newfstatat(self, event, scname="newfstatat"):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        if flags_val == 0x100:
+            flags_str = "AT_SYMLINK_NOFOLLOW"
+        elif flags_val == 0x1000:
+            flags_str = "AT_EMPTY_PATH"
+        elif flags_val == 0x1100:
+            flags_str = "AT_SYMLINK_NOFOLLOW|AT_EMPTY_PATH"
+        else:
+            flags_str = str(flags_val)
+        return f"{scname}({dirfd_str}, \"{name}\", {{...}}, {flags_str}) = {event.exit_str}"
+
+    def handle_statx(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        flags_val = self._parse_id(event.syscall.get("a2", "0"))
+        mask_val = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = "AT_SYMLINK_NOFOLLOW" if flags_val == 0x100 else str(flags_val)
+        return f"statx({dirfd_str}, \"{name}\", {flags_str}, {mask_val:#x}, {{...}}) = {event.exit_str}"
+
+    def handle_statfs(self, event):
+        name = self._get_pathname(event, "a0")
+        return f"statfs(\"{name}\", {{...}}) = {event.exit_str}"
+
+    def handle_fstatfs(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        return f"fstatfs({fd_str}, {{...}}) = {event.exit_str}"
+
+    def handle_access(self, event):
+        name = self._get_pathname(event, "a0")
+        mode_str = self._format_access_mode(event.syscall.get("a1", "0"))
+        return f"access(\"{name}\", {mode_str}) = {event.exit_str}"
+
+    def handle_faccessat(self, event, scname="faccessat"):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        mode_str = self._format_access_mode(event.syscall.get("a2", "0"))
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        if flags_val == 0x200:
+            flags_str = "AT_EACCESS"
+        elif flags_val == 0x100:
+            flags_str = "AT_SYMLINK_NOFOLLOW"
+        else:
+            flags_str = str(flags_val)
+        if flags_val == 0 and scname == "faccessat":
+            return f"faccessat({dirfd_str}, \"{name}\", {mode_str}) = {event.exit_str}"
+        return f"{scname}({dirfd_str}, \"{name}\", {mode_str}, {flags_str}) = {event.exit_str}"
+
+    def handle_dup(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        return f"dup({fd_str}) = {event.exit_str}"
+
+    def handle_dup2(self, event):
+        old_fd_str = self._resolve_fd(event, "a0")
+        new_fd = self._parse_id(event.syscall.get("a1", "0"))
+        return f"dup2({old_fd_str}, {new_fd}) = {event.exit_str}"
+
+    def handle_dup3(self, event):
+        old_fd_str = self._resolve_fd(event, "a0")
+        new_fd = self._parse_id(event.syscall.get("a1", "0"))
+        flags_val = self._parse_id(event.syscall.get("a2", "0"))
+        flags_str = "O_CLOEXEC" if flags_val == 0x80000 else str(flags_val)
+        return f"dup3({old_fd_str}, {new_fd}, {flags_str}) = {event.exit_str}"
+
+    def handle_truncate(self, event):
+        name = self._get_pathname(event, "a0")
+        length = self._parse_id(event.syscall.get("a1", "0"))
+        return f"truncate(\"{name}\", {length}) = {event.exit_str}"
+
+    def handle_ftruncate(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        length = self._parse_id(event.syscall.get("a1", "0"))
+        return f"ftruncate({fd_str}, {length}) = {event.exit_str}"
+
+    def handle_fallocate(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        mode = self._parse_id(event.syscall.get("a1", "0"))
+        if mode == 1:
+            mode_str = "FALLOC_FL_KEEP_SIZE"
+        elif mode == 3:
+            mode_str = "FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE"
+        else:
+            mode_str = str(mode)
+        offset = self._parse_id(event.syscall.get("a2", "0"))
+        length = self._parse_id(event.syscall.get("a3", "0"))
+        return f"fallocate({fd_str}, {mode_str}, {offset}, {length}) = {event.exit_str}"
+
+    def handle_xattr(self, event, scname):
+        if scname.startswith("f"):
+            target_str = self._resolve_fd(event, "a0")
+        else:
+            target_str = f'"{self._get_pathname(event, "a0")}"'
+        if "get" in scname or "set" in scname:
+            return f"{scname}({target_str}, ..., ...) = {event.exit_str}"
+        return f"{scname}({target_str}, ...) = {event.exit_str}"
+
+    def handle_mknod(self, event):
+        name = self._get_pathname(event, "a0")
+        mode_str = self._resolve_mode(event.syscall.get("a1", "0"), event.syscall_interp.get("a1"))
+        dev_str = self._format_dev(event.syscall.get("a2", "0"))
+        return f"mknod(\"{name}\", {mode_str}, {dev_str}) = {event.exit_str}"
+
+    def handle_mknodat(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        mode_str = self._resolve_mode(event.syscall.get("a2", "0"), event.syscall_interp.get("a2"))
+        dev_str = self._format_dev(event.syscall.get("a3", "0"))
+        return f"mknodat({dirfd_str}, \"{name}\", {mode_str}, {dev_str}) = {event.exit_str}"
+
+    def handle_pipe(self, event, scname="pipe"):
+        flags = ""
+        if scname == "pipe2":
+            fval = self._parse_id(event.syscall.get("a1", "0"))
+            flags = ", O_CLOEXEC" if fval == 0x80000 else f", {fval}"
+        return f"{scname}([...]{flags}) = {event.exit_str}"
+
+    def handle_utime(self, event, scname):
+        if scname in ("futimesat", "utimensat"):
+            dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+            name = self._get_pathname(event, "a1")
+            if scname == "utimensat":
+                flags_val = self._parse_id(event.syscall.get("a3", "0"))
+                flags_str = ", AT_SYMLINK_NOFOLLOW" if flags_val == 0x100 else (f", {flags_val}" if flags_val else "")
+                return f"utimensat({dirfd_str}, \"{name}\", [...]{flags_str}) = {event.exit_str}"
+            return f"futimesat({dirfd_str}, \"{name}\", [...]) = {event.exit_str}"
+        name = self._get_pathname(event, "a0")
+        return f"{scname}(\"{name}\", [...]) = {event.exit_str}"
+
     def handle_clone(self, event):
         child_pid = event.syscall.get("exit")
         call_str = f"clone(...) = {child_pid}"
@@ -844,6 +1057,48 @@ class SyscallHandler:
             call_str = self.handle_setuid(event)
         elif scname == 'setgid':
             call_str = self.handle_setgid(event)
+        elif scname == 'readlink':
+            call_str = self.handle_readlink(event)
+        elif scname == 'readlinkat':
+            call_str = self.handle_readlinkat(event)
+        elif scname in ('stat', 'lstat'):
+            call_str = self.handle_stat_lstat(event, scname)
+        elif scname == 'fstat':
+            call_str = self.handle_fstat(event)
+        elif scname in ('newfstatat', 'fstatat'):
+            call_str = self.handle_newfstatat(event, scname)
+        elif scname == 'statx':
+            call_str = self.handle_statx(event)
+        elif scname == 'statfs':
+            call_str = self.handle_statfs(event)
+        elif scname == 'fstatfs':
+            call_str = self.handle_fstatfs(event)
+        elif scname == 'access':
+            call_str = self.handle_access(event)
+        elif scname in ('faccessat', 'faccessat2'):
+            call_str = self.handle_faccessat(event, scname)
+        elif scname == 'dup':
+            call_str = self.handle_dup(event)
+        elif scname == 'dup2':
+            call_str = self.handle_dup2(event)
+        elif scname == 'dup3':
+            call_str = self.handle_dup3(event)
+        elif scname == 'truncate':
+            call_str = self.handle_truncate(event)
+        elif scname == 'ftruncate':
+            call_str = self.handle_ftruncate(event)
+        elif scname == 'fallocate':
+            call_str = self.handle_fallocate(event)
+        elif scname.endswith('xattr'):
+            call_str = self.handle_xattr(event, scname)
+        elif scname == 'mknod':
+            call_str = self.handle_mknod(event)
+        elif scname == 'mknodat':
+            call_str = self.handle_mknodat(event)
+        elif scname in ('pipe', 'pipe2'):
+            call_str = self.handle_pipe(event, scname)
+        elif scname in ('utime', 'utimes', 'futimesat', 'utimensat'):
+            call_str = self.handle_utime(event, scname)
         elif scname in ('clone', 'clone3', 'fork', 'vfork'):
             call_str = self.handle_clone(event)
         elif scname in ('execve', 'execveat'):

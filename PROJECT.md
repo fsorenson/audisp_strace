@@ -9,7 +9,11 @@
 
 Supported Syscalls:
 - **Ownership & Permissions / Credentials**: `chmod`, `fchmod`, `fchmodat`, `chown`, `fchown`, `fchownat`, `lchown`, `setuid`, `setgid`
-- **File & Directory Management**: `creat`, `open`, `openat`, `openat2`, `close`, `unlink`, `unlinkat`, `rename`, `renameat`, `renameat2`, `mkdir`, `mkdirat`, `rmdir`, `link`, `linkat`, `symlink`, `symlinkat`
+- **File & Directory Management**: `creat`, `open`, `openat`, `openat2`, `close`, `unlink`, `unlinkat`, `rename`, `renameat`, `renameat2`, `mkdir`, `mkdirat`, `rmdir`, `link`, `linkat`, `symlink`, `symlinkat`, `readlink`, `readlinkat`
+- **File Metadata, Inspection & Access**: `stat`, `lstat`, `fstat`, `newfstatat` (`fstatat`), `statx`, `statfs`, `fstatfs`, `access`, `faccessat`, `faccessat2`
+- **File Manipulation, Descriptors & Sizing**: `dup`, `dup2`, `dup3`, `truncate`, `ftruncate`, `fallocate`
+- **Extended Attributes**: `setxattr`, `lsetxattr`, `fsetxattr`, `getxattr`, `lgetxattr`, `fgetxattr`, `listxattr`, `llistxattr`, `flistxattr`, `removexattr`, `lremovexattr`, `fremovexattr`
+- **Special Files, IPC & Timestamps**: `mknod`, `mknodat`, `pipe`, `pipe2`, `utime`, `utimes`, `futimesat`, `utimensat`
 - **Process Lifecycle & Tracking**: `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, `exit`, `exit_group`
 
 ---
@@ -72,7 +76,22 @@ Sample 3-line format per monitored event:
     - [x] `unlink`, `unlinkat`
     - [x] `rename`, `renameat`, `renameat2`
     - [x] `mkdir`, `mkdirat`, `rmdir`
-    - [x] `link`, `linkat`, `symlink`, `symlinkat`
+    - [x] `link`, `linkat`, `symlink`, `symlinkat`, `readlink`, `readlinkat`
+  - [x] Syscall handlers for file metadata, inspection & access:
+    - [x] `stat`, `lstat`, `fstat`, `newfstatat` (`fstatat`), `statx`, `statfs`, `fstatfs`
+    - [x] `access`, `faccessat`, `faccessat2`
+  - [x] Syscall handlers for file sizing & descriptor manipulation:
+    - [x] `dup`, `dup2`, `dup3`
+    - [x] `truncate`, `ftruncate`, `fallocate`
+  - [x] Syscall handlers for extended attributes:
+    - [x] `setxattr`, `lsetxattr`, `fsetxattr`
+    - [x] `getxattr`, `lgetxattr`, `fgetxattr`
+    - [x] `listxattr`, `llistxattr`, `flistxattr`
+    - [x] `removexattr`, `lremovexattr`, `fremovexattr`
+  - [x] Syscall handlers for special files, IPC & timestamps:
+    - [x] `mknod`, `mknodat`
+    - [x] `pipe`, `pipe2`
+    - [x] `utime`, `utimes`, `futimesat`, `utimensat`
   - [x] Syscall handlers for process tracking:
     - [x] `clone`, `clone3`, `fork`, `vfork`
     - [x] `execve`, `execveat`
@@ -89,10 +108,10 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log-v4.out` (verified complete run with `test_syscalls` process tree and all 25+ syscall combinations)
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
-- [x] Created C test generator `test_syscalls.c` and `Makefile`.
+- [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 45+ syscalls across descriptor/path combinations.
 - [x] Created `setup_audit_rules.sh` to configure `auditctl` rules for all tested syscalls.
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
 
 ### Next Steps / Ideas
 - [ ] Live integration test on test VM with auditd daemon active.
-- [ ] Support additional syscalls if requested (e.g. `dup`/`dup2`/`dup3`, `pipe`, `truncate`/`ftruncate`).
+- [ ] Memory/socket/network syscalls if requested (e.g. `mmap`, `socket`, `connect`, `bind`, `sendto`, `recvfrom`).

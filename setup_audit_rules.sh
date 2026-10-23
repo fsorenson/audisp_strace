@@ -19,15 +19,28 @@ auditctl -a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F key="$KEY
 auditctl -a always,exit -F arch=b64 -S setuid,setgid -F key="$KEY"
 
 # File Creation, Open, Close & Directories
-auditctl -a always,exit -F arch=b64 -S creat,open,openat,close -F key="$KEY"
-# openat2 is syscall 437 on x86_64
-auditctl -a always,exit -F arch=b64 -S 437 -F key="$KEY" 2>/dev/null || true
+auditctl -a always,exit -F arch=b64 -S creat,open,openat,openat2,close -F key="$KEY"
 
 # Links, Unlink, Rename & Directories
 auditctl -a always,exit -F arch=b64 -S mkdir,mkdirat,rmdir -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S link,linkat,symlink,symlinkat -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S unlink,unlinkat -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S rename,renameat,renameat2 -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S readlink,readlinkat -F key="$KEY"
+
+# File Metadata, Attributes & Access
+auditctl -a always,exit -F arch=b64 -S stat,lstat,fstat,newfstatat,statx,statfs,fstatfs -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S access,faccessat,faccessat2 -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S truncate,ftruncate,fallocate -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S utime,utimes,futimesat,utimensat -F key="$KEY"
+
+# Extended Attributes (xattr)
+auditctl -a always,exit -F arch=b64 -S setxattr,lsetxattr,fsetxattr,getxattr,lgetxattr,fgetxattr -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S listxattr,llistxattr,flistxattr,removexattr,lremovexattr,fremovexattr -F key="$KEY"
+
+# Special Files & Descriptors
+auditctl -a always,exit -F arch=b64 -S mknod,mknodat -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S dup,dup2,dup3,pipe,pipe2 -F key="$KEY"
 
 # Process Lifecycle (for ancestry tracking)
 auditctl -a always,exit -F arch=b64 -S clone,clone3,fork,vfork,execve,execveat -F key="$KEY"
