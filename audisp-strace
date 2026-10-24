@@ -51,7 +51,7 @@ FILE_MGMT_SYSCALLS = {
     'unlink', 'unlinkat',
     'rename', 'renameat', 'renameat2',
     # Directories
-    'mkdir', 'mkdirat', 'rmdir',
+    'mkdir', 'mkdirat', 'rmdir', 'chdir',
     # Links & Symlinks
     'link', 'linkat', 'symlink', 'symlinkat', 'readlink', 'readlinkat',
     # Stat & Access
@@ -580,6 +580,14 @@ class ProcResolver:
             return None
         try:
             return os.readlink(f"/proc/{pid}/exe")
+        except OSError:
+            return None
+
+    def get_cwd(self, pid):
+        if not self.is_live:
+            return None
+        try:
+            return os.readlink(f"/proc/{pid}/cwd")
         except OSError:
             return None
 
@@ -2269,8 +2277,15 @@ class SyscallHandler:
 
     def handle_getcwd(self, event):
         size = self._parse_id(event.syscall.get("a1", "0"))
-        if event.exit_code is not None and event.exit_code > 0 and event.cwd:
-            buf_str = f'"{event.cwd}"'
+        # In live mode, verify ground truth via /proc/<pid>/cwd if accessible
+        resolved_cwd = self.resolver.get_cwd(event.pid)
+        if (
+            resolved_cwd
+            and event.exit_code is not None
+            and event.exit_code > 0
+            and len(resolved_cwd) + 1 == event.exit_code
+        ):
+            buf_str = f'"{resolved_cwd}"'
         else:
             raw_buf = event.syscall.get("a0", "0")
             try:
