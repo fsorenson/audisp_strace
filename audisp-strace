@@ -106,7 +106,7 @@ DEFAULT_MONITORED_SYSCALLS = (
 # Maps class names to sets of syscalls based on strace classification.
 # Syscalls not yet implemented in audisp-strace are listed commented out.
 SYSCALL_CLASSES = {
-    # %desc (TRACE_DESC): file descriptor-related syscalls (48 active, 85 unimplemented)
+    # %desc (TRACE_DESC): file descriptor-related syscalls (68 active, 65 unimplemented)
     "%desc": {
         "close",
         "creat",
@@ -117,24 +117,42 @@ SYSCALL_CLASSES = {
         "faccessat",
         "faccessat2",
         "fallocate",
+        "fanotify_mark",
         "fchmod",
         "fchmodat",
+        "fchmodat2",
         "fchown",
         "fchownat",
         "fcntl",
+        "fgetxattr",
+        "file_getattr",
+        "file_setattr",
+        "flistxattr",
+        "fremovexattr",
+        "fsconfig",
+        "fsetxattr",
+        "fspick",
         "fstat",
         "fstatfs",
         "ftruncate",
         "futimesat",
+        "getxattrat",
+        "inotify_add_watch",
         "ioctl",
         "linkat",
+        "listxattrat",
         "mkdirat",
         "mknodat",
         "mmap",
+        "mount_setattr",
+        "move_mount",
+        "name_to_handle_at",
         "newfstatat",
         "open",
         "openat",
         "openat2",
+        "open_tree",
+        "open_tree_attr",
         "pidfd_send_signal",
         "pipe",
         "pipe2",
@@ -147,9 +165,11 @@ SYSCALL_CLASSES = {
         "read",
         "readlinkat",
         "readv",
+        "removexattrat",
         "renameat",
         "renameat2",
         "sendfile",
+        "setxattrat",
         "statx",
         "symlinkat",
         "unlinkat",
@@ -170,28 +190,16 @@ SYSCALL_CLASSES = {
         # "eventfd2",
         # "fadvise64",
         # "fanotify_init",
-        # "fanotify_mark",
         # "fchdir",
-        # "fchmodat2",
         # "fchroot",
         # "fdatasync",
-        # "fgetxattr",
-        # "file_getattr",
-        # "file_setattr",
         # "finit_module",
-        # "flistxattr",
         # "flock",
-        # "fremovexattr",
-        # "fsconfig",
-        # "fsetxattr",
         # "fsmount",
         # "fsopen",
-        # "fspick",
         # "fsync",
         # "getdents",
         # "getdents64",
-        # "getxattrat",
-        # "inotify_add_watch",
         # "inotify_init",
         # "inotify_init1",
         # "inotify_rm_watch",
@@ -202,21 +210,15 @@ SYSCALL_CLASSES = {
         # "landlock_add_rule",
         # "landlock_create_ruleset",
         # "landlock_restrict_self",
-        # "listxattrat",
         # "lseek",
         # "memfd_create",
         # "memfd_secret",
-        # "mount_setattr",
-        # "move_mount",
         # "mq_getsetattr",
         # "mq_notify",
         # "mq_open",
         # "mq_timedreceive",
         # "mq_timedsend",
-        # "name_to_handle_at",
         # "open_by_handle_at",
-        # "open_tree",
-        # "open_tree_attr",
         # "perf_event_open",
         # "pidfd_getfd",
         # "pidfd_open",
@@ -227,10 +229,8 @@ SYSCALL_CLASSES = {
         # "pselect6",
         # "quotactl_fd",
         # "readahead",
-        # "removexattrat",
         # "select",
         # "setns",
-        # "setxattrat",
         # "signalfd",
         # "signalfd4",
         # "splice",
@@ -243,84 +243,83 @@ SYSCALL_CLASSES = {
         # "userfaultfd",
         # "vmsplice",
     },
-    # %file (TRACE_FILE): file-related syscalls (40 active, 35 unimplemented)
+        # %file (TRACE_FILE): file-related syscalls (75 active)
     "%file": {
         "access",
+        "acct",
+        "chdir",
         "chmod",
         "chown",
+        "chroot",
         "creat",
         "execve",
         "execveat",
         "faccessat",
         "faccessat2",
+        "fanotify_mark",
         "fchmodat",
+        "fchmodat2",
         "fchownat",
+        "file_getattr",
+        "file_setattr",
+        "fsconfig",
+        "fspick",
         "futimesat",
+        "getcwd",
+        "getxattr",
+        "getxattrat",
+        "inotify_add_watch",
         "lchown",
+        "lgetxattr",
         "link",
         "linkat",
+        "listxattr",
+        "listxattrat",
+        "llistxattr",
+        "lremovexattr",
+        "lsetxattr",
         "lstat",
         "mkdir",
         "mkdirat",
         "mknod",
         "mknodat",
+        "mount",
+        "mount_setattr",
+        "move_mount",
+        "name_to_handle_at",
         "newfstatat",
         "open",
         "openat",
         "openat2",
+        "open_tree",
+        "open_tree_attr",
+        "pivot_root",
+        "quotactl",
         "readlink",
         "readlinkat",
+        "removexattr",
+        "removexattrat",
         "rename",
         "renameat",
         "renameat2",
         "rmdir",
+        "setxattr",
+        "setxattrat",
         "stat",
         "statfs",
         "statx",
+        "swapoff",
+        "swapon",
         "symlink",
         "symlinkat",
         "truncate",
+        "umount2",
         "unlink",
         "unlinkat",
+        "uselib",
         "utime",
         "utimensat",
         "utimes",
-        # Unimplemented in audisp-strace:
-        # "acct",
-        # "chdir",
-        # "chroot",
-        # "fanotify_mark",
-        # "fchmodat2",
-        # "file_getattr",
-        # "file_setattr",
-        # "fsconfig",
-        # "fspick",
-        # "getcwd",
-        # "getxattr",
-        # "getxattrat",
-        # "inotify_add_watch",
-        # "lgetxattr",
-        # "listxattr",
-        # "listxattrat",
-        # "llistxattr",
-        # "lremovexattr",
-        # "lsetxattr",
-        # "mount",
-        # "mount_setattr",
-        # "move_mount",
-        # "name_to_handle_at",
-        # "open_tree",
-        # "open_tree_attr",
-        # "pivot_root",
-        # "quotactl",
-        # "removexattr",
-        # "removexattrat",
-        # "setxattr",
-        # "setxattrat",
-        # "swapoff",
-        # "swapon",
-        # "umount2",
-        # "uselib",
     },
     # %memory (TRACE_MEMORY): memory mapping & management syscalls (24 active, 4 unimplemented)
     "%memory": {
@@ -1198,6 +1197,81 @@ CLOCK_IDS = {
     9: "CLOCK_BOOTTIME_ALARM", 11: "CLOCK_TAI"
 }
 
+INOTIFY_MASKS = [
+    (0x00000001, "IN_ACCESS"),
+    (0x00000002, "IN_MODIFY"),
+    (0x00000004, "IN_ATTRIB"),
+    (0x00000008, "IN_CLOSE_WRITE"),
+    (0x00000010, "IN_CLOSE_NOWRITE"),
+    (0x00000020, "IN_OPEN"),
+    (0x00000040, "IN_MOVED_FROM"),
+    (0x00000080, "IN_MOVED_TO"),
+    (0x00000100, "IN_CREATE"),
+    (0x00000200, "IN_DELETE"),
+    (0x00000400, "IN_DELETE_SELF"),
+    (0x00000800, "IN_MOVE_SELF"),
+    (0x00002000, "IN_UNMOUNT"),
+    (0x00004000, "IN_Q_OVERFLOW"),
+    (0x00008000, "IN_IGNORED"),
+    (0x01000000, "IN_ONLYDIR"),
+    (0x02000000, "IN_DONT_FOLLOW"),
+    (0x04000000, "IN_EXCL_UNLINK"),
+    (0x10000000, "IN_MASK_CREATE"),
+    (0x20000000, "IN_MASK_ADD"),
+    (0x40000000, "IN_ISDIR"),
+    (0x80000000, "IN_ONESHOT"),
+]
+
+QUOTA_SUBCMDS = {
+    0x800001: "Q_SYNC",
+    0x800002: "Q_QUOTAON",
+    0x800003: "Q_QUOTAOFF",
+    0x800004: "Q_GETFMT",
+    0x800005: "Q_GETINFO",
+    0x800006: "Q_SETINFO",
+    0x800007: "Q_GETQUOTA",
+    0x800008: "Q_SETQUOTA",
+    0x800009: "Q_GETNEXTQUOTA",
+}
+QUOTA_TYPES = {
+    0: "USRQUOTA",
+    1: "GRPQUOTA",
+    2: "PRJQUOTA",
+}
+
+MOUNT_FLAGS = [
+    (1, "MS_RDONLY"),
+    (2, "MS_NOSUID"),
+    (4, "MS_NODEV"),
+    (8, "MS_NOEXEC"),
+    (16, "MS_SYNCHRONOUS"),
+    (32, "MS_REMOUNT"),
+    (64, "MS_MANDLOCK"),
+    (128, "MS_DIRSYNC"),
+    (256, "MS_NOSYMFOLLOW"),
+    (1024, "MS_NOATIME"),
+    (2048, "MS_NODIRATIME"),
+    (4096, "MS_BIND"),
+    (8192, "MS_MOVE"),
+    (16384, "MS_REC"),
+    (32768, "MS_SILENT"),
+    (1 << 16, "MS_POSIXACL"),
+    (1 << 17, "MS_UNBINDABLE"),
+    (1 << 18, "MS_PRIVATE"),
+    (1 << 19, "MS_SLAVE"),
+    (1 << 20, "MS_SHARED"),
+    (1 << 21, "MS_RELATIME"),
+    (1 << 24, "MS_STRICTATIME"),
+    (1 << 25, "MS_LAZYTIME"),
+]
+
+UMOUNT_FLAGS = [
+    (1, "MNT_FORCE"),
+    (2, "MNT_DETACH"),
+    (4, "MNT_EXPIRE"),
+    (8, "UMOUNT_NOFOLLOW"),
+]
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -1390,14 +1464,39 @@ class SyscallHandler:
             "wait4": self.handle_wait4,
             "waitpid": self.handle_wait4,
             "waitid": self.handle_waitid,
+
+            # Additional Filesystem, Mount, Quota & Watch Operations
+            "chdir": self.handle_chdir,
+            "chroot": self.handle_chroot,
+            "getcwd": self.handle_getcwd,
+            "acct": self.handle_acct,
+            "inotify_add_watch": self.handle_inotify_add_watch,
+            "quotactl": self.handle_quotactl,
+            "mount": self.handle_mount,
+            "umount2": self.handle_umount2,
+            "pivot_root": self.handle_pivot_root,
+            "swapon": self.handle_swapon,
+            "swapoff": self.handle_swapoff,
+            "fanotify_mark": self.handle_fanotify_mark,
+            "name_to_handle_at": self.handle_name_to_handle_at,
+            "open_tree": self.handle_open_tree,
+            "open_tree_attr": self.handle_open_tree_attr,
+            "move_mount": self.handle_move_mount,
+            "fsconfig": self.handle_fsconfig,
+            "fspick": self.handle_fspick,
+            "mount_setattr": self.handle_mount_setattr,
+            "fchmodat2": self.handle_fchmodat,
+            "file_getattr": self.handle_file_getattr,
+            "file_setattr": self.handle_file_setattr,
+            "uselib": self.handle_uselib,
         }
 
         # Extended Attributes (xattr)
         for sc in (
-            "setxattr", "lsetxattr", "fsetxattr",
-            "getxattr", "lgetxattr", "fgetxattr",
-            "listxattr", "llistxattr", "flistxattr",
-            "removexattr", "lremovexattr", "fremovexattr"
+            "setxattr", "lsetxattr", "fsetxattr", "setxattrat",
+            "getxattr", "lgetxattr", "fgetxattr", "getxattrat",
+            "listxattr", "llistxattr", "flistxattr", "listxattrat",
+            "removexattr", "lremovexattr", "fremovexattr", "removexattrat"
         ):
             self._handlers[sc] = self.handle_xattr
 
@@ -2113,15 +2212,207 @@ class SyscallHandler:
         length = self._parse_id(event.syscall.get("a3", "0"))
         return f"fallocate({fd_str}, {mode_str}, {offset}, {length}) = {event.exit_str}"
 
+    def _format_inotify_mask(self, mask):
+        if not isinstance(mask, int) or mask == 0:
+            return "0"
+        flags = [name for bit, name in INOTIFY_MASKS if mask & bit]
+        leftover = mask
+        for bit, _ in INOTIFY_MASKS:
+            leftover &= ~bit
+        if leftover:
+            flags.append(f"0x{leftover:x}")
+        return "|".join(flags) if flags else "0"
+
+    def _format_mount_flags(self, flags):
+        if not isinstance(flags, int) or flags == 0:
+            return "0"
+        res = [name for bit, name in MOUNT_FLAGS if flags & bit]
+        leftover = flags
+        for bit, _ in MOUNT_FLAGS:
+            leftover &= ~bit
+        if leftover:
+            res.append(f"0x{leftover:x}")
+        return "|".join(res) if res else "0"
+
+    def _format_umount_flags(self, flags):
+        if not isinstance(flags, int) or flags == 0:
+            return "0"
+        res = [name for bit, name in UMOUNT_FLAGS if flags & bit]
+        leftover = flags
+        for bit, _ in UMOUNT_FLAGS:
+            leftover &= ~bit
+        if leftover:
+            res.append(f"0x{leftover:x}")
+        return "|".join(res) if res else "0"
+
     def handle_xattr(self, event, scname=None):
         scname = scname or event.syscall_name
-        if scname.startswith("f"):
+        if scname.endswith("at"):
+            dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+            name = self._get_pathname(event, "a1")
+            target_str = f'{dirfd_str}, "{name}"'
+        elif scname.startswith("f"):
             target_str = self._resolve_fd(event, "a0")
         else:
             target_str = f'"{self._get_pathname(event, "a0")}"'
         if "get" in scname or "set" in scname:
             return f"{scname}({target_str}, ..., ...) = {event.exit_str}"
         return f"{scname}({target_str}, ...) = {event.exit_str}"
+
+    def handle_chdir(self, event):
+        name = self._get_pathname(event, "a0")
+        return f'chdir("{name}") = {event.exit_str}'
+
+    def handle_chroot(self, event):
+        name = self._get_pathname(event, "a0")
+        return f'chroot("{name}") = {event.exit_str}'
+
+    def handle_getcwd(self, event):
+        size = self._parse_id(event.syscall.get("a1", "0"))
+        if event.exit_code is not None and event.exit_code > 0 and event.cwd:
+            buf_str = f'"{event.cwd}"'
+        else:
+            raw_buf = event.syscall.get("a0", "0")
+            try:
+                buf_val = int(str(raw_buf), 16) if not str(raw_buf).startswith("-") else int(raw_buf)
+                buf_str = f"0x{buf_val:x}" if buf_val else "NULL"
+            except (ValueError, TypeError):
+                buf_str = str(raw_buf)
+        return f"getcwd({buf_str}, {size}) = {event.exit_str}"
+
+    def handle_acct(self, event):
+        raw_a0 = self._parse_id(event.syscall.get("a0", "0"))
+        if raw_a0 == 0:
+            target = "NULL"
+        else:
+            target = f'"{self._get_pathname(event, "a0")}"'
+        return f"acct({target}) = {event.exit_str}"
+
+    def handle_inotify_add_watch(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        name = self._get_pathname(event, "a1")
+        mask = self._parse_id(event.syscall.get("a2", "0"))
+        mask_str = self._format_inotify_mask(mask)
+        return f'inotify_add_watch({fd_str}, "{name}", {mask_str}) = {event.exit_str}'
+
+    def handle_quotactl(self, event):
+        cmd = self._parse_id(event.syscall.get("a0", "0"))
+        subcmd = (cmd >> 8) & 0xffffff
+        qtype = cmd & 0xff
+        subcmd_str = QUOTA_SUBCMDS.get(subcmd, QUOTA_SUBCMDS.get(cmd >> 8, str(subcmd)))
+        type_str = QUOTA_TYPES.get(qtype, str(qtype))
+        if isinstance(subcmd_str, str) and subcmd_str.startswith("Q_"):
+            cmd_str = f"QCMD({subcmd_str}, {type_str})"
+        else:
+            cmd_str = f"0x{cmd:x}" if cmd else "0"
+
+        special = self._get_pathname(event, "a1")
+        id_val = self._parse_id(event.syscall.get("a2", "0"))
+        addr = self._parse_id(event.syscall.get("a3", "0"))
+        addr_str = f"0x{addr:x}" if addr else "NULL"
+        return f'quotactl({cmd_str}, "{special}", {id_val}, {addr_str}) = {event.exit_str}'
+
+    def handle_mount(self, event):
+        source = ""
+        target = ""
+        if len(event.paths) >= 2:
+            target = event.paths[0].get("name", "").strip('"')
+            source = event.paths[1].get("name", "").strip('"')
+        elif len(event.paths) == 1:
+            target = event.paths[0].get("name", "").strip('"')
+        if not target:
+            target = self._get_pathname(event, "a1")
+        if not source:
+            source = self._get_pathname(event, "a0") or "none"
+        fstype_raw = self._parse_id(event.syscall.get("a2", "0"))
+        fstype_str = "NULL" if fstype_raw == 0 else '"..."'
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = self._format_mount_flags(flags_val)
+        return f'mount("{source}", "{target}", {fstype_str}, {flags_str}, ...) = {event.exit_str}'
+
+    def handle_umount2(self, event):
+        target = self._get_pathname(event, "a0")
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = self._format_umount_flags(flags_val)
+        return f'umount2("{target}", {flags_str}) = {event.exit_str}'
+
+    def handle_pivot_root(self, event):
+        old_p, new_p = self._resolve_link_paths(event)
+        return f'pivot_root("{new_p}", "{old_p}") = {event.exit_str}'
+
+    def handle_swapon(self, event):
+        path = self._get_pathname(event, "a0")
+        flags = self._parse_id(event.syscall.get("a1", "0"))
+        return f'swapon("{path}", {flags}) = {event.exit_str}'
+
+    def handle_swapoff(self, event):
+        path = self._get_pathname(event, "a0")
+        return f'swapoff("{path}") = {event.exit_str}'
+
+    def handle_fanotify_mark(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        flags = self._parse_id(event.syscall.get("a1", "0"))
+        mask = self._parse_id(event.syscall.get("a2", "0"))
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a3"))
+        name = self._get_pathname(event, "a4")
+        return f'fanotify_mark({fd_str}, {flags}, {mask}, {dirfd_str}, "{name}") = {event.exit_str}'
+
+    def handle_name_to_handle_at(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        flags = self._parse_id(event.syscall.get("a4", "0"))
+        flags_str = "AT_SYMLINK_FOLLOW" if flags == 0x400 else ("0" if flags == 0 else f"0x{flags:x}")
+        return f'name_to_handle_at({dirfd_str}, "{name}", {{...}}, [...], {flags_str}) = {event.exit_str}'
+
+    def handle_open_tree(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        flags = self._parse_id(event.syscall.get("a2", "0"))
+        return f'open_tree({dirfd_str}, "{name}", {flags}) = {event.exit_str}'
+
+    def handle_open_tree_attr(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        flags = self._parse_id(event.syscall.get("a4", "0"))
+        return f'open_tree_attr({dirfd_str}, "{name}", {{...}}, ..., {flags}) = {event.exit_str}'
+
+    def handle_move_mount(self, event):
+        from_dfd = self._resolve_dirfd(event, event.syscall.get("a0"))
+        to_dfd = self._resolve_dirfd(event, event.syscall.get("a2"))
+        old_p, new_p = self._resolve_link_paths(event)
+        flags = self._parse_id(event.syscall.get("a4", "0"))
+        return f'move_mount({from_dfd}, "{old_p}", {to_dfd}, "{new_p}", {flags}) = {event.exit_str}'
+
+    def handle_fsconfig(self, event):
+        fs_fd = self._resolve_fd(event, "a0")
+        cmd = self._parse_id(event.syscall.get("a1", "0"))
+        return f'fsconfig({fs_fd}, {cmd}, ..., ..., ...) = {event.exit_str}'
+
+    def handle_fspick(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        flags = self._parse_id(event.syscall.get("a2", "0"))
+        return f'fspick({dirfd_str}, "{name}", {flags}) = {event.exit_str}'
+
+    def handle_mount_setattr(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        flags = self._parse_id(event.syscall.get("a2", "0"))
+        return f'mount_setattr({dirfd_str}, "{name}", {flags}, {{...}}, ...) = {event.exit_str}'
+
+    def handle_file_getattr(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        return f'file_getattr({dirfd_str}, "{name}", ...) = {event.exit_str}'
+
+    def handle_file_setattr(self, event):
+        dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        name = self._get_pathname(event, "a1")
+        return f'file_setattr({dirfd_str}, "{name}", ...) = {event.exit_str}'
+
+    def handle_uselib(self, event):
+        name = self._get_pathname(event, "a0")
+        return f'uselib("{name}") = {event.exit_str}'
 
     def handle_mknod(self, event):
         name = self._get_pathname(event, "a0")

@@ -33,6 +33,10 @@
 #include <time.h>
 #include <grp.h>
 #include <termios.h>
+#include <sys/inotify.h>
+#include <sys/mount.h>
+#include <sys/swap.h>
+#include <sys/quota.h>
 
 #ifdef __has_include
 #  if __has_include(<linux/openat2.h>)
@@ -842,6 +846,96 @@ static void run_worker_tests(const char *base_dir) {
             close(s_udp);
         }
     }
+
+    /* -------------------------------------------------------------
+     * 16.5. ADDITIONAL FILE OPERATIONS: chdir, getcwd, inotify_add_watch,
+     *       name_to_handle_at, chroot, mount, umount2, pivot_root, swapon,
+     *       swapoff, acct, quotactl, open_tree, move_mount, fspick,
+     *       fsconfig, mount_setattr
+     * ------------------------------------------------------------- */
+    printf("\n--- Additional File Operations (chdir, getcwd, inotify, mount, etc.) ---\n");
+
+    /* getcwd */
+    char cwd_buf[1024];
+    if (getcwd(cwd_buf, sizeof(cwd_buf)) != NULL) {
+        log_op("getcwd", cwd_buf, 0);
+    } else {
+        log_op("getcwd", "getcwd failed", -1);
+    }
+
+    /* chdir */
+    res = chdir(".");
+    log_op("chdir", "chdir to '.'", res);
+
+    /* inotify_add_watch */
+    int inotify_fd = inotify_init1(IN_CLOEXEC);
+    if (inotify_fd >= 0) {
+        int wd = inotify_add_watch(inotify_fd, "open_file.txt", IN_MODIFY | IN_ATTRIB | IN_CLOSE_WRITE);
+        log_op("inotify_add_watch", "watch open_file.txt", wd);
+        close(inotify_fd);
+    }
+
+    /* name_to_handle_at */
+    struct {
+        struct file_handle fh;
+        unsigned char f_handle[128];
+    } handle_buf;
+    handle_buf.fh.handle_bytes = 128;
+    int mount_id = 0;
+    res = syscall(SYS_name_to_handle_at, AT_FDCWD, "open_file.txt", &handle_buf.fh, &mount_id, 0);
+    log_op("name_to_handle_at", "open_file.txt file handle", res);
+
+    /* Privileged / administrative calls tested with dummy/nonexistent paths */
+    res = chroot("/invalid_nonexistent_chroot");
+    log_op("chroot", "dummy path /invalid_nonexistent_chroot", res);
+
+    res = mount("none", "/invalid_mount_target", "tmpfs", 0, NULL);
+    log_op("mount", "dummy mount", res);
+
+    res = umount2("/invalid_mount_target", 0);
+    log_op("umount2", "dummy umount", res);
+
+#ifdef SYS_pivot_root
+    res = syscall(SYS_pivot_root, "/invalid_pivot", "/invalid_pivot");
+    log_op("pivot_root", "dummy pivot_root", res);
+#endif
+
+    res = swapon("/invalid_swap_file", 0);
+    log_op("swapon", "dummy swap file", res);
+
+    res = swapoff("/invalid_swap_file");
+    log_op("swapoff", "dummy swap file", res);
+
+    res = acct(NULL);
+    log_op("acct", "disable accounting acct(NULL)", res);
+
+    res = quotactl(QCMD(Q_GETINFO, USRQUOTA), "/dev/null", 0, NULL);
+    log_op("quotactl", "dummy quotactl", res);
+
+#ifdef SYS_open_tree
+    res = syscall(SYS_open_tree, AT_FDCWD, "open_file.txt", 0);
+    log_op("open_tree", "dummy open_tree", res);
+#endif
+
+#ifdef SYS_move_mount
+    res = syscall(SYS_move_mount, AT_FDCWD, "open_file.txt", AT_FDCWD, "open_file.txt", 0);
+    log_op("move_mount", "dummy move_mount", res);
+#endif
+
+#ifdef SYS_fspick
+    res = syscall(SYS_fspick, AT_FDCWD, "open_file.txt", 0);
+    log_op("fspick", "dummy fspick", res);
+#endif
+
+#ifdef SYS_fsconfig
+    res = syscall(SYS_fsconfig, -1, 0, NULL, NULL, 0);
+    log_op("fsconfig", "dummy fsconfig", res);
+#endif
+
+#ifdef SYS_mount_setattr
+    res = syscall(SYS_mount_setattr, AT_FDCWD, "open_file.txt", 0, NULL, 0);
+    log_op("mount_setattr", "dummy mount_setattr", res);
+#endif
 
     /* -------------------------------------------------------------
      * 17. DELETION & CLEANUP: unlink, unlinkat, rmdir, close

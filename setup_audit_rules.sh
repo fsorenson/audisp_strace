@@ -41,6 +41,11 @@ auditctl -a always,exit -F arch=b64 -S access,faccessat,faccessat2 -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S truncate,ftruncate,fallocate -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S utime,utimes,futimesat,utimensat -F key="$KEY"
 
+# Filesystem, Mount, Swap, Quota & Watch Operations
+auditctl -a always,exit -F arch=b64 -S chdir,chroot,getcwd,acct,inotify_add_watch,quotactl -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S mount,umount2,pivot_root,swapon,swapoff -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S name_to_handle_at,open_tree,move_mount,fsconfig,fspick,mount_setattr -F key="$KEY"
+
 # Extended Attributes (xattr)
 auditctl -a always,exit -F arch=b64 -S setxattr,lsetxattr,fsetxattr,getxattr,lgetxattr,fgetxattr -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S listxattr,llistxattr,flistxattr,removexattr,lremovexattr,fremovexattr -F key="$KEY"

@@ -9,10 +9,10 @@
 
 Supported Syscalls:
 - **Ownership & Permissions / Credentials**: `chmod`, `fchmod`, `fchmodat`, `chown`, `fchown`, `fchownat`, `lchown`, `setuid`, `setgid`, `getuid`, `getgid`, `geteuid`, `getegid`, `setreuid`, `setregid`, `setresuid`, `setresgid`, `getresuid`, `getresgid`, `setfsuid`, `setfsgid`, `getgroups`, `setgroups`, `capget`, `capset`, `prctl`
-- **File & Directory Management**: `creat`, `open`, `openat`, `openat2`, `close`, `unlink`, `unlinkat`, `rename`, `renameat`, `renameat2`, `mkdir`, `mkdirat`, `rmdir`, `link`, `linkat`, `symlink`, `symlinkat`, `readlink`, `readlinkat`
-- **File Metadata, Inspection & Access**: `stat`, `lstat`, `fstat`, `newfstatat` (`fstatat`), `statx`, `statfs`, `fstatfs`, `access`, `faccessat`, `faccessat2`
+- **File & Directory Management**: `creat`, `open`, `openat`, `openat2`, `close`, `unlink`, `unlinkat`, `rename`, `renameat`, `renameat2`, `mkdir`, `mkdirat`, `rmdir`, `link`, `linkat`, `symlink`, `symlinkat`, `readlink`, `readlinkat`, `chdir`, `chroot`, `getcwd`, `acct`, `inotify_add_watch`, `uselib`
+- **File Metadata, Inspection, Mounts & Quota**: `stat`, `lstat`, `fstat`, `newfstatat` (`fstatat`), `statx`, `statfs`, `fstatfs`, `access`, `faccessat`, `faccessat2`, `fchmodat2`, `mount`, `umount2`, `pivot_root`, `swapon`, `swapoff`, `quotactl`, `name_to_handle_at`, `open_tree`, `open_tree_attr`, `move_mount`, `fsconfig`, `fspick`, `mount_setattr`, `file_getattr`, `file_setattr`
 - **File Manipulation, Descriptors & Sizing**: `dup`, `dup2`, `dup3`, `truncate`, `ftruncate`, `fallocate`
-- **Extended Attributes**: `setxattr`, `lsetxattr`, `fsetxattr`, `getxattr`, `lgetxattr`, `fgetxattr`, `listxattr`, `llistxattr`, `flistxattr`, `removexattr`, `lremovexattr`, `fremovexattr`
+- **Extended Attributes**: `setxattr`, `lsetxattr`, `fsetxattr`, `getxattr`, `lgetxattr`, `fgetxattr`, `listxattr`, `llistxattr`, `flistxattr`, `removexattr`, `lremovexattr`, `fremovexattr`, `setxattrat`, `getxattrat`, `listxattrat`, `removexattrat`
 - **Special Files, IPC & Timestamps**: `mknod`, `mknodat`, `pipe`, `pipe2`, `utime`, `utimes`, `futimesat`, `utimensat`, `time`, `gettimeofday`, `settimeofday`, `adjtimex`, `clock_gettime`, `clock_settime`, `clock_getres`, `clock_adjtime`, `shmget`, `shmctl`, `semget`, `semop`, `semtimedop`, `semctl`, `msgget`, `msgsnd`, `msgrcv`, `msgctl`
 - **Memory Management**: `mmap`, `munmap`, `mprotect`, `madvise`, `brk`, `mremap`, `msync`, `mincore`, `shmat`, `shmdt`, `mlock`, `munlock`, `mlock2`, `mlockall`, `munlockall`, `pkey_mprotect`, `io_setup`, `io_destroy`, `remap_file_pages`, `mbind`, `set_mempolicy`, `get_mempolicy`, `migrate_pages`, `move_pages`
 - **Sockets & Networking**: `socket`, `socketpair`, `bind`, `listen`, `accept`, `accept4`, `connect`, `getsockname`, `getpeername`, `sendto`, `recvfrom`, `sendmsg`, `recvmsg`, `shutdown`, `setsockopt`, `getsockopt`, `sendmmsg`, `recvmmsg`, `getpmsg`, `putpmsg`
@@ -160,6 +160,12 @@ Sample 3-line format per monitored event:
   - Added `-X` flag alias for `--exclude` alongside `-x`.
   - Included unimplemented syscalls commented out inside `SYSCALL_CLASSES` dictionary definitions for easy future enablement.
   - Verified class selection and exclusion behavior across `examples/audit-log-v10.out` and validated zero regressions against `out-v6.txt`.
+- [x] Implemented all remaining `%file` syscalls (bringing `%file` to 100% complete with 75 active handlers):
+  - Standard & watch: `chdir`, `chroot`, `getcwd`, `acct`, `inotify_add_watch`, `uselib`
+  - Mount, swap & quota: `mount`, `umount2`, `pivot_root`, `swapon`, `swapoff`, `quotactl`
+  - Advanced/modern mount & file ops: `name_to_handle_at`, `open_tree`, `open_tree_attr`, `move_mount`, `fsconfig`, `fspick`, `mount_setattr`
+  - Modern `*at` variants: `fchmodat2`, `file_getattr`, `file_setattr`, `setxattrat`, `getxattrat`, `listxattrat`, `removexattrat`
+  - Added exercise calls in `test_syscalls.c` (Section 16.5) and audit rules in `setup_audit_rules.sh`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`
