@@ -203,9 +203,9 @@ SYSCALL_CLASSES = {
         # "inotify_init",
         # "inotify_init1",
         # "inotify_rm_watch",
-        # "io_uring_enter",
-        # "io_uring_register",
-        # "io_uring_setup",
+        "io_uring_enter",
+        "io_uring_register",
+        "io_uring_setup",
         # "kexec_file_load",
         # "landlock_add_rule",
         # "landlock_create_ruleset",
@@ -231,8 +231,8 @@ SYSCALL_CLASSES = {
         # "readahead",
         # "select",
         # "setns",
-        # "signalfd",
-        # "signalfd4",
+        "signalfd",
+        "signalfd4",
         # "splice",
         # "sync_file_range",
         # "syncfs",
@@ -347,13 +347,12 @@ SYSCALL_CLASSES = {
         "set_mempolicy",
         "shmat",
         "shmdt",
-        # Unimplemented in audisp-strace:
-        # "io_uring_register",
-        # "map_shadow_stack",
-        # "mseal",
-        # "set_mempolicy_home_node",
+        "io_uring_register",
+        "map_shadow_stack",
+        "mseal",
+        "set_mempolicy_home_node",
     },
-    # %process (TRACE_PROCESS): process-related syscalls (14 active, 2 unimplemented)
+    # %process (TRACE_PROCESS): process-related syscalls (16 active, 0 unimplemented)
     "%process": {
         "clone",
         "clone3",
@@ -364,14 +363,13 @@ SYSCALL_CLASSES = {
         "fork",
         "kill",
         "pidfd_send_signal",
+        "rt_sigqueueinfo",
+        "rt_tgsigqueueinfo",
         "tgkill",
         "tkill",
         "vfork",
         "wait4",
         "waitid",
-        # Unimplemented in audisp-strace:
-        # "rt_sigqueueinfo",
-        # "rt_tgsigqueueinfo",
     },
     # %creds (TRACE_CREDS): credential and capability syscalls (19 active, 0 unimplemented)
     "%creds": {
@@ -395,26 +393,25 @@ SYSCALL_CLASSES = {
         "setreuid",
         "setuid",
     },
-    # %signal (TRACE_SIGNAL): signal handling syscalls (4 active, 13 unimplemented)
+    # %signal (TRACE_SIGNAL): signal handling syscalls (17 active, 0 unimplemented)
     "%signal": {
+        "io_uring_enter",
         "kill",
+        "pause",
         "pidfd_send_signal",
+        "rt_sigaction",
+        "rt_sigpending",
+        "rt_sigprocmask",
+        "rt_sigqueueinfo",
+        "rt_sigreturn",
+        "rt_sigsuspend",
+        "rt_sigtimedwait",
+        "rt_tgsigqueueinfo",
+        "sigaltstack",
+        "signalfd",
+        "signalfd4",
         "tgkill",
         "tkill",
-        # Unimplemented in audisp-strace:
-        # "io_uring_enter",
-        # "pause",
-        # "rt_sigaction",
-        # "rt_sigpending",
-        # "rt_sigprocmask",
-        # "rt_sigqueueinfo",
-        # "rt_sigreturn",
-        # "rt_sigsuspend",
-        # "rt_sigtimedwait",
-        # "rt_tgsigqueueinfo",
-        # "sigaltstack",
-        # "signalfd",
-        # "signalfd4",
     },
     # %ipc (TRACE_IPC): IPC syscalls (12 active, 0 unimplemented)
     "%ipc": {
@@ -485,24 +482,22 @@ SYSCALL_CLASSES = {
     "%fstatfs": {
         "fstatfs",
     },
-    # %%statfs (TRACE_STATFS_LIKE): all statfs-like syscalls (2 active, 1 unimplemented)
+    # %%statfs (TRACE_STATFS_LIKE): all statfs-like syscalls (3 active, 0 unimplemented)
     "%%statfs": {
         "fstatfs",
         "statfs",
-        # Unimplemented in audisp-strace:
-        # "ustat",
+        "ustat",
     },
-    # %pure (TRACE_PURE): zero-argument getter syscalls (4 active, 4 unimplemented)
+    # %pure (TRACE_PURE): zero-argument getter syscalls (8 active, 0 unimplemented)
     "%pure": {
         "getegid",
         "geteuid",
         "getgid",
+        "getpgrp",
+        "getpid",
+        "getppid",
+        "gettid",
         "getuid",
-        # Unimplemented in audisp-strace:
-        # "getpgrp",
-        # "getpid",
-        # "getppid",
-        # "gettid",
     },
     # %clock (TRACE_CLOCK): system clock reading/modifying syscalls (8 active, 0 unimplemented)
     "%clock": {
@@ -1280,6 +1275,58 @@ UMOUNT_FLAGS = [
     (8, "UMOUNT_NOFOLLOW"),
 ]
 
+SIGPROCMASK_HOW = {
+    0: "SIG_BLOCK",
+    1: "SIG_UNBLOCK",
+    2: "SIG_SETMASK",
+}
+
+IORING_REGISTER_OPCODES = {
+    0: "IORING_REGISTER_BUFFERS",
+    1: "IORING_UNREGISTER_BUFFERS",
+    2: "IORING_REGISTER_FILES",
+    3: "IORING_UNREGISTER_FILES",
+    4: "IORING_REGISTER_EVENTFD",
+    5: "IORING_UNREGISTER_EVENTFD",
+    6: "IORING_REGISTER_FILES_UPDATE",
+    7: "IORING_REGISTER_EVENTFD_ASYNC",
+    8: "IORING_REGISTER_PROBE",
+    9: "IORING_REGISTER_PERSONALITY",
+    10: "IORING_UNREGISTER_PERSONALITY",
+    11: "IORING_REGISTER_RESTRICTIONS",
+    12: "IORING_REGISTER_ENABLE_RINGS",
+    13: "IORING_REGISTER_FILES2",
+    14: "IORING_REGISTER_FILES_UPDATE2",
+    15: "IORING_REGISTER_BUFFERS2",
+    16: "IORING_REGISTER_BUFFERS_UPDATE",
+    17: "IORING_REGISTER_IOWQ_AFF",
+    18: "IORING_UNREGISTER_IOWQ_AFF",
+    19: "IORING_REGISTER_IOWQ_MAX_WORKERS",
+    20: "IORING_REGISTER_RING_FDS",
+    21: "IORING_UNREGISTER_RING_FDS",
+    22: "IORING_REGISTER_PBUF_RING",
+    23: "IORING_UNREGISTER_PBUF_RING",
+    24: "IORING_REGISTER_SYNC_CANCEL",
+    25: "IORING_REGISTER_FILE_ALLOC_RANGE",
+    26: "IORING_REGISTER_PBUF_STATUS",
+    27: "IORING_REGISTER_NAPI",
+    28: "IORING_UNREGISTER_NAPI",
+    29: "IORING_REGISTER_CLOCK",
+    30: "IORING_REGISTER_CLONE_BUFFERS",
+    31: "IORING_REGISTER_SEND_MSG_RING",
+    32: "IORING_REGISTER_ZCRX_IFQ",
+    33: "IORING_REGISTER_RESIZE_RINGS",
+    34: "IORING_REGISTER_MEM_REGION",
+    35: "IORING_REGISTER_QUERY",
+    36: "IORING_REGISTER_ZCRX_CTRL",
+    37: "IORING_REGISTER_BPF_FILTER",
+}
+
+SHADOW_STACK_FLAGS = {
+    1: "SHADOW_STACK_SET_TOKEN",
+    2: "SHADOW_STACK_SET_MARKER",
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -1304,6 +1351,10 @@ class SyscallHandler:
             "getgid": self.handle_get_id,
             "geteuid": self.handle_get_id,
             "getegid": self.handle_get_id,
+            "getpid": self.handle_get_id,
+            "getppid": self.handle_get_id,
+            "getpgrp": self.handle_get_id,
+            "gettid": self.handle_get_id,
             "setreuid": self.handle_setre_id,
             "setregid": self.handle_setre_id,
             "setresuid": self.handle_setres_id,
@@ -1348,6 +1399,7 @@ class SyscallHandler:
             "statx": self.handle_statx,
             "statfs": self.handle_statfs,
             "fstatfs": self.handle_fstatfs,
+            "ustat": self.handle_ustat,
             "access": self.handle_access,
             "faccessat": self.handle_faccessat,
             "faccessat2": self.handle_faccessat,
@@ -1413,6 +1465,12 @@ class SyscallHandler:
             "get_mempolicy": self.handle_get_mempolicy,
             "migrate_pages": self.handle_migrate_pages,
             "move_pages": self.handle_move_pages,
+            "map_shadow_stack": self.handle_map_shadow_stack,
+            "mseal": self.handle_mseal,
+            "set_mempolicy_home_node": self.handle_set_mempolicy_home_node,
+            "io_uring_register": self.handle_io_uring_register,
+            "io_uring_setup": self.handle_io_uring_setup,
+            "io_uring_enter": self.handle_io_uring_enter,
 
             # Sockets & Networking
             "socket": self.handle_socket,
@@ -1469,6 +1527,18 @@ class SyscallHandler:
             "tkill": self.handle_tkill,
             "tgkill": self.handle_tgkill,
             "pidfd_send_signal": self.handle_pidfd_send_signal,
+            "pause": self.handle_pause,
+            "rt_sigaction": self.handle_rt_sigaction,
+            "rt_sigpending": self.handle_rt_sigpending,
+            "rt_sigprocmask": self.handle_rt_sigprocmask,
+            "rt_sigqueueinfo": self.handle_rt_sigqueueinfo,
+            "rt_tgsigqueueinfo": self.handle_rt_tgsigqueueinfo,
+            "rt_sigreturn": self.handle_rt_sigreturn,
+            "rt_sigsuspend": self.handle_rt_sigsuspend,
+            "rt_sigtimedwait": self.handle_rt_sigtimedwait,
+            "sigaltstack": self.handle_sigaltstack,
+            "signalfd": self.handle_signalfd,
+            "signalfd4": self.handle_signalfd4,
             "wait4": self.handle_wait4,
             "waitpid": self.handle_wait4,
             "waitid": self.handle_waitid,
@@ -1540,7 +1610,7 @@ class SyscallHandler:
             val_int = int(str(fd_raw), 16) if not str(fd_raw).startswith("-") else int(fd_raw)
         except (ValueError, TypeError):
             val_int = 0
-        path = self.tracker.get_fd_path(event.pid, val_int)
+        path = self.tracker.get_fd_path(event.pid, val_int) if self.tracker else None
         return f"{val_int}<{path}>" if path else str(val_int)
 
     def get_opened_path(self, event):
@@ -1765,6 +1835,51 @@ class SyscallHandler:
         if f & 2: flags.append("MCL_FUTURE")
         if f & 4: flags.append("MCL_ONFAULT")
         return "|".join(flags) if flags else hex(f)
+
+    def _format_signalfd_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 0x80000:
+            flags.append("SFD_CLOEXEC")
+        if f & 0x800:
+            flags.append("SFD_NONBLOCK")
+        rem = f & ~(0x80000 | 0x800)
+        if rem:
+            flags.append(hex(rem))
+        return "|".join(flags) if flags else "0"
+
+    def _format_uring_enter_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & (1 << 0): flags.append("IORING_ENTER_GETEVENTS")
+        if f & (1 << 1): flags.append("IORING_ENTER_SQ_WAKEUP")
+        if f & (1 << 2): flags.append("IORING_ENTER_SQ_WAIT")
+        if f & (1 << 3): flags.append("IORING_ENTER_EXT_ARG")
+        if f & (1 << 4): flags.append("IORING_ENTER_REGISTERED_RING")
+        if f & (1 << 5): flags.append("IORING_ENTER_ABS_TIMER")
+        if f & (1 << 6): flags.append("IORING_ENTER_EXT_ARG_REG")
+        if f & (1 << 7): flags.append("IORING_ENTER_NO_IOWAIT")
+        rem = f & ~((1 << 8) - 1)
+        if rem:
+            flags.append(hex(rem))
+        return "|".join(flags) if flags else "0"
+
+    def _format_shadow_stack_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        for bit, name in SHADOW_STACK_FLAGS.items():
+            if f & bit:
+                flags.append(name)
+        rem = f & ~3
+        if rem:
+            flags.append(hex(rem))
+        return "|".join(flags) if flags else "0"
 
     def _get_pathname(self, event, default_arg="a0"):
         if event.paths:
@@ -2159,6 +2274,17 @@ class SyscallHandler:
     def handle_fstatfs(self, event):
         fd_str = self._resolve_fd(event, "a0")
         return f"fstatfs({fd_str}, {{...}}) = {event.exit_str}"
+
+    def handle_ustat(self, event):
+        dev_str = self._format_dev(event.syscall.get("a0", "0"))
+        ubuf_val = self._parse_id(event.syscall.get("a1", "0"))
+        if ubuf_val == 0:
+            ubuf_str = "NULL"
+        elif not event.is_success:
+            ubuf_str = f"0x{ubuf_val:x}"
+        else:
+            ubuf_str = "{...}"
+        return f"ustat({dev_str}, {ubuf_str}) = {event.exit_str}"
 
     def handle_access(self, event):
         name = self._get_pathname(event, "a0")
@@ -2599,6 +2725,90 @@ class SyscallHandler:
         flags_val = self._parse_id(event.syscall.get("a3", "0"))
         return f"pidfd_send_signal({fd_str}, {sig_str}, {info_str}, {flags_val}) = {event.exit_str}"
 
+    def handle_pause(self, event):
+        return f"pause() = {event.exit_str}"
+
+    def handle_rt_sigaction(self, event):
+        sig_str = self._format_sig(event.syscall.get("a0", "0"))
+        act_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        act_str = "NULL" if act_ptr == 0 else "{...}"
+        old_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        old_str = "NULL" if old_ptr == 0 else "{...}"
+        size_val = self._parse_id(event.syscall.get("a3", "8"))
+        return f"rt_sigaction({sig_str}, {act_str}, {old_str}, {size_val}) = {event.exit_str}"
+
+    def handle_rt_sigpending(self, event):
+        set_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        set_str = "NULL" if set_ptr == 0 else "[...]"
+        size_val = self._parse_id(event.syscall.get("a1", "8"))
+        return f"rt_sigpending({set_str}, {size_val}) = {event.exit_str}"
+
+    def handle_rt_sigprocmask(self, event):
+        how_val = self._parse_id(event.syscall.get("a0", "0"))
+        how_str = SIGPROCMASK_HOW.get(how_val, str(how_val))
+        set_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        set_str = "NULL" if set_ptr == 0 else "[...]"
+        old_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        old_str = "NULL" if old_ptr == 0 else "[...]"
+        size_val = self._parse_id(event.syscall.get("a3", "8"))
+        return f"rt_sigprocmask({how_str}, {set_str}, {old_str}, {size_val}) = {event.exit_str}"
+
+    def handle_rt_sigqueueinfo(self, event):
+        tgid_val = self._parse_id(event.syscall.get("a0", "0"))
+        sig_str = self._format_sig(event.syscall.get("a1", "0"))
+        info_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        info_str = "NULL" if info_ptr == 0 else "{...}"
+        return f"rt_sigqueueinfo({tgid_val}, {sig_str}, {info_str}) = {event.exit_str}"
+
+    def handle_rt_tgsigqueueinfo(self, event):
+        tgid_val = self._parse_id(event.syscall.get("a0", "0"))
+        tid_val = self._parse_id(event.syscall.get("a1", "0"))
+        sig_str = self._format_sig(event.syscall.get("a2", "0"))
+        info_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        info_str = "NULL" if info_ptr == 0 else "{...}"
+        return f"rt_tgsigqueueinfo({tgid_val}, {tid_val}, {sig_str}, {info_str}) = {event.exit_str}"
+
+    def handle_rt_sigreturn(self, event):
+        return f"rt_sigreturn({{mask=[...]}}) = {event.exit_str}"
+
+    def handle_rt_sigsuspend(self, event):
+        set_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        set_str = "NULL" if set_ptr == 0 else "[...]"
+        size_val = self._parse_id(event.syscall.get("a1", "8"))
+        return f"rt_sigsuspend({set_str}, {size_val}) = {event.exit_str}"
+
+    def handle_rt_sigtimedwait(self, event):
+        set_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        set_str = "NULL" if set_ptr == 0 else "[...]"
+        info_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        info_str = "NULL" if info_ptr == 0 else "{...}"
+        timeout_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        timeout_str = "NULL" if timeout_ptr == 0 else "{...}"
+        size_val = self._parse_id(event.syscall.get("a3", "8"))
+        return f"rt_sigtimedwait({set_str}, {info_str}, {timeout_str}, {size_val}) = {event.exit_str}"
+
+    def handle_sigaltstack(self, event):
+        ss_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        old_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        ss_str = "NULL" if ss_ptr == 0 else "{...}"
+        old_str = "NULL" if old_ptr == 0 else "{...}"
+        return f"sigaltstack({ss_str}, {old_str}) = {event.exit_str}"
+
+    def handle_signalfd(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        mask_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        mask_str = "NULL" if mask_ptr == 0 else "[...]"
+        size_val = self._parse_id(event.syscall.get("a2", "8"))
+        return f"signalfd({fd_str}, {mask_str}, {size_val}) = {event.exit_str}"
+
+    def handle_signalfd4(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        mask_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        mask_str = "NULL" if mask_ptr == 0 else "[...]"
+        size_val = self._parse_id(event.syscall.get("a2", "8"))
+        flags_str = self._format_signalfd_flags(event.syscall.get("a3", "0"))
+        return f"signalfd4({fd_str}, {mask_str}, {size_val}, {flags_str}) = {event.exit_str}"
+
     def handle_wait4(self, event, scname=None):
         scname = scname or event.syscall_name or "wait4"
         pid_val = self._parse_id(event.syscall.get("a0", "-1"))
@@ -2783,6 +2993,74 @@ class SyscallHandler:
         count = self._parse_id(event.syscall.get("a1", "0"))
         flags = self._parse_id(event.syscall.get("a5", "0"))
         return f"move_pages({pid_val}, {count}, [...], [...], [...], {flags}) = {event.exit_str}"
+
+    def handle_map_shadow_stack(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr_val:x}" if addr_val != 0 else "NULL"
+        length_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = self._format_shadow_stack_flags(event.syscall.get("a2", "0"))
+        return f"map_shadow_stack({addr_str}, {length_val}, {flags_str}) = {event.exit_str}"
+
+    def handle_mseal(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr_val:x}" if addr_val != 0 else "NULL"
+        length_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_val = self._parse_id(event.syscall.get("a2", "0"))
+        flags_str = f"0x{flags_val:x}" if flags_val != 0 else "0"
+        return f"mseal({addr_str}, {length_val}, {flags_str}) = {event.exit_str}"
+
+    def handle_set_mempolicy_home_node(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr_val:x}" if addr_val != 0 else "NULL"
+        length_val = self._parse_id(event.syscall.get("a1", "0"))
+        home_node = self._parse_id(event.syscall.get("a2", "0"))
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = f"0x{flags_val:x}" if flags_val != 0 else "0"
+        return f"set_mempolicy_home_node({addr_str}, {length_val}, {home_node}, {flags_str}) = {event.exit_str}"
+
+    def handle_io_uring_setup(self, event):
+        entries = self._parse_id(event.syscall.get("a0", "0"))
+        params_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        params_str = "NULL" if params_ptr == 0 else "{...}"
+        return f"io_uring_setup({entries}, {params_str}) = {event.exit_str}"
+
+    def handle_io_uring_enter(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        to_submit = self._parse_id(event.syscall.get("a1", "0"))
+        min_complete = self._parse_id(event.syscall.get("a2", "0"))
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = self._format_uring_enter_flags(flags_val)
+        arg_ptr = self._parse_id(event.syscall.get("a4", "0"))
+        argsz_val = self._parse_id(event.syscall.get("a5", "0"))
+        if arg_ptr == 0:
+            arg_str = "NULL"
+        elif isinstance(flags_val, int) and (flags_val & (1 << 3)):
+            arg_str = "{...}"
+        elif isinstance(flags_val, int) and (flags_val & (1 << 6)):
+            arg_str = str(arg_ptr)
+        else:
+            arg_str = "[...]"
+        return f"io_uring_enter({fd_str}, {to_submit}, {min_complete}, {flags_str}, {arg_str}, {argsz_val}) = {event.exit_str}"
+
+    def handle_io_uring_register(self, event):
+        opcode_raw = self._parse_id(event.syscall.get("a1", "0"))
+        is_reg_ring = False
+        if isinstance(opcode_raw, int):
+            is_reg_ring = bool(opcode_raw & 0x80000000)
+            op = opcode_raw & ~0x80000000
+        else:
+            op = opcode_raw
+        if is_reg_ring:
+            fd_str = str(self._parse_id(event.syscall.get("a0", "0")))
+        else:
+            fd_str = self._resolve_fd(event, "a0")
+        op_str = IORING_REGISTER_OPCODES.get(op, hex(op) if isinstance(op, int) else str(op))
+        if is_reg_ring:
+            op_str += "|IORING_REGISTER_USE_REGISTERED_RING"
+        arg_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        arg_str = "NULL" if arg_ptr == 0 else f"0x{arg_ptr:x}"
+        nr_args = self._parse_id(event.syscall.get("a3", "0"))
+        return f"io_uring_register({fd_str}, {op_str}, {arg_str}, {nr_args}) = {event.exit_str}"
 
     def handle_socket(self, event):
         dom_val = self._parse_id(event.syscall.get("a0", "0"))

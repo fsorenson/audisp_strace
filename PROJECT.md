@@ -166,6 +166,15 @@ Sample 3-line format per monitored event:
   - Advanced/modern mount & file ops: `name_to_handle_at`, `open_tree`, `open_tree_attr`, `move_mount`, `fsconfig`, `fspick`, `mount_setattr`
   - Modern `*at` variants: `fchmodat2`, `file_getattr`, `file_setattr`, `setxattrat`, `getxattrat`, `listxattrat`, `removexattrat`
   - Added exercise calls in `test_syscalls.c` (Section 16.5) and audit rules in `setup_audit_rules.sh`.
+- [x] Implemented handlers for `%pure`, `ustat`, `%signal`, `%process`, and `%memory`:
+  - **`%pure`** (100% complete, 8/8 active): added `getpid`, `getppid`, `getpgrp`, `gettid` mapping to `handle_get_id`.
+  - **`ustat`** / **`%%statfs`** (100% complete, 3/3 active): implemented `handle_ustat` formatting `ustat(makedev(maj, min), {...}|NULL) = exit`.
+  - **`%process`** (100% complete, 16/16 active): implemented `rt_sigqueueinfo` and `rt_tgsigqueueinfo`.
+  - **`%signal`** (100% complete, 17/17 active): implemented `pause`, `rt_sigaction`, `rt_sigpending`, `rt_sigprocmask`, `rt_sigqueueinfo`, `rt_sigreturn`, `rt_sigsuspend`, `rt_sigtimedwait`, `rt_tgsigqueueinfo`, `sigaltstack`, `signalfd`, `signalfd4`, `io_uring_enter`.
+  - **`%memory`** (100% complete, 28/28 active): implemented `io_uring_register`, `map_shadow_stack`, `mseal`, `set_mempolicy_home_node`, and descriptor creator `io_uring_setup`.
+  - Activated all newly implemented syscalls across `SYSCALL_CLASSES` dictionary entries (`%pure`, `%%statfs`, `%process`, `%signal`, `%memory`, `%desc`).
+  - Added exercise calls in `test_syscalls.c` and updated `setup_audit_rules.sh`.
+  - Verified regression-free execution against `out-v6.txt`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`

@@ -60,6 +60,24 @@
 #  endif
 #endif
 
+#ifndef SYS_ustat
+#  if defined(__x86_64__)
+#    define SYS_ustat 136
+#  endif
+#endif
+
+#ifndef SYS_signalfd4
+#  if defined(__x86_64__)
+#    define SYS_signalfd4 289
+#  endif
+#endif
+
+#ifndef SYS_mseal
+#  if defined(__x86_64__)
+#    define SYS_mseal 462
+#  endif
+#endif
+
 #ifndef RENAME_NOREPLACE
 #  define RENAME_NOREPLACE (1 << 0)
 #endif
@@ -210,6 +228,11 @@ static void run_worker_tests(const char *base_dir) {
             res = fstatfs(dir_fd, &stfs);
             log_op("fstatfs", "dir_fd", res);
         }
+
+#ifdef SYS_ustat
+        res = (int)syscall(SYS_ustat, (unsigned int)st.st_dev, NULL);
+        log_op("ustat", "ustat(st_dev, NULL)", res);
+#endif
 
 #ifdef SYS_statx
         struct statx stx;
@@ -464,6 +487,18 @@ static void run_worker_tests(const char *base_dir) {
     res = (int)getegid();
     log_op("getegid", "getegid()", res);
 
+    pid_t my_pid = getpid();
+    log_op("getpid", "getpid()", my_pid);
+
+    pid_t my_ppid = getppid();
+    log_op("getppid", "getppid()", my_ppid);
+
+    pid_t my_pgrp = getpgrp();
+    log_op("getpgrp", "getpgrp()", my_pgrp);
+
+    pid_t my_tid = (pid_t)syscall(SYS_gettid);
+    log_op("gettid", "gettid()", my_tid);
+
     res = getresuid(&ruid, &euid, &suid);
     log_op("getresuid", "getresuid(&ruid, &euid, &suid)", res);
 
@@ -529,6 +564,50 @@ static void run_worker_tests(const char *base_dir) {
 
         res = (int)syscall(SYS_tgkill, getpid(), tid, 0);
         log_op("tgkill", "tgkill(getpid(), gettid(), 0)", res);
+
+        /* Signal mask and pending tests */
+        sigset_t set, oldset;
+        sigemptyset(&set);
+        sigaddset(&set, SIGUSR1);
+        res = sigprocmask(SIG_BLOCK, &set, &oldset);
+        log_op("rt_sigprocmask", "sigprocmask(SIG_BLOCK, [USR1], ...)", res);
+
+        sigset_t pending;
+        res = sigpending(&pending);
+        log_op("rt_sigpending", "sigpending(...)", res);
+
+        res = sigprocmask(SIG_SETMASK, &oldset, NULL);
+        log_op("rt_sigprocmask", "sigprocmask(SIG_SETMASK, oldset, NULL)", res);
+
+        /* Alternate signal stack */
+        stack_t ss, old_ss;
+        char sig_alt_stack[SIGSTKSZ];
+        ss.ss_sp = sig_alt_stack;
+        ss.ss_flags = 0;
+        ss.ss_size = sizeof(sig_alt_stack);
+        res = sigaltstack(&ss, &old_ss);
+        log_op("sigaltstack", "sigaltstack(new, old)", res);
+        res = sigaltstack(&old_ss, NULL);
+        log_op("sigaltstack", "sigaltstack(restore, NULL)", res);
+
+#ifdef SYS_signalfd4
+        sigset_t sfd_mask;
+        sigemptyset(&sfd_mask);
+        sigaddset(&sfd_mask, SIGUSR1);
+        int sfd = (int)syscall(SYS_signalfd4, -1, &sfd_mask, sizeof(sfd_mask), 0x80000 /* SFD_CLOEXEC */);
+        log_op("signalfd4", "signalfd4(-1, [USR1], SFD_CLOEXEC)", sfd);
+        if (sfd >= 0) close(sfd);
+#endif
+
+        /* pause with sub-process */
+        pid_t pause_child = fork();
+        if (pause_child == 0) {
+            alarm(1);
+            pause();
+            _exit(0);
+        } else if (pause_child > 0) {
+            waitpid(pause_child, NULL, 0);
+        }
 
         /* Test wait4 */
         pid_t child_w4 = fork();
@@ -620,6 +699,15 @@ static void run_worker_tests(const char *base_dir) {
         log_op("mlockall", "mlockall MCL_CURRENT", res);
         res = munlockall();
         log_op("munlockall", "munlockall", res);
+
+#ifdef SYS_mseal
+        void *mseal_mem = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (mseal_mem != MAP_FAILED) {
+            res = (int)syscall(SYS_mseal, mseal_mem, 4096, 0);
+            log_op("mseal", "mseal 4096 bytes", res);
+            munmap(mseal_mem, 4096);
+        }
+#endif
 
         /* System V Shared Memory: shmget, shmat, shmdt, shmctl */
         int shmid = shmget(IPC_PRIVATE, 4096, IPC_CREAT | 0600);
