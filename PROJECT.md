@@ -150,6 +150,7 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log-v7.out` & `examples/audit-log-v7-trace.out` (investigated audit buffer exhaustion under live pipe monitoring)
   - [x] `examples/audit-log-v8.out` & `examples/audit-log-v8-trace.out` (verified live capture with session exclusion; confirmed root and user1 UID/GID decoding, deep ancestry tracking, and file descriptor lifecycle)
   - [x] `examples/audit-log-v9.out` & `examples/audit-log-v9-trace.out` (verified new process signals/wait4/waitid, socket options/mmsg, and extended memory/shared memory operations across both test_syscalls and system services)
+  - [x] `examples/audit-log-v10.out` & `examples/audit-log-v10-trace.out` (verified System V IPC shm/sem/msg queues, credentials get/set identity variations, prctl options, and time/clock syscalls)
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

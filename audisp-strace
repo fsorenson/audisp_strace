@@ -718,12 +718,22 @@ MPOL_MODES = {
     3: "MPOL_INTERLEAVE", 4: "MPOL_LOCAL", 5: "MPOL_PREFERRED_MANY"
 }
 
-IPC_CMDS = {
-    0: "IPC_RMID", 1: "IPC_SET", 2: "IPC_STAT", 3: "IPC_INFO",
-    11: "SHM_LOCK", 12: "SHM_UNLOCK", 13: "SHM_STAT", 14: "SHM_INFO",
-    15: "GETPID", 16: "GETVAL", 17: "GETALL", 18: "GETNCNT",
-    19: "GETZCNT", 20: "SETVAL", 21: "SETALL", 22: "SEM_STAT", 23: "SEM_INFO",
-    24: "MSG_STAT", 25: "MSG_INFO"
+IPC_COMMON_CMDS = {0: "IPC_RMID", 1: "IPC_SET", 2: "IPC_STAT", 3: "IPC_INFO"}
+
+SHM_CMDS = {
+    **IPC_COMMON_CMDS,
+    11: "SHM_LOCK", 12: "SHM_UNLOCK", 13: "SHM_STAT", 14: "SHM_INFO"
+}
+
+SEM_CMDS = {
+    **IPC_COMMON_CMDS,
+    11: "GETPID", 12: "GETVAL", 13: "GETALL", 14: "GETNCNT",
+    15: "GETZCNT", 16: "SETVAL", 17: "SETALL", 18: "SEM_STAT", 19: "SEM_INFO"
+}
+
+MSG_CMDS = {
+    **IPC_COMMON_CMDS,
+    11: "MSG_STAT", 12: "MSG_INFO"
 }
 
 PRCTL_OPTIONS = {
@@ -1418,9 +1428,12 @@ class SyscallHandler:
         opt_str = PRCTL_OPTIONS.get(opt_val, f"0x{opt_val:x}" if opt_val > 0x1000 else str(opt_val))
         a1 = self._parse_id(event.syscall.get("a1", "0"))
         if opt_str == "PR_SET_NAME":
-            name = event.syscall_interp.get("a1") or event.syscall.get("a1", "")
-            name = name.strip('"')
-            arg_tail = f'"{name}"' if name else f"0x{a1:x}"
+            interp_name = event.syscall_interp.get("a1")
+            if interp_name and not interp_name.startswith("0x"):
+                clean_name = interp_name.strip('"')
+                arg_tail = f'"{clean_name}"'
+            else:
+                arg_tail = f"0x{a1:x}" if a1 else "NULL"
         elif opt_str in ("PR_GET_NAME", "PR_GET_DUMPABLE", "PR_GET_KEEPCAPS", "PR_GET_NO_NEW_PRIVS", "PR_GET_SECCOMP"):
             arg_tail = ""
         else:
@@ -1740,7 +1753,7 @@ class SyscallHandler:
     def handle_shmctl(self, event):
         shmid = self._parse_id(event.syscall.get("a0", "0"))
         cmd_val = self._parse_id(event.syscall.get("a1", "0"))
-        cmd_str = IPC_CMDS.get(cmd_val, str(cmd_val))
+        cmd_str = SHM_CMDS.get(cmd_val, str(cmd_val))
         return f"shmctl({shmid}, {cmd_str}, [...]) = {event.exit_str}"
 
     def handle_semget(self, event):
@@ -1765,7 +1778,7 @@ class SyscallHandler:
         semid = self._parse_id(event.syscall.get("a0", "0"))
         semnum = self._parse_id(event.syscall.get("a1", "0"))
         cmd_val = self._parse_id(event.syscall.get("a2", "0"))
-        cmd_str = IPC_CMDS.get(cmd_val, str(cmd_val))
+        cmd_str = SEM_CMDS.get(cmd_val, str(cmd_val))
         return f"semctl({semid}, {semnum}, {cmd_str}, ...) = {event.exit_str}"
 
     def handle_msgget(self, event):
@@ -1791,7 +1804,7 @@ class SyscallHandler:
     def handle_msgctl(self, event):
         msqid = self._parse_id(event.syscall.get("a0", "0"))
         cmd_val = self._parse_id(event.syscall.get("a1", "0"))
-        cmd_str = IPC_CMDS.get(cmd_val, str(cmd_val))
+        cmd_str = MSG_CMDS.get(cmd_val, str(cmd_val))
         return f"msgctl({msqid}, {cmd_str}, [...]) = {event.exit_str}"
 
     def handle_clone(self, event):
