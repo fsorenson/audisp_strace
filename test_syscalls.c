@@ -594,7 +594,7 @@ static void run_worker_tests(const char *base_dir) {
         sigset_t sfd_mask;
         sigemptyset(&sfd_mask);
         sigaddset(&sfd_mask, SIGUSR1);
-        int sfd = (int)syscall(SYS_signalfd4, -1, &sfd_mask, sizeof(sfd_mask), 0x80000 /* SFD_CLOEXEC */);
+        int sfd = (int)syscall(SYS_signalfd4, -1, &sfd_mask, 8, 0x80000 /* SFD_CLOEXEC */);
         log_op("signalfd4", "signalfd4(-1, [USR1], SFD_CLOEXEC)", sfd);
         if (sfd >= 0) close(sfd);
 #endif

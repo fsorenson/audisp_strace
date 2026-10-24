@@ -191,6 +191,7 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log-v9.out` & `examples/audit-log-v9-trace.out` (verified new process signals/wait4/waitid, socket options/mmsg, and extended memory/shared memory operations across both test_syscalls and system services)
   - [x] `examples/audit-log-v10.out` & `examples/audit-log-v10-trace.out` (verified System V IPC shm/sem/msg queues, credentials get/set identity variations, prctl options, and time/clock syscalls)
   - [x] `examples/audit-log-v11.out` & `examples/audit-log-v11-trace.out` (verified 17 additional %file syscalls across test_syscalls and system daemons: chdir, getcwd, inotify_add_watch, name_to_handle_at, chroot, mount, umount2, pivot_root, swapon, swapoff, acct, quotactl, open_tree, move_mount, fspick, fsconfig, mount_setattr)
+  - [x] `examples/audit-log-v12.out` & `examples/audit-log-v12-trace.out` (verified %pure, ustat, %signal, %process, and %memory syscalls: getpid, getppid, getpgrp, gettid, ustat, sigaltstack, signalfd4, pause, mseal, rt_sigprocmask, rt_sigpending; confirmed 150+ distinct syscalls properly formatted)
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

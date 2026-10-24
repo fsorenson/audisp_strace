@@ -1608,6 +1608,10 @@ class SyscallHandler:
         fd_raw = event.syscall.get(field_name, "0")
         try:
             val_int = int(str(fd_raw), 16) if not str(fd_raw).startswith("-") else int(fd_raw)
+            if val_int in (0xffffffff, 0xffffffffffffffff, -1):
+                val_int = -1
+            elif 0x80000000 <= val_int <= 0xffffffff:
+                val_int -= 0x100000000
         except (ValueError, TypeError):
             val_int = 0
         path = self.tracker.get_fd_path(event.pid, val_int) if self.tracker else None
