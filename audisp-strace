@@ -69,8 +69,35 @@ FILE_MGMT_SYSCALLS = {
     'utime', 'utimes', 'futimesat', 'utimensat'
 }
 
+# Memory management syscalls
+MEMORY_SYSCALLS = {
+    'mmap', 'munmap', 'mprotect', 'madvise', 'brk'
+}
+
+# Socket & network syscalls
+SOCKET_SYSCALLS = {
+    'socket', 'socketpair', 'bind', 'listen', 'accept', 'accept4',
+    'connect', 'getsockname', 'getpeername', 'sendto', 'recvfrom',
+    'sendmsg', 'recvmsg', 'shutdown'
+}
+
+# Read, write & I/O variations
+IO_SYSCALLS = {
+    'read', 'write', 'readv', 'writev',
+    'pread', 'pread64', 'pwrite', 'pwrite64',
+    'preadv', 'pwritev', 'preadv2', 'pwritev2',
+    'sendfile', 'sendfile64'
+}
+
+# Descriptor control syscalls
+DESC_CTRL_SYSCALLS = {
+    'fcntl', 'ioctl'
+}
+
 DEFAULT_MONITORED_SYSCALLS = (
-    PERMISSION_SYSCALLS | FILE_MGMT_SYSCALLS | {
+    PERMISSION_SYSCALLS | FILE_MGMT_SYSCALLS |
+    MEMORY_SYSCALLS | SOCKET_SYSCALLS | IO_SYSCALLS | DESC_CTRL_SYSCALLS |
+    {
         'clone', 'clone3', 'fork', 'vfork', 'execve', 'execveat'
     }
 )
@@ -382,6 +409,8 @@ class AuditEvent:
         self.execve_args = []
         self.proctitle = None
         self.fd_pair = None
+        self.sockaddr = None
+        self.sockaddr_interp = None
 
         au.first_record()
         while True:
@@ -438,6 +467,9 @@ class AuditEvent:
                     self.proctitle = unescape_audit_str(proctitle)
             elif rectype == "FD_PAIR":
                 self.fd_pair = fields
+            elif rectype == "SOCKADDR":
+                self.sockaddr = fields
+                self.sockaddr_interp = interp_fields
 
             if not au.next_record():
                 break
@@ -590,6 +622,54 @@ class TraceFormatter:
         return "    " + "->".join(parts)
 
 
+MADVISE_OPS = {
+    0: "MADV_NORMAL", 1: "MADV_RANDOM", 2: "MADV_SEQUENTIAL", 3: "MADV_WILLNEED",
+    4: "MADV_DONTNEED", 8: "MADV_FREE", 9: "MADV_REMOVE", 10: "MADV_DONTFORK",
+    11: "MADV_DOFORK", 12: "MADV_MERGEABLE", 13: "MADV_UNMERGEABLE",
+    14: "MADV_HUGEPAGE", 15: "MADV_NOHUGEPAGE", 16: "MADV_DONTDUMP", 17: "MADV_DODUMP",
+    18: "MADV_WIPEONFORK", 19: "MADV_KEEPONFORK", 20: "MADV_COLD", 21: "MADV_PAGEOUT"
+}
+
+SOCKET_DOMAINS = {
+    0: "AF_UNSPEC", 1: "AF_UNIX", 2: "AF_INET", 3: "AF_AX25", 4: "AF_IPX",
+    5: "AF_APPLETALK", 6: "AF_NETROM", 7: "AF_BRIDGE", 8: "AF_ATMPVC",
+    9: "AF_X25", 10: "AF_INET6", 11: "AF_ROSE", 12: "AF_DECnet",
+    16: "AF_NETLINK", 17: "AF_PACKET", 27: "AF_BLUETOOTH", 29: "AF_CAN",
+    38: "AF_VSOCK", 41: "AF_XDP"
+}
+
+SOCKET_TYPES = {
+    1: "SOCK_STREAM", 2: "SOCK_DGRAM", 3: "SOCK_RAW",
+    4: "SOCK_RDM", 5: "SOCK_SEQPACKET", 6: "SOCK_DCCP", 10: "SOCK_PACKET"
+}
+
+SOCKET_PROTO = {
+    0: "IPPROTO_IP", 1: "IPPROTO_ICMP", 2: "IPPROTO_IGMP",
+    6: "IPPROTO_TCP", 17: "IPPROTO_UDP", 41: "IPPROTO_IPV6",
+    58: "IPPROTO_ICMPV6", 132: "IPPROTO_SCTP", 255: "IPPROTO_RAW"
+}
+
+SHUTDOWN_HOW = {0: "SHUT_RD", 1: "SHUT_WR", 2: "SHUT_RDWR"}
+
+FCNTL_CMDS = {
+    0: "F_DUPFD", 1: "F_GETFD", 2: "F_SETFD", 3: "F_GETFL", 4: "F_SETFL",
+    5: "F_GETLK", 6: "F_SETLK", 7: "F_SETLKW", 8: "F_SETOWN", 9: "F_GETOWN",
+    10: "F_SETSIG", 11: "F_GETSIG",
+    1024: "F_SETLEASE", 1025: "F_GETLEASE", 1026: "F_NOTIFY",
+    1030: "F_DUPFD_CLOEXEC", 1031: "F_SETPIPE_SZ", 1032: "F_GETPIPE_SZ",
+    1033: "F_ADD_SEALS", 1034: "F_GET_SEALS"
+}
+
+COMMON_IOCTLS = {
+    0x5401: "TCGETS", 0x5402: "TCSETS", 0x5403: "TCSETSW", 0x5404: "TCSETSF",
+    0x540f: "TIOCNOTTY", 0x540e: "TIOCSCTTY", 0x5413: "TIOCGWINSZ", 0x5414: "TIOCSWINSZ",
+    0x541b: "FIONREAD", 0x5421: "FIONBIO", 0x5451: "FIOCLEX", 0x5452: "FIONCLEX", 0x5453: "FIOASYNC",
+    0x8910: "SIOCGIFNAME", 0x8912: "SIOCGIFCONF", 0x8913: "SIOCGIFFLAGS", 0x8914: "SIOCSIFFLAGS",
+    0x8915: "SIOCGIFADDR", 0x8916: "SIOCSIFADDR", 0x891b: "SIOCGIFNETMASK", 0x891c: "SIOCSIFNETMASK",
+    0x8927: "SIOCGIFHWADDR", 0x8933: "SIOCGIFINDEX"
+}
+
+
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
 
@@ -717,6 +797,86 @@ class SyscallHandler:
             return f"makedev(0x{major:x}, 0x{minor:x})"
         except (ValueError, TypeError):
             return str(dev_val)
+
+    def _format_prot(self, prot_raw):
+        p = self._parse_id(prot_raw)
+        if p == 0:
+            return "PROT_NONE"
+        flags = []
+        if p & 1: flags.append("PROT_READ")
+        if p & 2: flags.append("PROT_WRITE")
+        if p & 4: flags.append("PROT_EXEC")
+        if p & 0x10: flags.append("PROT_GROWSDOWN")
+        if p & 0x20: flags.append("PROT_GROWSUP")
+        return "|".join(flags) if flags else f"0x{p:x}"
+
+    def _format_mmap_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        flags = []
+        if f & 0x01: flags.append("MAP_SHARED")
+        if f & 0x02: flags.append("MAP_PRIVATE")
+        if f & 0x10: flags.append("MAP_FIXED")
+        if f & 0x20: flags.append("MAP_ANONYMOUS")
+        if f & 0x100: flags.append("MAP_GROWSDOWN")
+        if f & 0x800: flags.append("MAP_DENYWRITE")
+        if f & 0x1000: flags.append("MAP_EXECUTABLE")
+        if f & 0x2000: flags.append("MAP_LOCKED")
+        if f & 0x4000: flags.append("MAP_NORESERVE")
+        if f & 0x8000: flags.append("MAP_POPULATE")
+        if f & 0x10000: flags.append("MAP_NONBLOCK")
+        if f & 0x20000: flags.append("MAP_STACK")
+        if f & 0x40000: flags.append("MAP_HUGETLB")
+        if f & 0x80000: flags.append("MAP_SYNC")
+        if f & 0x100000: flags.append("MAP_FIXED_NOREPLACE")
+        return "|".join(flags) if flags else f"0x{f:x}"
+
+    def _format_socket_domain(self, dom_raw):
+        d = self._parse_id(dom_raw)
+        return SOCKET_DOMAINS.get(d, str(d))
+
+    def _format_socket_type(self, type_raw):
+        t = self._parse_id(type_raw)
+        base = t & 0xf
+        base_str = SOCKET_TYPES.get(base, str(base))
+        flags = []
+        if t & 0x800: flags.append("SOCK_NONBLOCK")
+        if t & 0x80000: flags.append("SOCK_CLOEXEC")
+        if flags:
+            return f"{base_str}|{'|'.join(flags)}"
+        return base_str
+
+    def _format_socket_proto(self, proto_raw, dom_val):
+        p = self._parse_id(proto_raw)
+        if p == 0:
+            return "IPPROTO_IP" if dom_val in (2, 10) else "0"
+        return SOCKET_PROTO.get(p, str(p))
+
+    def _format_sockaddr(self, event, arg_idx="a1", len_idx="a2"):
+        if event.sockaddr_interp and "saddr" in event.sockaddr_interp:
+            s = event.sockaddr_interp["saddr"].strip()
+            if s.startswith("{") and s.endswith("}"):
+                inner = s[1:-1].strip()
+                kv = dict(part.split("=", 1) for part in inner.split() if "=" in part)
+                fam = kv.get("saddr_fam", "")
+                if fam == "inet":
+                    port = kv.get("lport", "0")
+                    addr = kv.get("laddr", "0.0.0.0")
+                    return f"{{sa_family=AF_INET, sin_port=htons({port}), sin_addr=inet_addr(\"{addr}\")}}"
+                elif fam == "inet6":
+                    port = kv.get("lport", "0")
+                    addr = kv.get("laddr", "::")
+                    return f"{{sa_family=AF_INET6, sin6_port=htons({port}), sin6_addr=inet_pton(\"{addr}\")}}"
+                elif fam == "local":
+                    path = kv.get("path", "")
+                    return f"{{sa_family=AF_UNIX, sun_path=\"{path}\"}}"
+                elif fam == "netlink":
+                    pid = kv.get("nlnk-pid", "0")
+                    return f"{{sa_family=AF_NETLINK, pid={pid}}}"
+                else:
+                    return s
+            return s
+        addr_ptr = self._parse_id(event.syscall.get(arg_idx, "0"))
+        return "{...}" if addr_ptr else "NULL"
 
     def _get_pathname(self, event, default_arg="a0"):
         if event.paths:
@@ -1172,6 +1332,189 @@ class SyscallHandler:
         call_str = f"exit({exit_code}) = ?"
         return call_str
 
+    def handle_mmap(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = "NULL" if addr_val == 0 else f"0x{addr_val:x}"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        prot_str = self._format_prot(event.syscall.get("a2", "0"))
+        flags_str = self._format_mmap_flags(event.syscall.get("a3", "0"))
+        args_tail = "-1, 0" if "MAP_ANONYMOUS" in flags_str else "..."
+        if event.exit_code is not None and event.exit_code >= 0:
+            ret_str = f"0x{event.exit_code:x}"
+        else:
+            ret_str = event.exit_str
+        return f"mmap({addr_str}, {len_val}, {prot_str}, {flags_str}, {args_tail}) = {ret_str}"
+
+    def handle_munmap(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr_val:x}" if addr_val else "NULL"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f"munmap({addr_str}, {len_val}) = {event.exit_str}"
+
+    def handle_mprotect(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr_val:x}" if addr_val else "NULL"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        prot_str = self._format_prot(event.syscall.get("a2", "0"))
+        return f"mprotect({addr_str}, {len_val}, {prot_str}) = {event.exit_str}"
+
+    def handle_madvise(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr_val:x}" if addr_val else "NULL"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        adv_val = self._parse_id(event.syscall.get("a2", "0"))
+        adv_str = MADVISE_OPS.get(adv_val, str(adv_val))
+        return f"madvise({addr_str}, {len_val}, {adv_str}) = {event.exit_str}"
+
+    def handle_brk(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = "NULL" if addr_val == 0 else f"0x{addr_val:x}"
+        if event.exit_code is not None and event.exit_code >= 0:
+            ret_str = f"0x{event.exit_code:x}"
+        else:
+            ret_str = event.exit_str
+        return f"brk({addr_str}) = {ret_str}"
+
+    def handle_socket(self, event):
+        dom_val = self._parse_id(event.syscall.get("a0", "0"))
+        dom_str = self._format_socket_domain(dom_val)
+        type_str = self._format_socket_type(event.syscall.get("a1", "0"))
+        proto_str = self._format_socket_proto(event.syscall.get("a2", "0"), dom_val)
+        return f"socket({dom_str}, {type_str}, {proto_str}) = {event.exit_str}"
+
+    def handle_socketpair(self, event):
+        dom_val = self._parse_id(event.syscall.get("a0", "1"))
+        dom_str = self._format_socket_domain(dom_val)
+        type_str = self._format_socket_type(event.syscall.get("a1", "1"))
+        proto_str = self._format_socket_proto(event.syscall.get("a2", "0"), dom_val)
+        if event.fd_pair:
+            fd0 = event.fd_pair.get("fd0", "?")
+            fd1 = event.fd_pair.get("fd1", "?")
+            sv_str = f"[{fd0}, {fd1}]"
+        else:
+            sv_str = "[...]"
+        return f"socketpair({dom_str}, {type_str}, {proto_str}, {sv_str}) = {event.exit_str}"
+
+    def handle_bind(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        sa_str = self._format_sockaddr(event, "a1", "a2")
+        addrlen = self._parse_id(event.syscall.get("a2", "16"))
+        return f"bind({fd_str}, {sa_str}, {addrlen}) = {event.exit_str}"
+
+    def handle_connect(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        sa_str = self._format_sockaddr(event, "a1", "a2")
+        addrlen = self._parse_id(event.syscall.get("a2", "16"))
+        return f"connect({fd_str}, {sa_str}, {addrlen}) = {event.exit_str}"
+
+    def handle_listen(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        backlog = self._parse_id(event.syscall.get("a1", "128"))
+        return f"listen({fd_str}, {backlog}) = {event.exit_str}"
+
+    def handle_accept(self, event, scname="accept"):
+        fd_str = self._resolve_fd(event, "a0")
+        sa_str = self._format_sockaddr(event, "a1", "a2")
+        flags_str = ""
+        if scname == "accept4":
+            fval = self._parse_id(event.syscall.get("a3", "0"))
+            flags_str = ", SOCK_CLOEXEC" if fval == 0x80000 else (f", {fval}" if fval else ", 0")
+        return f"{scname}({fd_str}, {sa_str}, [...]{flags_str}) = {event.exit_str}"
+
+    def handle_getsockname(self, event, scname):
+        fd_str = self._resolve_fd(event, "a0")
+        sa_str = self._format_sockaddr(event, "a1", "a2")
+        return f"{scname}({fd_str}, {sa_str}, [...]) = {event.exit_str}"
+
+    def handle_sendto(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        len_val = self._parse_id(event.syscall.get("a2", "0"))
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        dest_str = ""
+        if event.sockaddr:
+            sa_str = self._format_sockaddr(event, "a4", "a5")
+            dest_str = f", {sa_str}, {self._parse_id(event.syscall.get('a5', '16'))}"
+        return f"sendto({fd_str}, \"...\", {len_val}, {flags_val}{dest_str}) = {event.exit_str}"
+
+    def handle_recvfrom(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        len_val = self._parse_id(event.syscall.get("a2", "0"))
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        src_str = ""
+        if event.sockaddr:
+            sa_str = self._format_sockaddr(event, "a4", "a5")
+            src_str = f", {sa_str}, [...]"
+        return f"recvfrom({fd_str}, \"...\", {len_val}, {flags_val}{src_str}) = {event.exit_str}"
+
+    def handle_sendmsg_recvmsg(self, event, scname):
+        fd_str = self._resolve_fd(event, "a0")
+        flags_val = self._parse_id(event.syscall.get("a2", "0"))
+        return f"{scname}({fd_str}, {{...}}, {flags_val}) = {event.exit_str}"
+
+    def handle_shutdown(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        how = self._parse_id(event.syscall.get("a1", "2"))
+        how_str = SHUTDOWN_HOW.get(how, str(how))
+        return f"shutdown({fd_str}, {how_str}) = {event.exit_str}"
+
+    def handle_read_write(self, event, scname):
+        fd_str = self._resolve_fd(event, "a0")
+        count = self._parse_id(event.syscall.get("a2", "0"))
+        return f"{scname}({fd_str}, \"...\", {count}) = {event.exit_str}"
+
+    def handle_readv_writev(self, event, scname):
+        fd_str = self._resolve_fd(event, "a0")
+        iovcnt = self._parse_id(event.syscall.get("a2", "0"))
+        return f"{scname}({fd_str}, [...], {iovcnt}) = {event.exit_str}"
+
+    def handle_pread_pwrite(self, event, scname):
+        fd_str = self._resolve_fd(event, "a0")
+        count = self._parse_id(event.syscall.get("a2", "0"))
+        offset = self._parse_id(event.syscall.get("a3", "0"))
+        return f"{scname}({fd_str}, \"...\", {count}, {offset}) = {event.exit_str}"
+
+    def handle_preadv_pwritev(self, event, scname):
+        fd_str = self._resolve_fd(event, "a0")
+        iovcnt = self._parse_id(event.syscall.get("a2", "0"))
+        offset = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = ""
+        if scname in ("preadv2", "pwritev2"):
+            flags_val = self._parse_id(event.syscall.get("a4", "0"))
+            flags_str = f", {flags_val}"
+        return f"{scname}({fd_str}, [...], {iovcnt}, {offset}{flags_str}) = {event.exit_str}"
+
+    def handle_sendfile(self, event, scname="sendfile"):
+        out_fd = self._resolve_fd(event, "a0")
+        in_fd = self._resolve_fd(event, "a1")
+        offset_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        offset_str = "NULL" if offset_ptr == 0 else "[...]"
+        count = self._parse_id(event.syscall.get("a3", "0"))
+        return f"{scname}({out_fd}, {in_fd}, {offset_str}, {count}) = {event.exit_str}"
+
+    def handle_fcntl(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        cmd_val = self._parse_id(event.syscall.get("a1", "0"))
+        cmd_str = FCNTL_CMDS.get(cmd_val, str(cmd_val))
+        arg_val = self._parse_id(event.syscall.get("a2", "0"))
+
+        if cmd_str == "F_SETFD":
+            arg_str = "FD_CLOEXEC" if arg_val == 1 else str(arg_val)
+        elif cmd_str in ("F_GETFD", "F_GETFL", "F_GETPIPE_SZ", "F_GETOWN"):
+            return f"fcntl({fd_str}, {cmd_str}) = {event.exit_str}"
+        elif cmd_str == "F_SETFL":
+            arg_str = event.syscall_interp.get("a2") or str(arg_val)
+        else:
+            arg_str = str(arg_val)
+        return f"fcntl({fd_str}, {cmd_str}, {arg_str}) = {event.exit_str}"
+
+    def handle_ioctl(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        req_val = self._parse_id(event.syscall.get("a1", "0"))
+        req_str = COMMON_IOCTLS.get(req_val, f"0x{req_val:x}")
+        arg_val = self._parse_id(event.syscall.get("a2", "0"))
+        arg_str = f"0x{arg_val:x}" if arg_val else "NULL"
+        return f"ioctl({fd_str}, {req_str}, {arg_str}) = {event.exit_str}"
+
     def format_event(self, event, caller_comm=None):
         scname = event.syscall_name
         if not scname:
@@ -1270,6 +1613,52 @@ class SyscallHandler:
             call_str = self.handle_pipe(event, scname)
         elif scname in ('utime', 'utimes', 'futimesat', 'utimensat'):
             call_str = self.handle_utime(event, scname)
+        elif scname == 'mmap':
+            call_str = self.handle_mmap(event)
+        elif scname == 'munmap':
+            call_str = self.handle_munmap(event)
+        elif scname == 'mprotect':
+            call_str = self.handle_mprotect(event)
+        elif scname == 'madvise':
+            call_str = self.handle_madvise(event)
+        elif scname == 'brk':
+            call_str = self.handle_brk(event)
+        elif scname == 'socket':
+            call_str = self.handle_socket(event)
+        elif scname == 'socketpair':
+            call_str = self.handle_socketpair(event)
+        elif scname == 'bind':
+            call_str = self.handle_bind(event)
+        elif scname == 'listen':
+            call_str = self.handle_listen(event)
+        elif scname in ('accept', 'accept4'):
+            call_str = self.handle_accept(event, scname)
+        elif scname == 'connect':
+            call_str = self.handle_connect(event)
+        elif scname in ('getsockname', 'getpeername'):
+            call_str = self.handle_getsockname(event, scname)
+        elif scname == 'sendto':
+            call_str = self.handle_sendto(event)
+        elif scname == 'recvfrom':
+            call_str = self.handle_recvfrom(event)
+        elif scname in ('sendmsg', 'recvmsg'):
+            call_str = self.handle_sendmsg_recvmsg(event, scname)
+        elif scname == 'shutdown':
+            call_str = self.handle_shutdown(event)
+        elif scname in ('read', 'write'):
+            call_str = self.handle_read_write(event, scname)
+        elif scname in ('readv', 'writev'):
+            call_str = self.handle_readv_writev(event, scname)
+        elif scname in ('pread', 'pread64', 'pwrite', 'pwrite64'):
+            call_str = self.handle_pread_pwrite(event, scname)
+        elif scname in ('preadv', 'pwritev', 'preadv2', 'pwritev2'):
+            call_str = self.handle_preadv_pwritev(event, scname)
+        elif scname in ('sendfile', 'sendfile64'):
+            call_str = self.handle_sendfile(event, scname)
+        elif scname == 'fcntl':
+            call_str = self.handle_fcntl(event)
+        elif scname == 'ioctl':
+            call_str = self.handle_ioctl(event)
         elif scname in ('clone', 'clone3', 'fork', 'vfork'):
             call_str = self.handle_clone(event)
         elif scname in ('execve', 'execveat'):
@@ -1421,6 +1810,46 @@ class AudispStraceApp:
                     self.tracker.set_fd(pid, fd0, "pipe:[...]", cloexec=cloexec)
                 if fd1 is not None:
                     self.tracker.set_fd(pid, fd1, "pipe:[...]", cloexec=cloexec)
+
+        elif scname == 'socket':
+            if event.exit_code is not None and event.exit_code >= 0:
+                dom_val = self.handler._parse_id(event.syscall.get("a0", "0"))
+                dom_str = self.handler._format_socket_domain(dom_val)
+                type_val = self.handler._parse_id(event.syscall.get("a1", "0"))
+                is_cloexec = (type_val & 0x80000 != 0)
+                self.tracker.set_fd(pid, event.exit_code, f"socket:[{dom_str}]", cloexec=is_cloexec)
+
+        elif scname == 'socketpair':
+            if (event.exit_code == 0 or event.success == 'yes') and event.fd_pair:
+                fd0 = event.fd_pair.get("fd0")
+                fd1 = event.fd_pair.get("fd1")
+                type_val = self.handler._parse_id(event.syscall.get("a1", "0"))
+                is_cloexec = (type_val & 0x80000 != 0)
+                if fd0 is not None:
+                    self.tracker.set_fd(pid, fd0, "socket:[AF_UNIX]", cloexec=is_cloexec)
+                if fd1 is not None:
+                    self.tracker.set_fd(pid, fd1, "socket:[AF_UNIX]", cloexec=is_cloexec)
+
+        elif scname in ('accept', 'accept4'):
+            if event.exit_code is not None and event.exit_code >= 0:
+                is_cloexec = False
+                if scname == 'accept4':
+                    fval = self.handler._parse_id(event.syscall.get("a3", "0"))
+                    is_cloexec = (fval & 0x80000 != 0)
+                self.tracker.set_fd(pid, event.exit_code, "socket:[...]", cloexec=is_cloexec)
+
+        elif scname == 'fcntl':
+            cmd_val = self.handler._parse_id(event.syscall.get("a1", "0"))
+            cmd_str = FCNTL_CMDS.get(cmd_val, "")
+            if cmd_str in ("F_DUPFD", "F_DUPFD_CLOEXEC") and event.exit_code is not None and event.exit_code >= 0:
+                oldfd = event.syscall.get("a0", "0")
+                self.tracker.dup_fd(pid, oldfd, event.exit_code, cloexec=(cmd_str == "F_DUPFD_CLOEXEC"))
+            elif cmd_str == "F_SETFD" and (event.exit_code == 0 or event.success == 'yes'):
+                a0_val = self.handler._parse_id(event.syscall.get("a0", "0"))
+                arg_val = self.handler._parse_id(event.syscall.get("a2", "0"))
+                proc = self.tracker.get_proc(pid)
+                if proc and 'fds' in proc and a0_val in proc['fds']:
+                    proc['fds'][a0_val]['cloexec'] = (arg_val == 1)
 
         elif scname in ('execve', 'execveat'):
             if event.exit_code == 0 or event.success == 'yes':

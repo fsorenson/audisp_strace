@@ -15,6 +15,15 @@
 #include <sys/wait.h>
 #include <sys/syscall.h>
 #include <sys/xattr.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/uio.h>
+#include <sys/sendfile.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 
 #ifdef __has_include
 #  if __has_include(<linux/openat2.h>)
@@ -431,7 +440,172 @@ static void run_worker_tests(const char *base_dir) {
     }
 
     /* -------------------------------------------------------------
-     * 13. DELETION & CLEANUP: unlink, unlinkat, rmdir, close
+     * 13. MEMORY MANAGEMENT: mmap, mprotect, madvise, munmap, brk
+     * ------------------------------------------------------------- */
+    printf("\n--- Memory Operations (mmap, mprotect, madvise, munmap, brk) ---\n");
+    {
+        void *m = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        log_op("mmap", "anonymous mmap 4096 bytes", (m != MAP_FAILED) ? 0 : -1);
+
+        if (m != MAP_FAILED) {
+            res = mprotect(m, 4096, PROT_READ);
+            log_op("mprotect", "change protection to PROT_READ", res);
+
+            res = madvise(m, 4096, MADV_DONTNEED);
+            log_op("madvise", "MADV_DONTNEED on mapped region", res);
+
+            res = munmap(m, 4096);
+            log_op("munmap", "unmap 4096 bytes", res);
+        }
+
+        void *cur_brk = sbrk(0);
+        res = brk(cur_brk);
+        log_op("brk", "query/set current break", res);
+    }
+
+    /* -------------------------------------------------------------
+     * 14. READ, WRITE & I/O: write, read, pwrite, pread, writev, readv, sendfile
+     * ------------------------------------------------------------- */
+    printf("\n--- Read & Write Operations ---\n");
+    if (file_fd >= 0) {
+        char io_buf[64];
+        const char *msg = "audisp test data\n";
+        ssize_t rw_res;
+
+        rw_res = write(file_fd, msg, strlen(msg));
+        log_op("write", "write to file_fd", (int)rw_res);
+
+        lseek(file_fd, 0, SEEK_SET);
+        rw_res = read(file_fd, io_buf, sizeof(io_buf) - 1);
+        log_op("read", "read from file_fd", (int)rw_res);
+
+        rw_res = pwrite(file_fd, "pwrite data\n", 12, 0);
+        log_op("pwrite64", "pwrite to offset 0", (int)rw_res);
+
+        rw_res = pread(file_fd, io_buf, 12, 0);
+        log_op("pread64", "pread from offset 0", (int)rw_res);
+
+        struct iovec iov[2];
+        char h1[] = "hello ";
+        char h2[] = "iovec\n";
+        iov[0].iov_base = h1;
+        iov[0].iov_len = strlen(h1);
+        iov[1].iov_base = h2;
+        iov[1].iov_len = strlen(h2);
+
+        rw_res = writev(file_fd, iov, 2);
+        log_op("writev", "writev 2 buffers", (int)rw_res);
+
+        lseek(file_fd, 0, SEEK_SET);
+        char in1[8], in2[8];
+        iov[0].iov_base = in1;
+        iov[0].iov_len = 6;
+        iov[1].iov_base = in2;
+        iov[1].iov_len = 6;
+        rw_res = readv(file_fd, iov, 2);
+        log_op("readv", "readv 2 buffers", (int)rw_res);
+
+        /* sendfile: copy 0 bytes from file_fd to file_fd (safe test) */
+        off_t s_off = 0;
+        rw_res = sendfile(file_fd, file_fd, &s_off, 0);
+        log_op("sendfile", "sendfile file_fd -> file_fd", (int)rw_res);
+    }
+
+    /* -------------------------------------------------------------
+     * 15. DESCRIPTOR CONTROL: fcntl, ioctl
+     * ------------------------------------------------------------- */
+    printf("\n--- Descriptor Control (fcntl, ioctl) ---\n");
+    if (file_fd >= 0) {
+        res = fcntl(file_fd, F_GETFL);
+        log_op("fcntl", "F_GETFL", res);
+
+        res = fcntl(file_fd, F_SETFL, O_RDWR);
+        log_op("fcntl", "F_SETFL O_RDWR", res);
+
+        res = fcntl(file_fd, F_GETFD);
+        log_op("fcntl", "F_GETFD", res);
+
+        res = fcntl(file_fd, F_SETFD, FD_CLOEXEC);
+        log_op("fcntl", "F_SETFD FD_CLOEXEC", res);
+
+        int dup_fd1 = fcntl(file_fd, F_DUPFD, 60);
+        log_op("fcntl", "F_DUPFD min 60", dup_fd1);
+        if (dup_fd1 >= 0) close(dup_fd1);
+
+        int dup_fd2 = fcntl(file_fd, F_DUPFD_CLOEXEC, 61);
+        log_op("fcntl", "F_DUPFD_CLOEXEC min 61", dup_fd2);
+        if (dup_fd2 >= 0) close(dup_fd2);
+
+        struct termios t;
+        res = ioctl(0, TCGETS, &t);
+        log_op("ioctl", "TCGETS on stdin", res);
+
+        int bytes_avail = 0;
+        res = ioctl(file_fd, FIONREAD, &bytes_avail);
+        log_op("ioctl", "FIONREAD on file_fd", res);
+    }
+
+    /* -------------------------------------------------------------
+     * 16. SOCKETS & NETWORKING: socket, socketpair, bind, listen,
+     *                          getsockname, getpeername, shutdown, sendto
+     * ------------------------------------------------------------- */
+    printf("\n--- Sockets & Networking ---\n");
+    {
+        int sp[2];
+        res = socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sp);
+        log_op("socketpair", "AF_UNIX SOCK_STREAM pair", res);
+        if (res >= 0) {
+            struct sockaddr_storage ss;
+            socklen_t slen = sizeof(ss);
+            res = getsockname(sp[0], (struct sockaddr *)&ss, &slen);
+            log_op("getsockname", "socketpair[0]", res);
+
+            slen = sizeof(ss);
+            res = getpeername(sp[0], (struct sockaddr *)&ss, &slen);
+            log_op("getpeername", "socketpair[0]", res);
+
+            res = shutdown(sp[0], SHUT_RDWR);
+            log_op("shutdown", "shutdown socketpair[0]", res);
+
+            close(sp[0]);
+            close(sp[1]);
+        }
+
+        int s_unix = socket(AF_UNIX, SOCK_STREAM, 0);
+        log_op("socket", "AF_UNIX SOCK_STREAM", s_unix);
+        if (s_unix >= 0) {
+            struct sockaddr_un sun_addr;
+            memset(&sun_addr, 0, sizeof(sun_addr));
+            sun_addr.sun_family = AF_UNIX;
+            snprintf(sun_addr.sun_path, sizeof(sun_addr.sun_path), "%s/test_sock.s", base_dir);
+            res = bind(s_unix, (struct sockaddr *)&sun_addr, sizeof(sun_addr));
+            log_op("bind", "bind unix socket path", res);
+
+            res = listen(s_unix, 5);
+            log_op("listen", "listen backlog 5", res);
+
+            close(s_unix);
+            unlink(sun_addr.sun_path);
+        }
+
+        int s_udp = socket(AF_INET, SOCK_DGRAM, 0);
+        log_op("socket", "AF_INET SOCK_DGRAM", s_udp);
+        if (s_udp >= 0) {
+            struct sockaddr_in sin;
+            memset(&sin, 0, sizeof(sin));
+            sin.sin_family = AF_INET;
+            sin.sin_port = htons(9999);
+            inet_pton(AF_INET, "127.0.0.1", &sin.sin_addr);
+
+            res = (int)sendto(s_udp, "ping", 4, 0, (struct sockaddr *)&sin, sizeof(sin));
+            log_op("sendto", "sendto 127.0.0.1:9999 UDP", res);
+
+            close(s_udp);
+        }
+    }
+
+    /* -------------------------------------------------------------
+     * 17. DELETION & CLEANUP: unlink, unlinkat, rmdir, close
      * ------------------------------------------------------------- */
     printf("\n--- Deletion & Cleanup (unlink, unlinkat, rmdir, close) ---\n");
 

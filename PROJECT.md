@@ -14,6 +14,10 @@ Supported Syscalls:
 - **File Manipulation, Descriptors & Sizing**: `dup`, `dup2`, `dup3`, `truncate`, `ftruncate`, `fallocate`
 - **Extended Attributes**: `setxattr`, `lsetxattr`, `fsetxattr`, `getxattr`, `lgetxattr`, `fgetxattr`, `listxattr`, `llistxattr`, `flistxattr`, `removexattr`, `lremovexattr`, `fremovexattr`
 - **Special Files, IPC & Timestamps**: `mknod`, `mknodat`, `pipe`, `pipe2`, `utime`, `utimes`, `futimesat`, `utimensat`
+- **Memory Management**: `mmap`, `munmap`, `mprotect`, `madvise`, `brk`
+- **Sockets & Networking**: `socket`, `socketpair`, `bind`, `listen`, `accept`, `accept4`, `connect`, `getsockname`, `getpeername`, `sendto`, `recvfrom`, `sendmsg`, `recvmsg`, `shutdown`
+- **Read, Write & I/O Operations**: `read`, `write`, `readv`, `writev`, `pread` / `pread64`, `pwrite` / `pwrite64`, `preadv`, `pwritev`, `preadv2`, `pwritev2`, `sendfile` / `sendfile64`
+- **Descriptor Control**: `fcntl`, `ioctl`
 - **Process Lifecycle & Tracking**: `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, `exit`, `exit_group`
 
 ---
@@ -92,6 +96,20 @@ Sample 3-line format per monitored event:
     - [x] `mknod`, `mknodat`
     - [x] `pipe`, `pipe2`
     - [x] `utime`, `utimes`, `futimesat`, `utimensat`
+  - [x] Syscall handlers for memory management:
+    - [x] `mmap`, `munmap`, `mprotect`, `madvise`, `brk`
+  - [x] Syscall handlers for sockets & networking:
+    - [x] `socket`, `socketpair`, `bind`, `listen`, `accept`, `accept4`
+    - [x] `connect`, `getsockname`, `getpeername`, `shutdown`
+    - [x] `sendto`, `recvfrom`, `sendmsg`, `recvmsg`
+    - [x] Socket address (`SOCKADDR`) interpretation for `inet`, `inet6`, `local/unix`, and `netlink`.
+  - [x] Syscall handlers for read, write & I/O:
+    - [x] `read`, `write`, `readv`, `writev`
+    - [x] `pread` / `pread64`, `pwrite` / `pwrite64`, `preadv`, `pwritev`, `preadv2`, `pwritev2`
+    - [x] `sendfile` / `sendfile64`
+  - [x] Syscall handlers for descriptor control:
+    - [x] `fcntl` (command decoding, flag interpretation, and `F_DUPFD`/`F_SETFD` FD tracking)
+    - [x] `ioctl` (decoding common tty/socket ioctls e.g. `TCGETS`, `TIOCGWINSZ`, `FIONREAD`, with hex fallback)
   - [x] Syscall handlers for process tracking:
     - [x] `clone`, `clone3`, `fork`, `vfork`
     - [x] `execve`, `execveat`
@@ -99,9 +117,10 @@ Sample 3-line format per monitored event:
   - [x] String unescaping & hex-decoding for command line arguments (`argv`, `proctitle`).
   - [x] Full in-memory file descriptor lifecycle tracking (`ProcessTracker`):
     - [x] Tracks descriptors opened by `open`, `openat`, `openat2`, `creat` (with relative-to-cwd and relative-to-dirfd resolution).
-    - [x] Tracks descriptor duplication via `dup`, `dup2`, `dup3`.
-    - [x] Tracks `FD_PAIR` records from `pipe`, `pipe2`.
-    - [x] In-flight resolution for `fstat`, `fchmod`, `fchown`, `ftruncate`, `fallocate`, `f*xattr`, directory descriptors in `*at` syscalls, and `close(fd<path>)`.
+    - [x] Tracks descriptor duplication via `dup`, `dup2`, `dup3`, and `fcntl(F_DUPFD)`.
+    - [x] Tracks socket descriptors from `socket`, `socketpair`, `accept`, `accept4`.
+    - [x] Tracks `FD_PAIR` records from `pipe`, `pipe2`, `socketpair`.
+    - [x] In-flight resolution for `fstat`, `fchmod`, `fchown`, `ftruncate`, `fallocate`, `f*xattr`, directory descriptors in `*at` syscalls, read/write, sockets, fcntl/ioctl, and `close(fd<path>)`.
     - [x] Inherits open descriptors across `fork`/`clone`, handles `O_CLOEXEC` closure on `execve`, and cleans up on `exit`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
@@ -112,13 +131,14 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log-v2.out`
   - [x] `examples/audit-log-v3.out`
   - [x] `examples/audit-log-v4.out`
-  - [x] `examples/audit-log-v5.out` (verified complete run with `test_syscalls` process tree, 45+ syscalls, and full FD resolution)
+  - [x] `examples/audit-log-v5.out`
+  - [x] `examples/audit-log-v6.out` (verified complete run across 75+ syscalls, memory, sockets, I/O, fcntl, ioctl, and FD tracking)
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
-- [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 45+ syscalls across descriptor/path combinations.
+- [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.
 - [x] Created `setup_audit_rules.sh` to configure `auditctl` rules for all tested syscalls.
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
 
 ### Next Steps / Ideas
+- [ ] Potential to-do: Add direct `syscall(SYS_open, ...)` and `syscall(SYS_stat, ...)` to `test_syscalls.c` if explicit audit verification of legacy syscall numbers is desired on x86_64.
 - [ ] Live integration test on test VM with auditd daemon active.
-- [ ] Memory/socket/network syscalls if requested (e.g. `mmap`, `socket`, `connect`, `bind`, `sendto`, `recvfrom`).
