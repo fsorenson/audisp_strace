@@ -669,6 +669,55 @@ COMMON_IOCTLS = {
     0x8927: "SIOCGIFHWADDR", 0x8933: "SIOCGIFINDEX"
 }
 
+SIGNALS = {
+    0: "0", 1: "SIGHUP", 2: "SIGINT", 3: "SIGQUIT", 4: "SIGILL", 5: "SIGTRAP",
+    6: "SIGABRT", 7: "SIGBUS", 8: "SIGFPE", 9: "SIGKILL", 10: "SIGUSR1",
+    11: "SIGSEGV", 12: "SIGUSR2", 13: "SIGPIPE", 14: "SIGALRM", 15: "SIGTERM",
+    16: "SIGSTKFLT", 17: "SIGCHLD", 18: "SIGCONT", 19: "SIGSTOP", 20: "SIGTSTP",
+    21: "SIGTTIN", 22: "SIGTTOU", 23: "SIGURG", 24: "SIGXCPU", 25: "SIGXFSZ",
+    26: "SIGVTALRM", 27: "SIGPROF", 28: "SIGWINCH", 29: "SIGIO", 30: "SIGPWR",
+    31: "SIGSYS"
+}
+
+WAIT_OPTIONS = {
+    1: "WNOHANG", 2: "WUNTRACED", 4: "WEXITED", 8: "WCONTINUED", 0x1000000: "WNOWAIT",
+    0x40000000: "__WALL", 0x80000000: "__WCLONE"
+}
+
+WAIT_IDTYPES = {0: "P_ALL", 1: "P_PID", 2: "P_PGID", 3: "P_PIDFD"}
+
+SOCKET_LEVELS = {
+    1: "SOL_SOCKET", 0: "IPPROTO_IP", 6: "IPPROTO_TCP", 17: "IPPROTO_UDP",
+    41: "IPPROTO_IPV6", 58: "IPPROTO_ICMPV6", 255: "SOL_RAW", 263: "SOL_PACKET",
+    270: "SOL_NETLINK"
+}
+
+SOL_SOCKET_OPTS = {
+    1: "SO_DEBUG", 2: "SO_REUSEADDR", 3: "SO_TYPE", 4: "SO_ERROR",
+    5: "SO_DONTROUTE", 6: "SO_BROADCAST", 7: "SO_SNDBUF", 8: "SO_RCVBUF",
+    9: "SO_KEEPALIVE", 10: "SO_OOBINLINE", 11: "SO_NO_CHECK", 12: "SO_PRIORITY",
+    13: "SO_LINGER", 14: "SO_BSDCOMPAT", 15: "SO_REUSEPORT", 16: "SO_PASSCRED",
+    17: "SO_PEERCRED", 18: "SO_RCVLOWAT", 19: "SO_SNDLOWAT", 20: "SO_RCVTIMEO",
+    21: "SO_SNDTIMEO", 25: "SO_BINDTODEVICE", 26: "SO_ATTACH_FILTER",
+    27: "SO_DETACH_FILTER", 28: "SO_PEERNAME", 29: "SO_TIMESTAMP",
+    30: "SO_ACCEPTCONN", 31: "SO_PEERSEC", 32: "SO_SNDBUFFORCE",
+    33: "SO_RCVBUFFORCE", 34: "SO_PASSSEC"
+}
+
+TCP_OPTS = {
+    1: "TCP_NODELAY", 2: "TCP_MAXSEG", 3: "TCP_CORK", 4: "TCP_KEEPIDLE",
+    5: "TCP_KEEPINTVL", 6: "TCP_KEEPCNT", 7: "TCP_SYNCNT", 8: "TCP_LINGER2",
+    9: "TCP_DEFER_ACCEPT", 10: "TCP_WINDOW_CLAMP", 11: "TCP_INFO",
+    12: "TCP_QUICKACK", 13: "TCP_CONGESTION", 14: "TCP_MD5SIG",
+    18: "TCP_USER_TIMEOUT", 23: "TCP_FASTOPEN", 24: "TCP_TIMESTAMP",
+    25: "TCP_NOTSENT_LOWAT"
+}
+
+MPOL_MODES = {
+    0: "MPOL_DEFAULT", 1: "MPOL_PREFERRED", 2: "MPOL_BIND",
+    3: "MPOL_INTERLEAVE", 4: "MPOL_LOCAL", 5: "MPOL_PREFERRED_MANY"
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -748,6 +797,25 @@ class SyscallHandler:
             "mprotect": self.handle_mprotect,
             "madvise": self.handle_madvise,
             "brk": self.handle_brk,
+            "mremap": self.handle_mremap,
+            "msync": self.handle_msync,
+            "mincore": self.handle_mincore,
+            "shmat": self.handle_shmat,
+            "shmdt": self.handle_shmdt,
+            "mlock": self.handle_mlock,
+            "munlock": self.handle_munlock,
+            "mlock2": self.handle_mlock2,
+            "mlockall": self.handle_mlockall,
+            "munlockall": self.handle_munlockall,
+            "pkey_mprotect": self.handle_pkey_mprotect,
+            "io_setup": self.handle_io_setup,
+            "io_destroy": self.handle_io_destroy,
+            "remap_file_pages": self.handle_remap_file_pages,
+            "mbind": self.handle_mbind,
+            "set_mempolicy": self.handle_set_mempolicy,
+            "get_mempolicy": self.handle_get_mempolicy,
+            "migrate_pages": self.handle_migrate_pages,
+            "move_pages": self.handle_move_pages,
 
             # Sockets & Networking
             "socket": self.handle_socket,
@@ -764,6 +832,12 @@ class SyscallHandler:
             "sendmsg": self.handle_sendmsg_recvmsg,
             "recvmsg": self.handle_sendmsg_recvmsg,
             "shutdown": self.handle_shutdown,
+            "setsockopt": self.handle_setsockopt,
+            "getsockopt": self.handle_getsockopt,
+            "sendmmsg": self.handle_sendmmsg,
+            "recvmmsg": self.handle_recvmmsg,
+            "getpmsg": self.handle_pmsg,
+            "putpmsg": self.handle_pmsg,
 
             # Read, Write & I/O
             "read": self.handle_read_write,
@@ -794,6 +868,13 @@ class SyscallHandler:
             "execveat": self.handle_execve,
             "exit": self.handle_exit,
             "exit_group": self.handle_exit,
+            "kill": self.handle_kill,
+            "tkill": self.handle_tkill,
+            "tgkill": self.handle_tgkill,
+            "pidfd_send_signal": self.handle_pidfd_send_signal,
+            "wait4": self.handle_wait4,
+            "waitpid": self.handle_wait4,
+            "waitid": self.handle_waitid,
         }
 
         # Extended Attributes (xattr)
@@ -1004,6 +1085,64 @@ class SyscallHandler:
             return s
         addr_ptr = self._parse_id(event.syscall.get(arg_idx, "0"))
         return "{...}" if addr_ptr else "NULL"
+
+    def _format_sig(self, sig_raw):
+        s = self._parse_id(sig_raw)
+        if s in SIGNALS:
+            return SIGNALS[s]
+        if isinstance(s, int) and s > 32:
+            return f"SIGRT_{s - 32}"
+        return str(s)
+
+    def _format_wait_options(self, opts_raw):
+        opts = self._parse_id(opts_raw)
+        if not isinstance(opts, int) or opts == 0:
+            return "0"
+        flags = []
+        for bit, name in WAIT_OPTIONS.items():
+            if opts & bit:
+                flags.append(name)
+        return "|".join(flags) if flags else hex(opts)
+
+    def _format_sockopt(self, lvl_val, opt_val):
+        lvl_str = SOCKET_LEVELS.get(lvl_val, str(lvl_val))
+        if lvl_val == 1:
+            opt_str = SOL_SOCKET_OPTS.get(opt_val, str(opt_val))
+        elif lvl_val == 6:
+            opt_str = TCP_OPTS.get(opt_val, str(opt_val))
+        else:
+            opt_str = str(opt_val)
+        return lvl_str, opt_str
+
+    def _format_mremap_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 1: flags.append("MREMAP_MAYMOVE")
+        if f & 2: flags.append("MREMAP_FIXED")
+        if f & 4: flags.append("MREMAP_DONTUNMAP")
+        return "|".join(flags) if flags else hex(f)
+
+    def _format_msync_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 1: flags.append("MS_ASYNC")
+        if f & 2: flags.append("MS_INVALIDATE")
+        if f & 4: flags.append("MS_SYNC")
+        return "|".join(flags) if flags else hex(f)
+
+    def _format_mlockall_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 1: flags.append("MCL_CURRENT")
+        if f & 2: flags.append("MCL_FUTURE")
+        if f & 4: flags.append("MCL_ONFAULT")
+        return "|".join(flags) if flags else hex(f)
 
     def _get_pathname(self, event, default_arg="a0"):
         if event.paths:
@@ -1466,6 +1605,51 @@ class SyscallHandler:
         call_str = f"exit({exit_code}) = ?"
         return call_str
 
+    def handle_kill(self, event):
+        pid_val = self._parse_id(event.syscall.get("a0", "0"))
+        sig_str = self._format_sig(event.syscall.get("a1", "0"))
+        return f"kill({pid_val}, {sig_str}) = {event.exit_str}"
+
+    def handle_tkill(self, event):
+        tid_val = self._parse_id(event.syscall.get("a0", "0"))
+        sig_str = self._format_sig(event.syscall.get("a1", "0"))
+        return f"tkill({tid_val}, {sig_str}) = {event.exit_str}"
+
+    def handle_tgkill(self, event):
+        tgid_val = self._parse_id(event.syscall.get("a0", "0"))
+        tid_val = self._parse_id(event.syscall.get("a1", "0"))
+        sig_str = self._format_sig(event.syscall.get("a2", "0"))
+        return f"tgkill({tgid_val}, {tid_val}, {sig_str}) = {event.exit_str}"
+
+    def handle_pidfd_send_signal(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        sig_str = self._format_sig(event.syscall.get("a1", "0"))
+        info_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        info_str = "NULL" if info_ptr == 0 else "{...}"
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        return f"pidfd_send_signal({fd_str}, {sig_str}, {info_str}, {flags_val}) = {event.exit_str}"
+
+    def handle_wait4(self, event, scname=None):
+        scname = scname or event.syscall_name or "wait4"
+        pid_val = self._parse_id(event.syscall.get("a0", "-1"))
+        status_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        status_str = "[{...}]" if status_ptr else "NULL"
+        opts_str = self._format_wait_options(event.syscall.get("a2", "0"))
+        ru_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        ru_str = ", NULL" if ru_ptr == 0 else ", {...}"
+        return f"{scname}({pid_val}, {status_str}, {opts_str}{ru_str}) = {event.exit_str}"
+
+    def handle_waitid(self, event):
+        idtype_val = self._parse_id(event.syscall.get("a0", "0"))
+        idtype_str = WAIT_IDTYPES.get(idtype_val, str(idtype_val))
+        id_val = self._parse_id(event.syscall.get("a1", "0"))
+        infop_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        infop_str = "{...}" if infop_ptr else "NULL"
+        opts_str = self._format_wait_options(event.syscall.get("a3", "0"))
+        ru_ptr = self._parse_id(event.syscall.get("a4", "0"))
+        ru_str = ", NULL" if ru_ptr == 0 else ", {...}"
+        return f"waitid({idtype_str}, {id_val}, {infop_str}, {opts_str}{ru_str}) = {event.exit_str}"
+
     def handle_mmap(self, event):
         addr_val = self._parse_id(event.syscall.get("a0", "0"))
         addr_str = "NULL" if addr_val == 0 else f"0x{addr_val:x}"
@@ -1508,6 +1692,127 @@ class SyscallHandler:
         else:
             ret_str = event.exit_str
         return f"brk({addr_str}) = {ret_str}"
+
+    def handle_mremap(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr_val:x}" if addr_val else "NULL"
+        old_sz = self._parse_id(event.syscall.get("a1", "0"))
+        new_sz = self._parse_id(event.syscall.get("a2", "0"))
+        flags_str = self._format_mremap_flags(event.syscall.get("a3", "0"))
+        if event.exit_code is not None and event.exit_code >= 0:
+            ret_str = f"0x{event.exit_code:x}"
+        else:
+            ret_str = event.exit_str
+        return f"mremap({addr_str}, {old_sz}, {new_sz}, {flags_str}) = {ret_str}"
+
+    def handle_msync(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr_val:x}" if addr_val else "NULL"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = self._format_msync_flags(event.syscall.get("a2", "0"))
+        return f"msync({addr_str}, {len_val}, {flags_str}) = {event.exit_str}"
+
+    def handle_mincore(self, event):
+        addr_val = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr_val:x}" if addr_val else "NULL"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f"mincore({addr_str}, {len_val}, [...]) = {event.exit_str}"
+
+    def handle_shmat(self, event):
+        shmid = self._parse_id(event.syscall.get("a0", "0"))
+        addr = self._parse_id(event.syscall.get("a1", "0"))
+        addr_str = "NULL" if addr == 0 else f"0x{addr:x}"
+        flg = self._parse_id(event.syscall.get("a2", "0"))
+        flg_str = "SHM_RDONLY" if flg == 0x1000 else str(flg)
+        ret_str = f"0x{event.exit_code:x}" if event.exit_code is not None and event.exit_code >= 0 else event.exit_str
+        return f"shmat({shmid}, {addr_str}, {flg_str}) = {ret_str}"
+
+    def handle_shmdt(self, event):
+        addr = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr:x}" if addr else "NULL"
+        return f"shmdt({addr_str}) = {event.exit_str}"
+
+    def handle_mlock(self, event):
+        addr = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr:x}" if addr else "NULL"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f"mlock({addr_str}, {len_val}) = {event.exit_str}"
+
+    def handle_munlock(self, event):
+        addr = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr:x}" if addr else "NULL"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f"munlock({addr_str}, {len_val}) = {event.exit_str}"
+
+    def handle_mlock2(self, event):
+        addr = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr:x}" if addr else "NULL"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        flg = self._parse_id(event.syscall.get("a2", "0"))
+        flg_str = "MLOCK_ONFAULT" if flg == 1 else str(flg)
+        return f"mlock2({addr_str}, {len_val}, {flg_str}) = {event.exit_str}"
+
+    def handle_mlockall(self, event):
+        flg_str = self._format_mlockall_flags(event.syscall.get("a0", "0"))
+        return f"mlockall({flg_str}) = {event.exit_str}"
+
+    def handle_munlockall(self, event):
+        return f"munlockall() = {event.exit_str}"
+
+    def handle_pkey_mprotect(self, event):
+        addr = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr:x}" if addr else "NULL"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        prot_str = self._format_prot(event.syscall.get("a2", "0"))
+        pkey = self._parse_id(event.syscall.get("a3", "0"))
+        return f"pkey_mprotect({addr_str}, {len_val}, {prot_str}, {pkey}) = {event.exit_str}"
+
+    def handle_io_setup(self, event):
+        nr = self._parse_id(event.syscall.get("a0", "0"))
+        return f"io_setup({nr}, [...]) = {event.exit_str}"
+
+    def handle_io_destroy(self, event):
+        ctx = self._parse_id(event.syscall.get("a0", "0"))
+        return f"io_destroy(0x{ctx:x}) = {event.exit_str}"
+
+    def handle_remap_file_pages(self, event):
+        addr = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr:x}" if addr else "NULL"
+        size = self._parse_id(event.syscall.get("a1", "0"))
+        prot_str = self._format_prot(event.syscall.get("a2", "0"))
+        pgoff = self._parse_id(event.syscall.get("a3", "0"))
+        flags = self._parse_id(event.syscall.get("a4", "0"))
+        return f"remap_file_pages({addr_str}, {size}, {prot_str}, {pgoff}, {flags}) = {event.exit_str}"
+
+    def handle_mbind(self, event):
+        addr = self._parse_id(event.syscall.get("a0", "0"))
+        addr_str = f"0x{addr:x}" if addr else "NULL"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        mode = self._parse_id(event.syscall.get("a2", "0"))
+        mode_str = MPOL_MODES.get(mode & 0xf, str(mode))
+        flags = self._parse_id(event.syscall.get("a5", "0"))
+        return f"mbind({addr_str}, {len_val}, {mode_str}, [...], ..., {flags}) = {event.exit_str}"
+
+    def handle_set_mempolicy(self, event):
+        mode = self._parse_id(event.syscall.get("a0", "0"))
+        mode_str = MPOL_MODES.get(mode & 0xf, str(mode))
+        maxnode = self._parse_id(event.syscall.get("a2", "0"))
+        return f"set_mempolicy({mode_str}, [...], {maxnode}) = {event.exit_str}"
+
+    def handle_get_mempolicy(self, event):
+        flags = self._parse_id(event.syscall.get("a4", "0"))
+        return f"get_mempolicy([...], [...], ..., ..., {flags}) = {event.exit_str}"
+
+    def handle_migrate_pages(self, event):
+        pid_val = self._parse_id(event.syscall.get("a0", "0"))
+        maxnode = self._parse_id(event.syscall.get("a1", "0"))
+        return f"migrate_pages({pid_val}, {maxnode}, [...], [...]) = {event.exit_str}"
+
+    def handle_move_pages(self, event):
+        pid_val = self._parse_id(event.syscall.get("a0", "0"))
+        count = self._parse_id(event.syscall.get("a1", "0"))
+        flags = self._parse_id(event.syscall.get("a5", "0"))
+        return f"move_pages({pid_val}, {count}, [...], [...], [...], {flags}) = {event.exit_str}"
 
     def handle_socket(self, event):
         dom_val = self._parse_id(event.syscall.get("a0", "0"))
@@ -1593,6 +1898,40 @@ class SyscallHandler:
         how = self._parse_id(event.syscall.get("a1", "2"))
         how_str = SHUTDOWN_HOW.get(how, str(how))
         return f"shutdown({fd_str}, {how_str}) = {event.exit_str}"
+
+    def handle_setsockopt(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        lvl_val = self._parse_id(event.syscall.get("a1", "0"))
+        opt_val = self._parse_id(event.syscall.get("a2", "0"))
+        lvl_str, opt_str = self._format_sockopt(lvl_val, opt_val)
+        optlen = self._parse_id(event.syscall.get("a4", "0"))
+        return f"setsockopt({fd_str}, {lvl_str}, {opt_str}, [...], {optlen}) = {event.exit_str}"
+
+    def handle_getsockopt(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        lvl_val = self._parse_id(event.syscall.get("a1", "0"))
+        opt_val = self._parse_id(event.syscall.get("a2", "0"))
+        lvl_str, opt_str = self._format_sockopt(lvl_val, opt_val)
+        return f"getsockopt({fd_str}, {lvl_str}, {opt_str}, [...], [...]) = {event.exit_str}"
+
+    def handle_sendmmsg(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        vlen = self._parse_id(event.syscall.get("a2", "0"))
+        flags = self._parse_id(event.syscall.get("a3", "0"))
+        return f"sendmmsg({fd_str}, [...], {vlen}, {flags}) = {event.exit_str}"
+
+    def handle_recvmmsg(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        vlen = self._parse_id(event.syscall.get("a2", "0"))
+        flags = self._parse_id(event.syscall.get("a3", "0"))
+        to_ptr = self._parse_id(event.syscall.get("a4", "0"))
+        to_str = "NULL" if to_ptr == 0 else "{...}"
+        return f"recvmmsg({fd_str}, [...], {vlen}, {flags}, {to_str}) = {event.exit_str}"
+
+    def handle_pmsg(self, event, scname=None):
+        scname = scname or event.syscall_name
+        fd_str = self._resolve_fd(event, "a0")
+        return f"{scname}({fd_str}, ...) = {event.exit_str}"
 
     def handle_read_write(self, event, scname=None):
         scname = scname or event.syscall_name

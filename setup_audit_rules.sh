@@ -48,12 +48,14 @@ auditctl -a always,exit -F arch=b64 -S mknod,mknodat -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S dup,dup2,dup3,pipe,pipe2 -F key="$KEY"
 
 # Memory Management
-auditctl -a always,exit -F arch=b64 -S mmap,munmap,mprotect,madvise,brk -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S mmap,munmap,mprotect,madvise,brk,mremap,msync,mincore -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S shmat,shmdt,mlock,munlock,mlockall,munlockall,mlock2 -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S pkey_mprotect,remap_file_pages,mbind,set_mempolicy,get_mempolicy,migrate_pages,move_pages -F key="$KEY"
 
 # Sockets & Networking
 auditctl -a always,exit -F arch=b64 -S socket,socketpair,bind,listen,accept,accept4 -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S connect,getsockname,getpeername,shutdown -F key="$KEY"
-auditctl -a always,exit -F arch=b64 -S sendto,recvfrom,sendmsg,recvmsg -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S sendto,recvfrom,sendmsg,recvmsg,setsockopt,getsockopt,sendmmsg,recvmmsg -F key="$KEY"
 
 # Read, Write & I/O Operations
 auditctl -a always,exit -F arch=b64 -S read,write,readv,writev -F key="$KEY"
@@ -62,8 +64,9 @@ auditctl -a always,exit -F arch=b64 -S pread,pwrite,preadv,pwritev,preadv2,pwrit
 # Descriptor Control
 auditctl -a always,exit -F arch=b64 -S fcntl,ioctl -F key="$KEY"
 
-# Process Lifecycle (for ancestry tracking)
+# Process Lifecycle & Signals
 auditctl -a always,exit -F arch=b64 -S clone,clone3,fork,vfork,execve,execveat -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S kill,tkill,tgkill,wait4,waitid -F key="$KEY"
 
 echo "Current active rules with key $KEY:"
 auditctl -l | grep "$KEY"

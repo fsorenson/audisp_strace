@@ -14,11 +14,11 @@ Supported Syscalls:
 - **File Manipulation, Descriptors & Sizing**: `dup`, `dup2`, `dup3`, `truncate`, `ftruncate`, `fallocate`
 - **Extended Attributes**: `setxattr`, `lsetxattr`, `fsetxattr`, `getxattr`, `lgetxattr`, `fgetxattr`, `listxattr`, `llistxattr`, `flistxattr`, `removexattr`, `lremovexattr`, `fremovexattr`
 - **Special Files, IPC & Timestamps**: `mknod`, `mknodat`, `pipe`, `pipe2`, `utime`, `utimes`, `futimesat`, `utimensat`
-- **Memory Management**: `mmap`, `munmap`, `mprotect`, `madvise`, `brk`
-- **Sockets & Networking**: `socket`, `socketpair`, `bind`, `listen`, `accept`, `accept4`, `connect`, `getsockname`, `getpeername`, `sendto`, `recvfrom`, `sendmsg`, `recvmsg`, `shutdown`
+- **Memory Management**: `mmap`, `munmap`, `mprotect`, `madvise`, `brk`, `mremap`, `msync`, `mincore`, `shmat`, `shmdt`, `mlock`, `munlock`, `mlock2`, `mlockall`, `munlockall`, `pkey_mprotect`, `io_setup`, `io_destroy`, `remap_file_pages`, `mbind`, `set_mempolicy`, `get_mempolicy`, `migrate_pages`, `move_pages`
+- **Sockets & Networking**: `socket`, `socketpair`, `bind`, `listen`, `accept`, `accept4`, `connect`, `getsockname`, `getpeername`, `sendto`, `recvfrom`, `sendmsg`, `recvmsg`, `shutdown`, `setsockopt`, `getsockopt`, `sendmmsg`, `recvmmsg`, `getpmsg`, `putpmsg`
 - **Read, Write & I/O Operations**: `read`, `write`, `readv`, `writev`, `pread` / `pread64`, `pwrite` / `pwrite64`, `preadv`, `pwritev`, `preadv2`, `pwritev2`, `sendfile` / `sendfile64`
 - **Descriptor Control**: `fcntl`, `ioctl`
-- **Process Lifecycle & Tracking**: `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, `exit`, `exit_group`
+- **Process Lifecycle, Signals & Tracking**: `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, `exit`, `exit_group`, `kill`, `tkill`, `tgkill`, `pidfd_send_signal`, `wait4`, `waitid`, `waitpid`
 
 ---
 
@@ -98,11 +98,17 @@ Sample 3-line format per monitored event:
     - [x] `utime`, `utimes`, `futimesat`, `utimensat`
   - [x] Syscall handlers for memory management:
     - [x] `mmap`, `munmap`, `mprotect`, `madvise`, `brk`
+    - [x] `mremap`, `msync`, `mincore`, `shmat`, `shmdt`
+    - [x] `mlock`, `munlock`, `mlock2`, `mlockall`, `munlockall`, `pkey_mprotect`
+    - [x] `io_setup`, `io_destroy`, `remap_file_pages`
+    - [x] NUMA memory policies: `mbind`, `set_mempolicy`, `get_mempolicy`, `migrate_pages`, `move_pages`
   - [x] Syscall handlers for sockets & networking:
     - [x] `socket`, `socketpair`, `bind`, `listen`, `accept`, `accept4`
     - [x] `connect`, `getsockname`, `getpeername`, `shutdown`
     - [x] `sendto`, `recvfrom`, `sendmsg`, `recvmsg`
+    - [x] `setsockopt`, `getsockopt`, `sendmmsg`, `recvmmsg`, `getpmsg`, `putpmsg`
     - [x] Socket address (`SOCKADDR`) interpretation for `inet`, `inet6`, `local/unix`, and `netlink`.
+    - [x] Socket options formatting (`SOL_SOCKET`, `IPPROTO_TCP`, options flags).
   - [x] Syscall handlers for read, write & I/O:
     - [x] `read`, `write`, `readv`, `writev`
     - [x] `pread` / `pread64`, `pwrite` / `pwrite64`, `preadv`, `pwritev`, `preadv2`, `pwritev2`
@@ -110,10 +116,12 @@ Sample 3-line format per monitored event:
   - [x] Syscall handlers for descriptor control:
     - [x] `fcntl` (command decoding, flag interpretation, and `F_DUPFD`/`F_SETFD` FD tracking)
     - [x] `ioctl` (decoding common tty/socket ioctls e.g. `TCGETS`, `TIOCGWINSZ`, `FIONREAD`, with hex fallback)
-  - [x] Syscall handlers for process tracking:
+  - [x] Syscall handlers for process tracking, signals & wait:
     - [x] `clone`, `clone3`, `fork`, `vfork`
     - [x] `execve`, `execveat`
     - [x] `exit`, `exit_group`
+    - [x] `kill`, `tkill`, `tgkill`, `pidfd_send_signal`
+    - [x] `wait4`, `waitid`, `waitpid` (with wait options decoding)
   - [x] String unescaping & hex-decoding for command line arguments (`argv`, `proctitle`).
   - [x] Full in-memory file descriptor lifecycle tracking (`ProcessTracker`):
     - [x] Tracks descriptors opened by `open`, `openat`, `openat2`, `creat` (with relative-to-cwd and relative-to-dirfd resolution).
@@ -136,6 +144,7 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log-v6.out` (verified complete run across 75+ syscalls, memory, sockets, I/O, fcntl, ioctl, and FD tracking)
   - [x] `examples/audit-log-v7.out` & `examples/audit-log-v7-trace.out` (investigated audit buffer exhaustion under live pipe monitoring)
   - [x] `examples/audit-log-v8.out` & `examples/audit-log-v8-trace.out` (verified live capture with session exclusion; confirmed root and user1 UID/GID decoding, deep ancestry tracking, and file descriptor lifecycle)
+  - [x] `examples/audit-log-v9.out` & `examples/audit-log-v9-trace.out` (verified new process signals/wait4/waitid, socket options/mmsg, and extended memory/shared memory operations across both test_syscalls and system services)
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

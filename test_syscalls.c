@@ -23,6 +23,8 @@
 #include <sys/uio.h>
 #include <sys/sendfile.h>
 #include <sys/ioctl.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include <termios.h>
 
 #ifdef __has_include
@@ -424,10 +426,42 @@ static void run_worker_tests(const char *base_dir) {
     log_op("setuid", "setuid(0)", res);
 
     /* -------------------------------------------------------------
-     * 12. PROCESS CLONE
+     * 12. PROCESS LIFECYCLE & SIGNALS: clone, kill, tkill, tgkill, wait4, waitid
      * ------------------------------------------------------------- */
-    printf("\n--- Process Lifecycle (clone) ---\n");
+    printf("\n--- Process Lifecycle & Signals (clone, kill, tkill, tgkill, wait4, waitid) ---\n");
     {
+        /* Signal checks with signal 0 (null signal tests process/thread existence) */
+        res = kill(getpid(), 0);
+        log_op("kill", "kill(getpid(), 0)", res);
+
+        pid_t tid = (pid_t)syscall(SYS_gettid);
+        res = (int)syscall(SYS_tkill, tid, 0);
+        log_op("tkill", "tkill(gettid(), 0)", res);
+
+        res = (int)syscall(SYS_tgkill, getpid(), tid, 0);
+        log_op("tgkill", "tgkill(getpid(), gettid(), 0)", res);
+
+        /* Test wait4 */
+        pid_t child_w4 = fork();
+        if (child_w4 == 0) {
+            _exit(0);
+        } else if (child_w4 > 0) {
+            int wstatus = 0;
+            res = (int)wait4(child_w4, &wstatus, 0, NULL);
+            log_op("wait4", "wait4 on child", res);
+        }
+
+        /* Test waitid */
+        pid_t child_wid = fork();
+        if (child_wid == 0) {
+            _exit(0);
+        } else if (child_wid > 0) {
+            siginfo_t si;
+            memset(&si, 0, sizeof(si));
+            res = waitid(P_PID, (id_t)child_wid, &si, WEXITED);
+            log_op("waitid", "waitid P_PID WEXITED", res);
+        }
+
         char *stack = malloc(CLONE_STACK_SIZE);
         if (stack) {
             pid_t clone_pid = clone(clone_child_func, stack + CLONE_STACK_SIZE, SIGCHLD, NULL);
@@ -440,9 +474,11 @@ static void run_worker_tests(const char *base_dir) {
     }
 
     /* -------------------------------------------------------------
-     * 13. MEMORY MANAGEMENT: mmap, mprotect, madvise, munmap, brk
+     * 13. MEMORY MANAGEMENT: mmap, mprotect, madvise, munmap, brk,
+     *                          mremap, msync, mincore, mlock, munlock,
+     *                          mlockall, munlockall, shmat, shmdt
      * ------------------------------------------------------------- */
-    printf("\n--- Memory Operations (mmap, mprotect, madvise, munmap, brk) ---\n");
+    printf("\n--- Memory Operations (mmap, mprotect, madvise, munmap, brk, mremap, msync, mincore, mlock, shm) ---\n");
     {
         void *m = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         log_op("mmap", "anonymous mmap 4096 bytes", (m != MAP_FAILED) ? 0 : -1);
@@ -456,6 +492,57 @@ static void run_worker_tests(const char *base_dir) {
 
             res = munmap(m, 4096);
             log_op("munmap", "unmap 4096 bytes", res);
+        }
+
+        /* mremap */
+        void *mr = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (mr != MAP_FAILED) {
+            void *mr2 = mremap(mr, 4096, 8192, MREMAP_MAYMOVE);
+            log_op("mremap", "mremap 4096 -> 8192 bytes", (mr2 != MAP_FAILED) ? 0 : -1);
+            if (mr2 != MAP_FAILED) {
+                munmap(mr2, 8192);
+            } else {
+                munmap(mr, 4096);
+            }
+        }
+
+        /* msync, mincore, mlock, munlock */
+        void *ms = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (ms != MAP_FAILED) {
+            memset(ms, 0x42, 4096);
+            res = msync(ms, 4096, MS_SYNC);
+            log_op("msync", "msync MS_SYNC on anonymous page", res);
+
+            unsigned char vec[2];
+            res = mincore(ms, 4096, vec);
+            log_op("mincore", "mincore on mapped page", res);
+
+            res = mlock(ms, 4096);
+            log_op("mlock", "mlock 4096 bytes", res);
+
+            res = munlock(ms, 4096);
+            log_op("munlock", "munlock 4096 bytes", res);
+
+            munmap(ms, 4096);
+        }
+
+        /* mlockall / munlockall */
+        res = mlockall(MCL_CURRENT);
+        log_op("mlockall", "mlockall MCL_CURRENT", res);
+        res = munlockall();
+        log_op("munlockall", "munlockall", res);
+
+        /* System V Shared Memory: shmat, shmdt */
+        int shmid = shmget(IPC_PRIVATE, 4096, IPC_CREAT | 0600);
+        log_op("shmget", "IPC_PRIVATE shmget 4096", shmid);
+        if (shmid >= 0) {
+            void *shm_addr = shmat(shmid, NULL, 0);
+            log_op("shmat", "shmat attach shared memory", (shm_addr != (void *)-1) ? 0 : -1);
+            if (shm_addr != (void *)-1) {
+                res = shmdt(shm_addr);
+                log_op("shmdt", "shmdt detach shared memory", res);
+            }
+            shmctl(shmid, IPC_RMID, NULL);
         }
 
         void *cur_brk = sbrk(0);
@@ -597,8 +684,30 @@ static void run_worker_tests(const char *base_dir) {
             sin.sin_port = htons(9999);
             inet_pton(AF_INET, "127.0.0.1", &sin.sin_addr);
 
+            int optval = 1;
+            res = setsockopt(s_udp, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+            log_op("setsockopt", "SOL_SOCKET SO_REUSEADDR", res);
+
+            socklen_t optlen = sizeof(optval);
+            res = getsockopt(s_udp, SOL_SOCKET, SO_REUSEADDR, &optval, &optlen);
+            log_op("getsockopt", "SOL_SOCKET SO_REUSEADDR", res);
+
             res = (int)sendto(s_udp, "ping", 4, 0, (struct sockaddr *)&sin, sizeof(sin));
             log_op("sendto", "sendto 127.0.0.1:9999 UDP", res);
+
+            /* sendmmsg */
+            struct iovec iov_mmsg;
+            char msg_buf[] = "mmsg ping";
+            iov_mmsg.iov_base = msg_buf;
+            iov_mmsg.iov_len = sizeof(msg_buf);
+            struct mmsghdr msgvec[1];
+            memset(msgvec, 0, sizeof(msgvec));
+            msgvec[0].msg_hdr.msg_name = &sin;
+            msgvec[0].msg_hdr.msg_namelen = sizeof(sin);
+            msgvec[0].msg_hdr.msg_iov = &iov_mmsg;
+            msgvec[0].msg_hdr.msg_iovlen = 1;
+            res = sendmmsg(s_udp, msgvec, 1, 0);
+            log_op("sendmmsg", "sendmmsg 1 message to 127.0.0.1:9999", res);
 
             close(s_udp);
         }
