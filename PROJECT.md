@@ -40,8 +40,27 @@ Sample 3-line format per monitored event:
    - Live stream pipe (e.g., `unbuffer tail -n0 -F /var/log/audit/audit.log | audisp-strace --live`).
    - Offline batch mode (reading past audit logs via stdin or file arguments).
 3. **Filtering Controls**:
-   - `-s`, `--syscalls`: Comma-separated list of syscalls to display (e.g. `--syscalls chown,rename,unlink,setuid`).
-   - `-x`, `--exclude`: Comma-separated list of syscalls to omit (e.g. `--exclude close,openat`).
+   - `-s`, `--syscalls`: Comma-separated list of syscalls or `%CLASS` shorthands to display (e.g. `-s %creds,%net,openat`).
+   - `-x`, `-X`, `--exclude`: Comma-separated list of syscalls or `%CLASS shorthands to omit (e.g. `-X %desc,openat`).
+   - Supports 18 strace-compatible `%CLASS` shorthand selectors:
+     - `%desc`: File descriptor-related syscalls
+     - `%file`: File-related syscalls
+     - `%memory`: Memory mapping & NUMA syscalls
+     - `%process`: Process lifecycle and management syscalls
+     - `%creds`: Process credentials and capability syscalls
+     - `%signal`: Signal-related syscalls
+     - `%ipc`: System V IPC (shm, sem, msg) syscalls
+     - `%net` / `%network`: Socket and network-related syscalls
+     - `%stat`: `stat` syscall
+     - `%lstat`: `lstat` syscall
+     - `%fstat`: `fstat`, `newfstatat`, `statx` syscalls
+     - `%%stat`: All stat-like syscalls (`stat`, `lstat`, `fstat`, `newfstatat`, `statx`)
+     - `%statfs`: `statfs` syscall
+     - `%fstatfs`: `fstatfs` syscall
+     - `%%statfs`: All statfs-like syscalls (`statfs`, `fstatfs`, `ustat`)
+     - `%pure`: Zero-argument getter syscalls (`getuid`, `getgid`, `geteuid`, `getegid`, etc.)
+     - `%clock`: Clock and system time syscalls
+     - Syscalls in any class not yet implemented in `audisp-strace` are maintained commented out in `SYSCALL_CLASSES` sets for easy activation as handlers are added.
    - `-a`, `--all`: Display all captured syscalls.
    - `-t`, `--timestamp-format`: Select `time` (default: `HH:MM:SS.mmm`), `datetime` (`YYYY-MM-DD HH:MM:SS.mmm [tz]`), or `epoch`.
 4. **Architecture**:
@@ -136,6 +155,11 @@ Sample 3-line format per monitored event:
     - [x] In-flight resolution for `fstat`, `fchmod`, `fchown`, `ftruncate`, `fallocate`, `f*xattr`, directory descriptors in `*at` syscalls, read/write, sockets, fcntl/ioctl, and `close(fd<path>)`.
     - [x] Inherits open descriptors across `fork`/`clone`, handles `O_CLOEXEC` closure on `execve`, and cleans up on `exit`.
 - [x] Refactored `SyscallHandler` dispatch from an $O(N)$ `if/elif` chain to an $O(1)$ dictionary method dispatch table (`self._handlers`), unifying handler method signatures (`handle_*(self, event)`) and validating zero output regressions across all test logs.
+- [x] Implemented strace-compatible `%CLASS` shorthand selectors for `-s` and `-x`/`-X`:
+  - Added support for all 18 classes: `%desc`, `%file`, `%memory`, `%process`, `%creds`, `%signal`, `%ipc`, `%net`, `%network`, `%stat`, `%lstat`, `%fstat`, `%%stat`, `%statfs`, `%fstatfs`, `%%statfs`, `%pure`, `%clock`.
+  - Added `-X` flag alias for `--exclude` alongside `-x`.
+  - Included unimplemented syscalls commented out inside `SYSCALL_CLASSES` dictionary definitions for easy future enablement.
+  - Verified class selection and exclusion behavior across `examples/audit-log-v10.out` and validated zero regressions against `out-v6.txt`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`
