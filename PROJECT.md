@@ -54,7 +54,7 @@ Sample 3-line format per monitored event:
      - **`AudispStraceApp`**: Stream line un-wrapper, `auparse` feed manager, and signal lifecycle coordinator.
 5. **Testing & Audit Event Generation**:
    - **`test_syscalls.c` / `test_syscalls`**: C test generator that exercises every handled syscall across AT_FDCWD, dir_fd, relative paths, and absolute paths, creating a full parent->child->execve process tree.
-   - **`setup_audit_rules.sh`**: Helper script to configure `auditctl` rules for capturing the generated events on a test system. Includes `-a never,exit` exclusion rules for `auditd`, `sshd-session`, `tail`, `tee`, and `python3` to prevent runaway audit feedback loops during live pipe monitoring.
+   - **`setup_audit_rules.sh`**: Helper script to configure `auditctl` rules for capturing the generated events on a test system. Automatically discovers and excludes the monitoring login session (`auditctl -a never,exit -F sessionid=$sessionid`) to prevent audit storm feedback loops between `tail`, `tee`, `sshd`, and `audisp-strace` during live stream pipe monitoring.
 
 ---
 
@@ -133,6 +133,8 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log-v4.out`
   - [x] `examples/audit-log-v5.out`
   - [x] `examples/audit-log-v6.out` (verified complete run across 75+ syscalls, memory, sockets, I/O, fcntl, ioctl, and FD tracking)
+  - [x] `examples/audit-log-v7.out` & `examples/audit-log-v7-trace.out` (investigated audit buffer exhaustion under live pipe monitoring)
+  - [x] `examples/audit-log-v8.out` & `examples/audit-log-v8-trace.out` (verified live capture with session exclusion; confirmed root and user1 UID/GID decoding, deep ancestry tracking, and file descriptor lifecycle)
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

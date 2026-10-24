@@ -11,15 +11,12 @@ if [ "$1" == "-d" ] || [ "$1" == "--delete" ]; then
     exit 0
 fi
 
+sessionid=$(cat /proc/$$/sessionid)
+
 echo "Adding audit rules with key: $KEY"
 
-# Exclude logging daemons and monitoring pipeline to prevent runaway feedback loops
-auditctl -a never,exit -F exe=/usr/sbin/auditd -k "$KEY"
-auditctl -a never,exit -F comm=sshd-session -k "$KEY"
-auditctl -a never,exit -F comm=tail -k "$KEY"
-auditctl -a never,exit -F comm=tee -k "$KEY"
-auditctl -a never,exit -F comm=tclsh -k "$KEY"
-auditctl -a never,exit -F comm=python3 -k "$KEY"
+# Exclude the current session to prevent runaway feedback loops
+auditctl -a never,exit -F sessionid=$sessionid
 
 # Permissions & Ownership
 auditctl -a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F key="$KEY"
