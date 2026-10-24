@@ -106,142 +106,141 @@ DEFAULT_MONITORED_SYSCALLS = (
 # Maps class names to sets of syscalls based on strace classification.
 # Syscalls not yet implemented in audisp-strace are listed commented out.
 SYSCALL_CLASSES = {
-    # %desc (TRACE_DESC): file descriptor-related syscalls (68 active, 65 unimplemented)
+    # %desc (TRACE_DESC): descriptor-related syscalls (108 active, 0 unimplemented)
     "%desc": {
+        "bpf",
+        "cachestat",
         "close",
+        "copy_file_range",
         "creat",
         "dup",
         "dup2",
         "dup3",
+        "epoll_create",
+        "epoll_create1",
+        "epoll_ctl",
+        "epoll_pwait",
+        "epoll_pwait2",
+        "epoll_wait",
+        "eventfd",
+        "eventfd2",
         "execveat",
         "faccessat",
         "faccessat2",
+        "fadvise64",
         "fallocate",
+        "fanotify_init",
         "fanotify_mark",
+        "fchdir",
         "fchmod",
         "fchmodat",
         "fchmodat2",
         "fchown",
         "fchownat",
+        "fchroot",
         "fcntl",
+        "fdatasync",
         "fgetxattr",
         "file_getattr",
         "file_setattr",
+        "finit_module",
         "flistxattr",
+        "flock",
         "fremovexattr",
         "fsconfig",
         "fsetxattr",
+        "fsmount",
+        "fsopen",
         "fspick",
         "fstat",
         "fstatfs",
+        "fsync",
         "ftruncate",
         "futimesat",
+        "getdents",
+        "getdents64",
         "getxattrat",
         "inotify_add_watch",
+        "inotify_init",
+        "inotify_init1",
+        "inotify_rm_watch",
+        "io_uring_enter",
+        "io_uring_register",
+        "io_uring_setup",
         "ioctl",
+        "kexec_file_load",
+        "landlock_add_rule",
+        "landlock_create_ruleset",
+        "landlock_restrict_self",
         "linkat",
         "listxattrat",
+        "lseek",
+        "memfd_create",
+        "memfd_secret",
         "mkdirat",
         "mknodat",
         "mmap",
         "mount_setattr",
         "move_mount",
+        "mq_getsetattr",
+        "mq_notify",
+        "mq_open",
+        "mq_timedreceive",
+        "mq_timedsend",
         "name_to_handle_at",
         "newfstatat",
         "open",
-        "openat",
-        "openat2",
+        "open_by_handle_at",
         "open_tree",
         "open_tree_attr",
+        "openat",
+        "openat2",
+        "perf_event_open",
+        "pidfd_getfd",
+        "pidfd_open",
         "pidfd_send_signal",
         "pipe",
         "pipe2",
+        "poll",
+        "ppoll",
         "pread64",
         "preadv",
         "preadv2",
+        "process_madvise",
+        "process_mrelease",
+        "pselect6",
         "pwrite64",
         "pwritev",
         "pwritev2",
+        "quotactl_fd",
         "read",
+        "readahead",
         "readlinkat",
         "readv",
         "removexattrat",
         "renameat",
         "renameat2",
+        "select",
         "sendfile",
+        "setns",
         "setxattrat",
-        "statx",
-        "symlinkat",
-        "unlinkat",
-        "utimensat",
-        "write",
-        "writev",
-        # Unimplemented in audisp-strace:
-        # "bpf",
-        # "cachestat",
-        # "copy_file_range",
-        # "epoll_create",
-        # "epoll_create1",
-        # "epoll_ctl",
-        # "epoll_pwait",
-        # "epoll_pwait2",
-        # "epoll_wait",
-        # "eventfd",
-        # "eventfd2",
-        # "fadvise64",
-        # "fanotify_init",
-        # "fchdir",
-        # "fchroot",
-        # "fdatasync",
-        # "finit_module",
-        # "flock",
-        # "fsmount",
-        # "fsopen",
-        # "fsync",
-        # "getdents",
-        # "getdents64",
-        # "inotify_init",
-        # "inotify_init1",
-        # "inotify_rm_watch",
-        "io_uring_enter",
-        "io_uring_register",
-        "io_uring_setup",
-        # "kexec_file_load",
-        # "landlock_add_rule",
-        # "landlock_create_ruleset",
-        # "landlock_restrict_self",
-        # "lseek",
-        # "memfd_create",
-        # "memfd_secret",
-        # "mq_getsetattr",
-        # "mq_notify",
-        # "mq_open",
-        # "mq_timedreceive",
-        # "mq_timedsend",
-        # "open_by_handle_at",
-        # "perf_event_open",
-        # "pidfd_getfd",
-        # "pidfd_open",
-        # "poll",
-        # "ppoll",
-        # "process_madvise",
-        # "process_mrelease",
-        # "pselect6",
-        # "quotactl_fd",
-        # "readahead",
-        # "select",
-        # "setns",
         "signalfd",
         "signalfd4",
-        # "splice",
-        # "sync_file_range",
-        # "syncfs",
-        # "tee",
-        # "timerfd_create",
-        # "timerfd_gettime",
-        # "timerfd_settime",
-        # "userfaultfd",
-        # "vmsplice",
+        "splice",
+        "statx",
+        "symlinkat",
+        "sync_file_range",
+        "syncfs",
+        "tee",
+        "timerfd_create",
+        "timerfd_gettime",
+        "timerfd_settime",
+        "unlinkat",
+        "userfaultfd",
+        "utimensat",
+        "vmsplice",
+        "write",
+        "writev",
     },
         # %file (TRACE_FILE): file-related syscalls (75 active)
     "%file": {
@@ -951,6 +950,10 @@ class AuditEvent:
         return self.syscall.get("success")
 
     @property
+    def is_success(self):
+        return self.success == "yes"
+
+    @property
     def exit_str(self):
         exit_val = self.exit_code
         if exit_val is None:
@@ -1327,6 +1330,45 @@ SHADOW_STACK_FLAGS = {
     2: "SHADOW_STACK_SET_MARKER",
 }
 
+EPOLL_CTLS = {
+    1: "EPOLL_CTL_ADD",
+    2: "EPOLL_CTL_DEL",
+    3: "EPOLL_CTL_MOD",
+}
+
+LSEEK_WHENCE = {
+    0: "SEEK_SET",
+    1: "SEEK_CUR",
+    2: "SEEK_END",
+    3: "SEEK_DATA",
+    4: "SEEK_HOLE",
+}
+
+POSIX_FADV_MODES = {
+    0: "POSIX_FADV_NORMAL",
+    1: "POSIX_FADV_RANDOM",
+    2: "POSIX_FADV_SEQUENTIAL",
+    3: "POSIX_FADV_WILLNEED",
+    4: "POSIX_FADV_DONTNEED",
+    5: "POSIX_FADV_NOREUSE",
+}
+
+BPF_CMDS = {
+    0: "BPF_MAP_CREATE", 1: "BPF_MAP_LOOKUP_ELEM", 2: "BPF_MAP_UPDATE_ELEM",
+    3: "BPF_MAP_DELETE_ELEM", 4: "BPF_MAP_GET_NEXT_KEY", 5: "BPF_PROG_LOAD",
+    6: "BPF_OBJ_PIN", 7: "BPF_OBJ_GET", 8: "BPF_PROG_ATTACH",
+    9: "BPF_PROG_DETACH", 10: "BPF_PROG_TEST_RUN", 11: "BPF_PROG_GET_NEXT_ID",
+    12: "BPF_MAP_GET_NEXT_ID", 13: "BPF_PROG_GET_FD_BY_ID", 14: "BPF_MAP_GET_FD_BY_ID",
+    15: "BPF_OBJ_GET_INFO_BY_FD", 16: "BPF_PROG_QUERY", 17: "BPF_RAW_TRACEPOINT_OPEN",
+    18: "BPF_BTF_LOAD", 19: "BPF_BTF_GET_FD_BY_ID", 20: "BPF_TASK_FD_QUERY",
+    21: "BPF_MAP_LOOKUP_AND_DELETE_ELEM", 22: "BPF_MAP_FREEZE", 23: "BPF_BTF_GET_NEXT_ID",
+    24: "BPF_MAP_LOOKUP_BATCH", 25: "BPF_MAP_LOOKUP_AND_DELETE_BATCH",
+    26: "BPF_MAP_UPDATE_BATCH", 27: "BPF_MAP_DELETE_BATCH", 28: "BPF_LINK_CREATE",
+    29: "BPF_LINK_UPDATE", 30: "BPF_LINK_GET_FD_BY_ID", 31: "BPF_LINK_GET_NEXT_ID",
+    32: "BPF_ENABLE_STATS", 33: "BPF_ITER_CREATE", 34: "BPF_LINK_DETACH",
+    35: "BPF_PROG_BIND_MAP", 36: "BPF_TOKEN_CREATE"
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -1567,6 +1609,78 @@ class SyscallHandler:
             "file_getattr": self.handle_file_getattr,
             "file_setattr": self.handle_file_setattr,
             "uselib": self.handle_uselib,
+
+            # Polling, Multiplexing & Events
+            "select": self.handle_select,
+            "pselect6": self.handle_pselect6,
+            "poll": self.handle_poll,
+            "ppoll": self.handle_ppoll,
+            "epoll_create": self.handle_epoll_create,
+            "epoll_create1": self.handle_epoll_create1,
+            "epoll_ctl": self.handle_epoll_ctl,
+            "epoll_wait": self.handle_epoll_wait,
+            "epoll_pwait": self.handle_epoll_pwait,
+            "epoll_pwait2": self.handle_epoll_pwait2,
+            "eventfd": self.handle_eventfd,
+            "eventfd2": self.handle_eventfd2,
+            "timerfd_create": self.handle_timerfd_create,
+            "timerfd_gettime": self.handle_timerfd_gettime,
+            "timerfd_settime": self.handle_timerfd_settime,
+            "userfaultfd": self.handle_userfaultfd,
+            "inotify_init": self.handle_inotify_init,
+            "inotify_init1": self.handle_inotify_init1,
+            "inotify_rm_watch": self.handle_inotify_rm_watch,
+            "fanotify_init": self.handle_fanotify_init,
+
+            # Splice, Pipe, Range & Buffer I/O
+            "splice": self.handle_splice,
+            "tee": self.handle_tee,
+            "vmsplice": self.handle_vmsplice,
+            "copy_file_range": self.handle_copy_file_range,
+
+            # Descriptor Management & Advanced File Operations
+            "lseek": self.handle_lseek,
+            "flock": self.handle_flock,
+            "fsync": self.handle_fsync,
+            "fdatasync": self.handle_fdatasync,
+            "syncfs": self.handle_syncfs,
+            "sync_file_range": self.handle_sync_file_range,
+            "fchdir": self.handle_fchdir,
+            "fchroot": self.handle_fchroot,
+            "getdents": self.handle_getdents,
+            "getdents64": self.handle_getdents64,
+            "fadvise64": self.handle_fadvise64,
+            "readahead": self.handle_readahead,
+            "cachestat": self.handle_cachestat,
+
+            # POSIX Message Queues
+            "mq_open": self.handle_mq_open,
+            "mq_timedsend": self.handle_mq_timedsend,
+            "mq_timedreceive": self.handle_mq_timedreceive,
+            "mq_notify": self.handle_mq_notify,
+            "mq_getsetattr": self.handle_mq_getsetattr,
+
+            # Specialized Descriptors (Memfd, Pidfd, Handles, Quota)
+            "memfd_create": self.handle_memfd_create,
+            "memfd_secret": self.handle_memfd_secret,
+            "pidfd_open": self.handle_pidfd_open,
+            "pidfd_getfd": self.handle_pidfd_getfd,
+            "open_by_handle_at": self.handle_open_by_handle_at,
+            "quotactl_fd": self.handle_quotactl_fd,
+
+            # System Services, Landlock & Kernel Execution
+            "setns": self.handle_setns,
+            "fsmount": self.handle_fsmount,
+            "fsopen": self.handle_fsopen,
+            "finit_module": self.handle_finit_module,
+            "kexec_file_load": self.handle_kexec_file_load,
+            "bpf": self.handle_bpf,
+            "perf_event_open": self.handle_perf_event_open,
+            "landlock_create_ruleset": self.handle_landlock_create_ruleset,
+            "landlock_add_rule": self.handle_landlock_add_rule,
+            "landlock_restrict_self": self.handle_landlock_restrict_self,
+            "process_madvise": self.handle_process_madvise,
+            "process_mrelease": self.handle_process_mrelease,
         }
 
         # Extended Attributes (xattr)
@@ -1885,6 +1999,137 @@ class SyscallHandler:
             flags.append(hex(rem))
         return "|".join(flags) if flags else "0"
 
+    def _format_flock_op(self, op_raw):
+        op = self._parse_id(op_raw)
+        if not isinstance(op, int):
+            return str(op_raw)
+        flags = []
+        base = op & ~4
+        if base == 1: flags.append("LOCK_SH")
+        elif base == 2: flags.append("LOCK_EX")
+        elif base == 8: flags.append("LOCK_UN")
+        elif base != 0: flags.append(str(base))
+        if op & 4:
+            flags.append("LOCK_NB")
+        return "|".join(flags) if flags else "0"
+
+    def _format_splice_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 1: flags.append("SPLICE_F_MOVE")
+        if f & 2: flags.append("SPLICE_F_NONBLOCK")
+        if f & 4: flags.append("SPLICE_F_MORE")
+        if f & 8: flags.append("SPLICE_F_GIFT")
+        rem = f & ~15
+        if rem:
+            flags.append(hex(rem))
+        return "|".join(flags) if flags else "0"
+
+    def _format_sync_file_range_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 1: flags.append("SYNC_FILE_RANGE_WAIT_BEFORE")
+        if f & 2: flags.append("SYNC_FILE_RANGE_WRITE")
+        if f & 4: flags.append("SYNC_FILE_RANGE_WAIT_AFTER")
+        rem = f & ~7
+        if rem:
+            flags.append(hex(rem))
+        return "|".join(flags) if flags else "0"
+
+    def _format_eventfd_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 1: flags.append("EFD_SEMAPHORE")
+        if f & 0x800: flags.append("EFD_NONBLOCK")
+        if f & 0x80000: flags.append("EFD_CLOEXEC")
+        rem = f & ~(1 | 0x800 | 0x80000)
+        if rem:
+            flags.append(hex(rem))
+        return "|".join(flags) if flags else "0"
+
+    def _format_timerfd_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 0x800: flags.append("TFD_NONBLOCK")
+        if f & 0x80000: flags.append("TFD_CLOEXEC")
+        rem = f & ~(0x800 | 0x80000)
+        if rem:
+            flags.append(hex(rem))
+        return "|".join(flags) if flags else "0"
+
+    def _format_inotify_init1_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 0x800: flags.append("IN_NONBLOCK")
+        if f & 0x80000: flags.append("IN_CLOEXEC")
+        rem = f & ~(0x800 | 0x80000)
+        if rem:
+            flags.append(hex(rem))
+        return "|".join(flags) if flags else "0"
+
+    def _format_userfaultfd_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 1: flags.append("UFFD_CLOEXEC")
+        if f & 2: flags.append("UFFD_NONBLOCK")
+        if f & 0x800: flags.append("UFFD_USER_MODE_ONLY")
+        rem = f & ~(1 | 2 | 0x800)
+        if rem:
+            flags.append(hex(rem))
+        return "|".join(flags) if flags else "0"
+
+    def _format_memfd_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 1: flags.append("MFD_CLOEXEC")
+        if f & 2: flags.append("MFD_ALLOW_SEALING")
+        if f & 4: flags.append("MFD_HUGETLB")
+        if f & 8: flags.append("MFD_NOEXEC_SEAL")
+        if f & 16: flags.append("MFD_EXEC")
+        rem = f & ~31
+        if rem:
+            flags.append(hex(rem))
+        return "|".join(flags) if flags else "0"
+
+    def _format_clone_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        flags = []
+        if f & 0x20000: flags.append("CLONE_NEWNS")
+        if f & 0x2000000: flags.append("CLONE_NEWCGROUP")
+        if f & 0x4000000: flags.append("CLONE_NEWUTS")
+        if f & 0x8000000: flags.append("CLONE_NEWIPC")
+        if f & 0x10000000: flags.append("CLONE_NEWUSER")
+        if f & 0x20000000: flags.append("CLONE_NEWPID")
+        if f & 0x40000000: flags.append("CLONE_NEWNET")
+        if f & 0x80: flags.append("CLONE_NEWTIME")
+        return "|".join(flags) if flags else hex(f)
+
+    def _format_quotactl_cmd(self, cmd_raw):
+        cmd = self._parse_id(cmd_raw)
+        if not isinstance(cmd, int):
+            return str(cmd_raw)
+        subcmd = (cmd >> 8) & 0xffffff
+        qtype = cmd & 0xff
+        subcmd_str = QUOTA_SUBCMDS.get(subcmd, QUOTA_SUBCMDS.get(cmd >> 8, str(subcmd)))
+        type_str = QUOTA_TYPES.get(qtype, str(qtype))
+        return f"QCMD({subcmd_str}, {type_str})"
+
     def _get_pathname(self, event, default_arg="a0"):
         if event.paths:
             for p in event.paths:
@@ -1924,6 +2169,10 @@ class SyscallHandler:
     def _parse_id(self, val):
         if val is None or val == "":
             return -1
+        if isinstance(val, int):
+            if val in (4294967295, 0xffffffff):
+                return -1
+            return val
         try:
             val_int = int(str(val), 16) if not str(val).startswith("-") else int(val)
             if val_int in (4294967295, 0xffffffff):
@@ -3248,6 +3497,414 @@ class SyscallHandler:
         arg_str = f"0x{arg_val:x}" if arg_val else "NULL"
         return f"ioctl({fd_str}, {req_str}, {arg_str}) = {event.exit_str}"
 
+    # -------------------------------------------------------------
+    # Descriptor-related Syscalls (%desc)
+    # -------------------------------------------------------------
+
+    def handle_bpf(self, event):
+        cmd_val = self._parse_id(event.syscall.get("a0", "0"))
+        cmd_str = BPF_CMDS.get(cmd_val, str(cmd_val))
+        attr_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        attr_str = "NULL" if attr_ptr == 0 else "{...}"
+        size_val = self._parse_id(event.syscall.get("a2", "0"))
+        return f"bpf({cmd_str}, {attr_str}, {size_val}) = {event.exit_str}"
+
+    def handle_cachestat(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        cstat_range = "NULL" if self._parse_id(event.syscall.get("a1", "0")) == 0 else "{...}"
+        cstat = "NULL" if self._parse_id(event.syscall.get("a2", "0")) == 0 else "{...}"
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        return f"cachestat({fd_str}, {cstat_range}, {cstat}, {flags_val}) = {event.exit_str}"
+
+    def handle_copy_file_range(self, event):
+        fd_in = self._resolve_fd(event, "a0")
+        off_in = "NULL" if self._parse_id(event.syscall.get("a1", "0")) == 0 else "[...]"
+        fd_out = self._resolve_fd(event, "a2")
+        off_out = "NULL" if self._parse_id(event.syscall.get("a3", "0")) == 0 else "[...]"
+        len_val = self._parse_id(event.syscall.get("a4", "0"))
+        flags_val = self._parse_id(event.syscall.get("a5", "0"))
+        return f"copy_file_range({fd_in}, {off_in}, {fd_out}, {off_out}, {len_val}, {flags_val}) = {event.exit_str}"
+
+    def handle_epoll_create(self, event):
+        size_val = self._parse_id(event.syscall.get("a0", "0"))
+        return f"epoll_create({size_val}) = {event.exit_str}"
+
+    def handle_epoll_create1(self, event):
+        flags_val = self._parse_id(event.syscall.get("a0", "0"))
+        flags_str = "EPOLL_CLOEXEC" if flags_val == 0x80000 else (str(flags_val) if flags_val else "0")
+        return f"epoll_create1({flags_str}) = {event.exit_str}"
+
+    def handle_epoll_ctl(self, event):
+        epfd_str = self._resolve_fd(event, "a0")
+        op_val = self._parse_id(event.syscall.get("a1", "0"))
+        op_str = EPOLL_CTLS.get(op_val, str(op_val))
+        fd_str = self._resolve_fd(event, "a2")
+        event_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        event_str = "NULL" if event_ptr == 0 else "{...}"
+        return f"epoll_ctl({epfd_str}, {op_str}, {fd_str}, {event_str}) = {event.exit_str}"
+
+    def handle_epoll_wait(self, event):
+        epfd_str = self._resolve_fd(event, "a0")
+        maxevents = self._parse_id(event.syscall.get("a2", "0"))
+        timeout = self._parse_id(event.syscall.get("a3", "0"))
+        events_str = "[{...}]" if event.is_success and (event.exit_code or 0) > 0 else "[]"
+        return f"epoll_wait({epfd_str}, {events_str}, {maxevents}, {timeout}) = {event.exit_str}"
+
+    def handle_epoll_pwait(self, event):
+        epfd_str = self._resolve_fd(event, "a0")
+        maxevents = self._parse_id(event.syscall.get("a2", "0"))
+        timeout = self._parse_id(event.syscall.get("a3", "0"))
+        sigmask_ptr = self._parse_id(event.syscall.get("a4", "0"))
+        sigmask_str = "NULL" if sigmask_ptr == 0 else "[...]"
+        sigsetsize = self._parse_id(event.syscall.get("a5", "8"))
+        events_str = "[{...}]" if event.is_success and (event.exit_code or 0) > 0 else "[]"
+        return f"epoll_pwait({epfd_str}, {events_str}, {maxevents}, {timeout}, {sigmask_str}, {sigsetsize}) = {event.exit_str}"
+
+    def handle_epoll_pwait2(self, event):
+        epfd_str = self._resolve_fd(event, "a0")
+        maxevents = self._parse_id(event.syscall.get("a2", "0"))
+        timeout_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        timeout_str = "NULL" if timeout_ptr == 0 else "{...}"
+        sigmask_ptr = self._parse_id(event.syscall.get("a4", "0"))
+        sigmask_str = "NULL" if sigmask_ptr == 0 else "[...]"
+        sigsetsize = self._parse_id(event.syscall.get("a5", "8"))
+        events_str = "[{...}]" if event.is_success and (event.exit_code or 0) > 0 else "[]"
+        return f"epoll_pwait2({epfd_str}, {events_str}, {maxevents}, {timeout_str}, {sigmask_str}, {sigsetsize}) = {event.exit_str}"
+
+    def handle_eventfd(self, event):
+        initval = self._parse_id(event.syscall.get("a0", "0"))
+        return f"eventfd({initval}) = {event.exit_str}"
+
+    def handle_eventfd2(self, event):
+        initval = self._parse_id(event.syscall.get("a0", "0"))
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = self._format_eventfd_flags(flags_val)
+        return f"eventfd2({initval}, {flags_str}) = {event.exit_str}"
+
+    def handle_fadvise64(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        offset = self._parse_id(event.syscall.get("a1", "0"))
+        len_val = self._parse_id(event.syscall.get("a2", "0"))
+        adv_val = self._parse_id(event.syscall.get("a3", "0"))
+        adv_str = POSIX_FADV_MODES.get(adv_val, str(adv_val))
+        return f"fadvise64({fd_str}, {offset}, {len_val}, {adv_str}) = {event.exit_str}"
+
+    def handle_fanotify_init(self, event):
+        flags_val = self._parse_id(event.syscall.get("a0", "0"))
+        event_f_flags = self._parse_id(event.syscall.get("a1", "0"))
+        return f"fanotify_init({flags_val:#x}, {event_f_flags:#x}) = {event.exit_str}"
+
+    def handle_fchdir(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        return f"fchdir({fd_str}) = {event.exit_str}"
+
+    def handle_fchroot(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        return f"fchroot({fd_str}) = {event.exit_str}"
+
+    def handle_fdatasync(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        return f"fdatasync({fd_str}) = {event.exit_str}"
+
+    def handle_finit_module(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        flags_val = self._parse_id(event.syscall.get("a2", "0"))
+        return f'finit_module({fd_str}, "...", {flags_val}) = {event.exit_str}'
+
+    def handle_flock(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        op_val = self._parse_id(event.syscall.get("a1", "0"))
+        op_str = self._format_flock_op(op_val)
+        return f"flock({fd_str}, {op_str}) = {event.exit_str}"
+
+    def handle_fsmount(self, event):
+        fs_fd_str = self._resolve_fd(event, "a0")
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        attr_flags = self._parse_id(event.syscall.get("a2", "0"))
+        return f"fsmount({fs_fd_str}, {flags_val}, {attr_flags}) = {event.exit_str}"
+
+    def handle_fsopen(self, event):
+        name = self._get_pathname(event, "a0")
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f'fsopen("{name}", {flags_val}) = {event.exit_str}'
+
+    def handle_fsync(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        return f"fsync({fd_str}) = {event.exit_str}"
+
+    def handle_getdents(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        count = self._parse_id(event.syscall.get("a2", "0"))
+        dent_str = "[{...}]" if event.is_success and (event.exit_code or 0) > 0 else "[]"
+        return f"getdents({fd_str}, {dent_str}, {count}) = {event.exit_str}"
+
+    def handle_getdents64(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        count = self._parse_id(event.syscall.get("a2", "0"))
+        dent_str = "[{...}]" if event.is_success and (event.exit_code or 0) > 0 else "[]"
+        return f"getdents64({fd_str}, {dent_str}, {count}) = {event.exit_str}"
+
+    def handle_inotify_init(self, event):
+        return f"inotify_init() = {event.exit_str}"
+
+    def handle_inotify_init1(self, event):
+        flags_val = self._parse_id(event.syscall.get("a0", "0"))
+        flags_str = self._format_inotify_init1_flags(flags_val)
+        return f"inotify_init1({flags_str}) = {event.exit_str}"
+
+    def handle_inotify_rm_watch(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        wd_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f"inotify_rm_watch({fd_str}, {wd_val}) = {event.exit_str}"
+
+    def handle_kexec_file_load(self, event):
+        kfd_str = self._resolve_fd(event, "a0")
+        ifd_str = self._resolve_fd(event, "a1")
+        cmd_len = self._parse_id(event.syscall.get("a2", "0"))
+        flags_val = self._parse_id(event.syscall.get("a4", "0"))
+        return f'kexec_file_load({kfd_str}, {ifd_str}, {cmd_len}, "...", {flags_val}) = {event.exit_str}'
+
+    def handle_landlock_add_rule(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        rule_type = self._parse_id(event.syscall.get("a1", "0"))
+        rule_str = "LANDLOCK_RULE_PATH_BENEATH" if rule_type == 1 else ("LANDLOCK_RULE_NET_PORT" if rule_type == 2 else str(rule_type))
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        return f"landlock_add_rule({fd_str}, {rule_str}, {{...}}, {flags_val}) = {event.exit_str}"
+
+    def handle_landlock_create_ruleset(self, event):
+        attr_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        attr_str = "NULL" if attr_ptr == 0 else "{...}"
+        size_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_val = self._parse_id(event.syscall.get("a2", "0"))
+        return f"landlock_create_ruleset({attr_str}, {size_val}, {flags_val}) = {event.exit_str}"
+
+    def handle_landlock_restrict_self(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f"landlock_restrict_self({fd_str}, {flags_val}) = {event.exit_str}"
+
+    def handle_lseek(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        offset = self._parse_id(event.syscall.get("a1", "0"))
+        whence_val = self._parse_id(event.syscall.get("a2", "0"))
+        whence_str = LSEEK_WHENCE.get(whence_val, str(whence_val))
+        return f"lseek({fd_str}, {offset}, {whence_str}) = {event.exit_str}"
+
+    def handle_memfd_create(self, event):
+        name = self._get_pathname(event, "a0")
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = self._format_memfd_flags(flags_val)
+        return f'memfd_create("{name}", {flags_str}) = {event.exit_str}'
+
+    def handle_memfd_secret(self, event):
+        flags_val = self._parse_id(event.syscall.get("a0", "0"))
+        flags_str = "FD_CLOEXEC" if flags_val == 1 else str(flags_val)
+        return f"memfd_secret({flags_str}) = {event.exit_str}"
+
+    def handle_mq_getsetattr(self, event):
+        mq_str = self._resolve_fd(event, "a0")
+        new_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        old_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        new_str = "NULL" if new_ptr == 0 else "{...}"
+        old_str = "NULL" if old_ptr == 0 else "{...}"
+        return f"mq_getsetattr({mq_str}, {new_str}, {old_str}) = {event.exit_str}"
+
+    def handle_mq_notify(self, event):
+        mq_str = self._resolve_fd(event, "a0")
+        sevp_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        sevp_str = "NULL" if sevp_ptr == 0 else "{...}"
+        return f"mq_notify({mq_str}, {sevp_str}) = {event.exit_str}"
+
+    def handle_mq_open(self, event):
+        name = self._get_pathname(event, "a0")
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = event.syscall_interp.get("a1") or str(flags_val)
+        if "O_CREAT" in flags_str:
+            mode_str = self._resolve_mode(event.syscall.get("a2", "0"), event.syscall_interp.get("a2"))
+            attr_ptr = self._parse_id(event.syscall.get("a3", "0"))
+            attr_str = "NULL" if attr_ptr == 0 else "{...}"
+            return f'mq_open("{name}", {flags_str}, {mode_str}, {attr_str}) = {event.exit_str}'
+        return f'mq_open("{name}", {flags_str}) = {event.exit_str}'
+
+    def handle_mq_timedreceive(self, event):
+        mq_str = self._resolve_fd(event, "a0")
+        len_val = self._parse_id(event.syscall.get("a2", "0"))
+        prio_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        prio_str = "NULL" if prio_ptr == 0 else "[...]"
+        t_ptr = self._parse_id(event.syscall.get("a4", "0"))
+        t_str = "NULL" if t_ptr == 0 else "{...}"
+        return f'mq_timedreceive({mq_str}, "...", {len_val}, {prio_str}, {t_str}) = {event.exit_str}'
+
+    def handle_mq_timedsend(self, event):
+        mq_str = self._resolve_fd(event, "a0")
+        len_val = self._parse_id(event.syscall.get("a2", "0"))
+        prio_val = self._parse_id(event.syscall.get("a3", "0"))
+        t_ptr = self._parse_id(event.syscall.get("a4", "0"))
+        t_str = "NULL" if t_ptr == 0 else "{...}"
+        return f'mq_timedsend({mq_str}, "...", {len_val}, {prio_val}, {t_str}) = {event.exit_str}'
+
+    def handle_open_by_handle_at(self, event):
+        dfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
+        handle_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        handle_str = "NULL" if handle_ptr == 0 else "{...}"
+        flags_str = event.syscall_interp.get("a2") or str(self._parse_id(event.syscall.get("a2", "0")))
+        return f"open_by_handle_at({dfd_str}, {handle_str}, {flags_str}) = {event.exit_str}"
+
+    def handle_perf_event_open(self, event):
+        attr_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        attr_str = "NULL" if attr_ptr == 0 else "{...}"
+        pid_val = self._parse_id(event.syscall.get("a1", "-1"))
+        cpu_val = self._parse_id(event.syscall.get("a2", "-1"))
+        grp_str = self._resolve_fd(event, "a3")
+        flags_val = self._parse_id(event.syscall.get("a4", "0"))
+        return f"perf_event_open({attr_str}, {pid_val}, {cpu_val}, {grp_str}, {flags_val}) = {event.exit_str}"
+
+    def handle_pidfd_getfd(self, event):
+        pfd_str = self._resolve_fd(event, "a0")
+        tfd = self._parse_id(event.syscall.get("a1", "0"))
+        flags_val = self._parse_id(event.syscall.get("a2", "0"))
+        return f"pidfd_getfd({pfd_str}, {tfd}, {flags_val}) = {event.exit_str}"
+
+    def handle_pidfd_open(self, event):
+        pid_val = self._parse_id(event.syscall.get("a0", "0"))
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = "PIDFD_NONBLOCK" if flags_val == 0x800 else str(flags_val)
+        return f"pidfd_open({pid_val}, {flags_str}) = {event.exit_str}"
+
+    def handle_poll(self, event):
+        nfds = self._parse_id(event.syscall.get("a1", "0"))
+        timeout = self._parse_id(event.syscall.get("a2", "0"))
+        fds_str = "[{...}]" if nfds > 0 else "[]"
+        return f"poll({fds_str}, {nfds}, {timeout}) = {event.exit_str}"
+
+    def handle_ppoll(self, event):
+        nfds = self._parse_id(event.syscall.get("a1", "0"))
+        timeout_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        timeout_str = "NULL" if timeout_ptr == 0 else "{...}"
+        sig_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        sig_str = "NULL" if sig_ptr == 0 else "[...]"
+        sig_size = self._parse_id(event.syscall.get("a4", "8"))
+        fds_str = "[{...}]" if nfds > 0 else "[]"
+        return f"ppoll({fds_str}, {nfds}, {timeout_str}, {sig_str}, {sig_size}) = {event.exit_str}"
+
+    def handle_process_madvise(self, event):
+        pfd_str = self._resolve_fd(event, "a0")
+        vlen = self._parse_id(event.syscall.get("a2", "0"))
+        adv_val = self._parse_id(event.syscall.get("a3", "0"))
+        adv_str = MADVISE_OPS.get(adv_val, str(adv_val))
+        flags_val = self._parse_id(event.syscall.get("a4", "0"))
+        return f"process_madvise({pfd_str}, [{{...}}], {vlen}, {adv_str}, {flags_val}) = {event.exit_str}"
+
+    def handle_process_mrelease(self, event):
+        pfd_str = self._resolve_fd(event, "a0")
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f"process_mrelease({pfd_str}, {flags_val}) = {event.exit_str}"
+
+    def handle_pselect6(self, event):
+        nfds = self._parse_id(event.syscall.get("a0", "0"))
+        rfds = "NULL" if self._parse_id(event.syscall.get("a1", "0")) == 0 else "[...]"
+        wfds = "NULL" if self._parse_id(event.syscall.get("a2", "0")) == 0 else "[...]"
+        efds = "NULL" if self._parse_id(event.syscall.get("a3", "0")) == 0 else "[...]"
+        t_ptr = self._parse_id(event.syscall.get("a4", "0"))
+        t_str = "NULL" if t_ptr == 0 else "{...}"
+        sig_ptr = self._parse_id(event.syscall.get("a5", "0"))
+        sig_str = "NULL" if sig_ptr == 0 else "[...]"
+        return f"pselect6({nfds}, {rfds}, {wfds}, {efds}, {t_str}, {sig_str}) = {event.exit_str}"
+
+    def handle_quotactl_fd(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        cmd_str = self._format_quotactl_cmd(event.syscall.get("a1", "0"))
+        id_val = self._parse_id(event.syscall.get("a2", "0"))
+        addr_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        addr_str = "NULL" if addr_ptr == 0 else "{...}"
+        return f"quotactl_fd({fd_str}, {cmd_str}, {id_val}, {addr_str}) = {event.exit_str}"
+
+    def handle_readahead(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        offset = self._parse_id(event.syscall.get("a1", "0"))
+        count = self._parse_id(event.syscall.get("a2", "0"))
+        return f"readahead({fd_str}, {offset}, {count}) = {event.exit_str}"
+
+    def handle_select(self, event):
+        nfds = self._parse_id(event.syscall.get("a0", "0"))
+        rfds = "NULL" if self._parse_id(event.syscall.get("a1", "0")) == 0 else "[...]"
+        wfds = "NULL" if self._parse_id(event.syscall.get("a2", "0")) == 0 else "[...]"
+        efds = "NULL" if self._parse_id(event.syscall.get("a3", "0")) == 0 else "[...]"
+        t_ptr = self._parse_id(event.syscall.get("a4", "0"))
+        t_str = "NULL" if t_ptr == 0 else "{...}"
+        return f"select({nfds}, {rfds}, {wfds}, {efds}, {t_str}) = {event.exit_str}"
+
+    def handle_setns(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        nstype_str = self._format_clone_flags(event.syscall.get("a1", "0"))
+        return f"setns({fd_str}, {nstype_str}) = {event.exit_str}"
+
+    def handle_splice(self, event):
+        fd_in = self._resolve_fd(event, "a0")
+        off_in = "NULL" if self._parse_id(event.syscall.get("a1", "0")) == 0 else "[...]"
+        fd_out = self._resolve_fd(event, "a2")
+        off_out = "NULL" if self._parse_id(event.syscall.get("a3", "0")) == 0 else "[...]"
+        len_val = self._parse_id(event.syscall.get("a4", "0"))
+        flags_val = self._parse_id(event.syscall.get("a5", "0"))
+        flags_str = self._format_splice_flags(flags_val)
+        return f"splice({fd_in}, {off_in}, {fd_out}, {off_out}, {len_val}, {flags_str}) = {event.exit_str}"
+
+    def handle_sync_file_range(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        offset = self._parse_id(event.syscall.get("a1", "0"))
+        nbytes = self._parse_id(event.syscall.get("a2", "0"))
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = self._format_sync_file_range_flags(flags_val)
+        return f"sync_file_range({fd_str}, {offset}, {nbytes}, {flags_str}) = {event.exit_str}"
+
+    def handle_syncfs(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        return f"syncfs({fd_str}) = {event.exit_str}"
+
+    def handle_tee(self, event):
+        fd_in = self._resolve_fd(event, "a0")
+        fd_out = self._resolve_fd(event, "a1")
+        len_val = self._parse_id(event.syscall.get("a2", "0"))
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = self._format_splice_flags(flags_val)
+        return f"tee({fd_in}, {fd_out}, {len_val}, {flags_str}) = {event.exit_str}"
+
+    def handle_timerfd_create(self, event):
+        clockid = self._parse_id(event.syscall.get("a0", "0"))
+        clock_str = CLOCK_IDS.get(clockid, str(clockid))
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = self._format_timerfd_flags(flags_val)
+        return f"timerfd_create({clock_str}, {flags_str}) = {event.exit_str}"
+
+    def handle_timerfd_gettime(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        val_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        val_str = "NULL" if val_ptr == 0 else "{...}"
+        return f"timerfd_gettime({fd_str}, {val_str}) = {event.exit_str}"
+
+    def handle_timerfd_settime(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = "TFD_TIMER_ABSTIME" if flags_val == 1 else str(flags_val)
+        new_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        new_str = "NULL" if new_ptr == 0 else "{...}"
+        old_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        old_str = "NULL" if old_ptr == 0 else "{...}"
+        return f"timerfd_settime({fd_str}, {flags_str}, {new_str}, {old_str}) = {event.exit_str}"
+
+    def handle_userfaultfd(self, event):
+        flags_val = self._parse_id(event.syscall.get("a0", "0"))
+        flags_str = self._format_userfaultfd_flags(flags_val)
+        return f"userfaultfd({flags_str}) = {event.exit_str}"
+
+    def handle_vmsplice(self, event):
+        fd_str = self._resolve_fd(event, "a0")
+        nr_segs = self._parse_id(event.syscall.get("a2", "0"))
+        iov_str = "[{...}]" if nr_segs > 0 else "[]"
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = self._format_splice_flags(flags_val)
+        return f"vmsplice({fd_str}, {iov_str}, {nr_segs}, {flags_str}) = {event.exit_str}"
+
     def format_event(self, event, caller_comm=None):
         scname = event.syscall_name
         if not scname:
@@ -3441,6 +4098,66 @@ class AudispStraceApp:
                 proc = self.tracker.get_proc(pid)
                 if proc and 'fds' in proc and a0_val in proc['fds']:
                     proc['fds'][a0_val]['cloexec'] = (arg_val == 1)
+
+        elif scname in ('eventfd', 'eventfd2'):
+            if event.exit_code is not None and event.exit_code >= 0:
+                is_cloexec = False
+                if scname == 'eventfd2':
+                    fval = self.handler._parse_id(event.syscall.get("a1", "0"))
+                    is_cloexec = bool(fval & 0x80000)
+                self.tracker.set_fd(pid, event.exit_code, "anon_inode:[eventfd]", cloexec=is_cloexec)
+
+        elif scname in ('epoll_create', 'epoll_create1'):
+            if event.exit_code is not None and event.exit_code >= 0:
+                is_cloexec = False
+                if scname == 'epoll_create1':
+                    fval = self.handler._parse_id(event.syscall.get("a0", "0"))
+                    is_cloexec = bool(fval & 0x80000)
+                self.tracker.set_fd(pid, event.exit_code, "anon_inode:[eventpoll]", cloexec=is_cloexec)
+
+        elif scname in ('inotify_init', 'inotify_init1'):
+            if event.exit_code is not None and event.exit_code >= 0:
+                is_cloexec = False
+                if scname == 'inotify_init1':
+                    fval = self.handler._parse_id(event.syscall.get("a0", "0"))
+                    is_cloexec = bool(fval & 0x80000)
+                self.tracker.set_fd(pid, event.exit_code, "anon_inode:inotify", cloexec=is_cloexec)
+
+        elif scname in ('signalfd', 'signalfd4'):
+            if event.exit_code is not None and event.exit_code >= 0:
+                is_cloexec = False
+                if scname == 'signalfd4':
+                    fval = self.handler._parse_id(event.syscall.get("a3", "0"))
+                    is_cloexec = bool(fval & 0x80000)
+                self.tracker.set_fd(pid, event.exit_code, "anon_inode:[signalfd]", cloexec=is_cloexec)
+
+        elif scname == 'timerfd_create':
+            if event.exit_code is not None and event.exit_code >= 0:
+                fval = self.handler._parse_id(event.syscall.get("a1", "0"))
+                self.tracker.set_fd(pid, event.exit_code, "anon_inode:[timerfd]", cloexec=bool(fval & 0x80000))
+
+        elif scname == 'userfaultfd':
+            if event.exit_code is not None and event.exit_code >= 0:
+                fval = self.handler._parse_id(event.syscall.get("a0", "0"))
+                self.tracker.set_fd(pid, event.exit_code, "anon_inode:[userfaultfd]", cloexec=bool(fval & 1))
+
+        elif scname in ('pidfd_open', 'pidfd_getfd'):
+            if event.exit_code is not None and event.exit_code >= 0:
+                self.tracker.set_fd(pid, event.exit_code, "anon_inode:[pidfd]", cloexec=True)
+
+        elif scname == 'memfd_create':
+            if event.exit_code is not None and event.exit_code >= 0:
+                name = self.handler._get_pathname(event, "a0")
+                fval = self.handler._parse_id(event.syscall.get("a1", "0"))
+                self.tracker.set_fd(pid, event.exit_code, f"memfd:{name}", cloexec=bool(fval & 1))
+
+        elif scname == 'fchdir':
+            if event.exit_code == 0 or event.success == 'yes':
+                fd_raw = event.syscall.get("a0", "0")
+                fd_int = self.tracker._parse_fd(fd_raw)
+                path = self.tracker.get_fd_path(pid, fd_int)
+                if path and path.startswith("/"):
+                    self.tracker.update_cwd(pid, path)
 
         elif scname in ('execve', 'execveat'):
             if event.exit_code == 0 or event.success == 'yes':

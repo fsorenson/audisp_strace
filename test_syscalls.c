@@ -37,6 +37,12 @@
 #include <sys/mount.h>
 #include <sys/swap.h>
 #include <sys/quota.h>
+#include <sys/file.h>
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
+#include <sys/timerfd.h>
+#include <poll.h>
+#include <sys/select.h>
 
 #ifdef __has_include
 #  if __has_include(<linux/openat2.h>)
@@ -75,6 +81,24 @@
 #ifndef SYS_mseal
 #  if defined(__x86_64__)
 #    define SYS_mseal 462
+#  endif
+#endif
+
+#ifndef SYS_memfd_create
+#  if defined(__x86_64__)
+#    define SYS_memfd_create 319
+#  endif
+#endif
+
+#ifndef SYS_copy_file_range
+#  if defined(__x86_64__)
+#    define SYS_copy_file_range 326
+#  endif
+#endif
+
+#ifndef SYS_pidfd_open
+#  if defined(__x86_64__)
+#    define SYS_pidfd_open 434
 #  endif
 #endif
 
@@ -1023,6 +1047,133 @@ static void run_worker_tests(const char *base_dir) {
 #ifdef SYS_mount_setattr
     res = syscall(SYS_mount_setattr, AT_FDCWD, "open_file.txt", 0, NULL, 0);
     log_op("mount_setattr", "dummy mount_setattr", res);
+#endif
+
+    /* -------------------------------------------------------------
+     * 16.6. DESCRIPTOR OPERATIONS (%desc): lseek, flock, fsync,
+     *       fdatasync, syncfs, fchdir, pipe2, dup3, eventfd2,
+     *       timerfd_create, timerfd_settime, timerfd_gettime,
+     *       epoll_create1, epoll_ctl, epoll_wait, inotify_init1,
+     *       inotify_rm_watch, memfd_create, poll, select,
+     *       copy_file_range, posix_fadvise
+     * ------------------------------------------------------------- */
+    printf("\n--- Additional Descriptor Operations (lseek, flock, fsync, epoll, timerfd, eventfd, memfd, etc.) ---\n");
+    if (file_fd >= 0) {
+        off_t sk = lseek(file_fd, 0, SEEK_CUR);
+        log_op("lseek", "lseek SEEK_CUR", (int)sk);
+
+        res = flock(file_fd, LOCK_SH);
+        log_op("flock", "flock LOCK_SH", res);
+        res = flock(file_fd, LOCK_UN);
+        log_op("flock", "flock LOCK_UN", res);
+
+        res = fsync(file_fd);
+        log_op("fsync", "fsync file_fd", res);
+
+        res = fdatasync(file_fd);
+        log_op("fdatasync", "fdatasync file_fd", res);
+
+        res = syncfs(file_fd);
+        log_op("syncfs", "syncfs file_fd", res);
+
+        res = posix_fadvise(file_fd, 0, 1024, POSIX_FADV_WILLNEED);
+        log_op("fadvise64", "posix_fadvise POSIX_FADV_WILLNEED", res);
+
+        res = (int)readahead(file_fd, 0, 1024);
+        log_op("readahead", "readahead 1024 bytes", res);
+
+        struct pollfd pfd = { file_fd, POLLIN, 0 };
+        res = poll(&pfd, 1, 0);
+        log_op("poll", "poll file_fd timeout 0", res);
+
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        FD_SET(file_fd, &rfds);
+        struct timeval tv = {0, 0};
+        res = select(file_fd + 1, &rfds, NULL, NULL, &tv);
+        log_op("select", "select file_fd timeout 0", res);
+
+#ifdef SYS_copy_file_range
+        loff_t off_in = 0, off_out = 0;
+        res = (int)syscall(SYS_copy_file_range, file_fd, &off_in, file_fd, &off_out, 0, 0);
+        log_op("copy_file_range", "copy_file_range 0 bytes", res);
+#endif
+
+        int d3 = dup3(file_fd, 75, O_CLOEXEC);
+        log_op("dup3", "dup3 file_fd -> 75 O_CLOEXEC", d3);
+        if (d3 >= 0) close(d3);
+    }
+
+    if (dir_fd >= 0) {
+        res = fchdir(dir_fd);
+        log_op("fchdir", "fchdir dir_fd", res);
+        /* Restore cwd to base_dir */
+        res = chdir(base_dir);
+        log_op("chdir", "restore chdir base_dir", res);
+    }
+
+    int p2[2];
+    res = pipe2(p2, O_CLOEXEC);
+    log_op("pipe2", "pipe2 O_CLOEXEC", res);
+    if (res >= 0) {
+        close(p2[0]);
+        close(p2[1]);
+    }
+
+    int efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    log_op("eventfd2", "eventfd2 EFD_CLOEXEC|EFD_NONBLOCK", efd);
+    if (efd >= 0) close(efd);
+
+    int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
+    log_op("timerfd_create", "timerfd_create CLOCK_MONOTONIC TFD_CLOEXEC", tfd);
+    if (tfd >= 0) {
+        struct itimerspec its = { {0, 0}, {0, 1000000} };
+        res = timerfd_settime(tfd, 0, &its, NULL);
+        log_op("timerfd_settime", "timerfd_settime 1ms", res);
+        res = timerfd_gettime(tfd, &its);
+        log_op("timerfd_gettime", "timerfd_gettime", res);
+        close(tfd);
+    }
+
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
+    log_op("epoll_create1", "epoll_create1 EPOLL_CLOEXEC", epfd);
+    if (epfd >= 0) {
+        int ep_pipe[2];
+        if (pipe(ep_pipe) == 0) {
+            struct epoll_event ev;
+            ev.events = EPOLLIN;
+            ev.data.fd = ep_pipe[0];
+            res = epoll_ctl(epfd, EPOLL_CTL_ADD, ep_pipe[0], &ev);
+            log_op("epoll_ctl", "epoll_ctl EPOLL_CTL_ADD ep_pipe[0]", res);
+            res = epoll_wait(epfd, &ev, 1, 0);
+            log_op("epoll_wait", "epoll_wait timeout 0", res);
+            close(ep_pipe[0]);
+            close(ep_pipe[1]);
+        }
+        close(epfd);
+    }
+
+    int infd = inotify_init1(IN_CLOEXEC);
+    log_op("inotify_init1", "inotify_init1 IN_CLOEXEC", infd);
+    if (infd >= 0) {
+        int wd = inotify_add_watch(infd, "open_file.txt", IN_MODIFY);
+        if (wd >= 0) {
+            res = inotify_rm_watch(infd, wd);
+            log_op("inotify_rm_watch", "inotify_rm_watch open_file.txt", res);
+        }
+        close(infd);
+    }
+
+#ifdef SYS_memfd_create
+    int mfd = (int)syscall(SYS_memfd_create, "test_memfd", 1 /* MFD_CLOEXEC */);
+    log_op("memfd_create", "memfd_create test_memfd MFD_CLOEXEC", mfd);
+    if (mfd >= 0) close(mfd);
+#endif
+
+#ifdef SYS_pidfd_open
+    int pfd_fd = (int)syscall(SYS_pidfd_open, getpid(), 0);
+    log_op("pidfd_open", "pidfd_open self", pfd_fd);
+    if (pfd_fd >= 0) close(pfd_fd);
 #endif
 
     /* -------------------------------------------------------------

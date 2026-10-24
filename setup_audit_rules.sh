@@ -82,6 +82,15 @@ auditctl -a always,exit -F arch=b64 -S io_uring_setup,io_uring_enter,io_uring_re
 # Descriptor Control
 auditctl -a always,exit -F arch=b64 -S fcntl,ioctl -F key="$KEY"
 
+# Descriptor Manipulation & Event Descriptors (%desc)
+auditctl -a always,exit -F arch=b64 -S lseek,flock,fsync,fdatasync,syncfs,fchdir,fchroot -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S eventfd,eventfd2,epoll_create,epoll_create1,epoll_ctl,epoll_wait,epoll_pwait,epoll_pwait2 -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S inotify_init,inotify_init1,inotify_rm_watch -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S timerfd_create,timerfd_settime,timerfd_gettime -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S memfd_create,memfd_secret,userfaultfd,pidfd_open,pidfd_getfd -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S poll,ppoll,select,pselect6,copy_file_range,splice,tee,vmsplice,readahead,fadvise64 -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S fanotify_init,fsmount,fsopen,finit_module,kexec_file_load,bpf -F key="$KEY"
+
 # Process Lifecycle & Signals
 auditctl -a always,exit -F arch=b64 -S clone,clone3,fork,vfork,execve,execveat -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S kill,tkill,tgkill,wait4,waitid -F key="$KEY"

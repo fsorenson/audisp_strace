@@ -175,6 +175,18 @@ Sample 3-line format per monitored event:
   - Activated all newly implemented syscalls across `SYSCALL_CLASSES` dictionary entries (`%pure`, `%%statfs`, `%process`, `%signal`, `%memory`, `%desc`).
   - Added exercise calls in `test_syscalls.c` and updated `setup_audit_rules.sh`.
   - Verified regression-free execution against `out-v6.txt`.
+- [x] Implemented all 60 remaining `%desc` handlers, reaching 100% completion across all 18 strace classes (108/108 active handlers for `%desc`):
+  - Event, epoll, inotify & timer descriptors: `epoll_create`, `epoll_create1`, `epoll_ctl`, `epoll_wait`, `epoll_pwait`, `epoll_pwait2`, `eventfd`, `eventfd2`, `inotify_init`, `inotify_init1`, `inotify_rm_watch`, `timerfd_create`, `timerfd_settime`, `timerfd_gettime`, `userfaultfd`
+  - Descriptor lifecycle tracking: added tracking in `ProcessTracker` for `epoll_create`, `epoll_create1`, `eventfd`, `eventfd2`, `inotify_init`, `inotify_init1`, `timerfd_create`, `userfaultfd`, `pidfd_open`, `pidfd_getfd`, `memfd_create`, `signalfd`, `signalfd4`, and `fchdir`
+  - File synchronization, positioning & advisory: `lseek`, `flock`, `fsync`, `fdatasync`, `syncfs`, `sync_file_range`, `fadvise64`, `readahead`
+  - Splicing, copying & zero-copy I/O: `splice`, `vmsplice`, `tee`, `copy_file_range`
+  - Polling & multiplexing: `poll`, `ppoll`, `select`, `pselect6`
+  - POSIX & System V message queues: `mq_open`, `mq_timedsend`, `mq_timedreceive`, `mq_notify`, `mq_getsetattr`
+  - Process file descriptors & memory: `pidfd_open`, `pidfd_getfd`, `memfd_create`, `memfd_secret`, `process_madvise`, `process_mrelease`
+  - Advanced kernel modules, eBPF & security: `bpf`, `kexec_file_load`, `finit_module`, `landlock_create_ruleset`, `landlock_add_rule`, `landlock_restrict_self`
+  - Advanced filesystem & directories: `fchdir`, `fchroot`, `fsmount`, `fsopen`, `quotactl_fd`, `cachestat`, `getdents`, `getdents64`, `open_by_handle_at`, `fanotify_init`, `perf_event_open`, `setns`
+  - Added test exercises to `test_syscalls.c` (Section 16.6) and audit rules to `setup_audit_rules.sh`.
+  - Verified with synthetic unit tests for all 60 handlers and regression-checked against `out-v6.txt`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`
