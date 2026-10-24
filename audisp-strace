@@ -3691,7 +3691,19 @@ class SyscallHandler:
         return f"lseek({fd_str}, {offset}, {whence_str}) = {event.exit_str}"
 
     def handle_memfd_create(self, event):
-        name = self._get_pathname(event, "a0")
+        name = None
+        if event.paths:
+            name = event.paths[0].get("name")
+        if not name and self.resolver and self.resolver.is_live:
+            pid = event.pid
+            fd = event.exit_code
+            if pid and fd is not None and fd >= 0:
+                link = self.resolver.get_fd_path(pid, fd)
+                if link and "memfd:" in link:
+                    name = link.split("memfd:", 1)[1].split(" (deleted)")[0]
+        if not name:
+            name = self._get_pathname(event, "a0")
+        name = name.strip('"')
         flags_val = self._parse_id(event.syscall.get("a1", "0"))
         flags_str = self._format_memfd_flags(flags_val)
         return f'memfd_create("{name}", {flags_str}) = {event.exit_str}'
@@ -4147,9 +4159,11 @@ class AudispStraceApp:
 
         elif scname == 'memfd_create':
             if event.exit_code is not None and event.exit_code >= 0:
+                live_path = self.resolver.get_fd_path(pid, event.exit_code) if self.resolver and self.resolver.is_live else None
                 name = self.handler._get_pathname(event, "a0")
                 fval = self.handler._parse_id(event.syscall.get("a1", "0"))
-                self.tracker.set_fd(pid, event.exit_code, f"memfd:{name}", cloexec=bool(fval & 1))
+                fd_path = live_path if live_path else f"memfd:{name}"
+                self.tracker.set_fd(pid, event.exit_code, fd_path, cloexec=bool(fval & 1))
 
         elif scname == 'fchdir':
             if event.exit_code == 0 or event.success == 'yes':
