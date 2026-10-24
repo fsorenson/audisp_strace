@@ -8,12 +8,12 @@
 - Support for both live execution (audisp plugin or `tail -F` pipe with `/proc` enrichment) and offline replay of historical audit logs
 
 Supported Syscalls:
-- **Ownership & Permissions / Credentials**: `chmod`, `fchmod`, `fchmodat`, `chown`, `fchown`, `fchownat`, `lchown`, `setuid`, `setgid`
+- **Ownership & Permissions / Credentials**: `chmod`, `fchmod`, `fchmodat`, `chown`, `fchown`, `fchownat`, `lchown`, `setuid`, `setgid`, `getuid`, `getgid`, `geteuid`, `getegid`, `setreuid`, `setregid`, `setresuid`, `setresgid`, `getresuid`, `getresgid`, `setfsuid`, `setfsgid`, `getgroups`, `setgroups`, `capget`, `capset`, `prctl`
 - **File & Directory Management**: `creat`, `open`, `openat`, `openat2`, `close`, `unlink`, `unlinkat`, `rename`, `renameat`, `renameat2`, `mkdir`, `mkdirat`, `rmdir`, `link`, `linkat`, `symlink`, `symlinkat`, `readlink`, `readlinkat`
 - **File Metadata, Inspection & Access**: `stat`, `lstat`, `fstat`, `newfstatat` (`fstatat`), `statx`, `statfs`, `fstatfs`, `access`, `faccessat`, `faccessat2`
 - **File Manipulation, Descriptors & Sizing**: `dup`, `dup2`, `dup3`, `truncate`, `ftruncate`, `fallocate`
 - **Extended Attributes**: `setxattr`, `lsetxattr`, `fsetxattr`, `getxattr`, `lgetxattr`, `fgetxattr`, `listxattr`, `llistxattr`, `flistxattr`, `removexattr`, `lremovexattr`, `fremovexattr`
-- **Special Files, IPC & Timestamps**: `mknod`, `mknodat`, `pipe`, `pipe2`, `utime`, `utimes`, `futimesat`, `utimensat`
+- **Special Files, IPC & Timestamps**: `mknod`, `mknodat`, `pipe`, `pipe2`, `utime`, `utimes`, `futimesat`, `utimensat`, `time`, `gettimeofday`, `settimeofday`, `adjtimex`, `clock_gettime`, `clock_settime`, `clock_getres`, `clock_adjtime`, `shmget`, `shmctl`, `semget`, `semop`, `semtimedop`, `semctl`, `msgget`, `msgsnd`, `msgrcv`, `msgctl`
 - **Memory Management**: `mmap`, `munmap`, `mprotect`, `madvise`, `brk`, `mremap`, `msync`, `mincore`, `shmat`, `shmdt`, `mlock`, `munlock`, `mlock2`, `mlockall`, `munlockall`, `pkey_mprotect`, `io_setup`, `io_destroy`, `remap_file_pages`, `mbind`, `set_mempolicy`, `get_mempolicy`, `migrate_pages`, `move_pages`
 - **Sockets & Networking**: `socket`, `socketpair`, `bind`, `listen`, `accept`, `accept4`, `connect`, `getsockname`, `getpeername`, `sendto`, `recvfrom`, `sendmsg`, `recvmsg`, `shutdown`, `setsockopt`, `getsockopt`, `sendmmsg`, `recvmmsg`, `getpmsg`, `putpmsg`
 - **Read, Write & I/O Operations**: `read`, `write`, `readv`, `writev`, `pread` / `pread64`, `pwrite` / `pwrite64`, `preadv`, `pwritev`, `preadv2`, `pwritev2`, `sendfile` / `sendfile64`
@@ -74,7 +74,10 @@ Sample 3-line format per monitored event:
   - [x] Syscall handlers for permission, ownership & credentials:
     - [x] `chmod`, `fchmod`, `fchmodat`
     - [x] `chown`, `fchown`, `fchownat`, `lchown`
-    - [x] `setuid`, `setgid`
+    - [x] `setuid`, `setgid`, `getuid`, `getgid`, `geteuid`, `getegid`
+    - [x] `setreuid`, `setregid`, `setresuid`, `setresgid`, `getresuid`, `getresgid`
+    - [x] `setfsuid`, `setfsgid`, `getgroups`, `setgroups`
+    - [x] `capget`, `capset`, `prctl` (with PRCTL options interpretation)
   - [x] Syscall handlers for file & directory lifecycle:
     - [x] `creat`, `open`, `openat`, `openat2`, `close`
     - [x] `unlink`, `unlinkat`
@@ -93,9 +96,11 @@ Sample 3-line format per monitored event:
     - [x] `listxattr`, `llistxattr`, `flistxattr`
     - [x] `removexattr`, `lremovexattr`, `fremovexattr`
   - [x] Syscall handlers for special files, IPC & timestamps:
-    - [x] `mknod`, `mknodat`
-    - [x] `pipe`, `pipe2`
+    - [x] `mknod`, `mknodat`, `pipe`, `pipe2`
     - [x] `utime`, `utimes`, `futimesat`, `utimensat`
+    - [x] `time`, `gettimeofday`, `settimeofday`, `adjtimex`
+    - [x] `clock_gettime`, `clock_settime`, `clock_getres`, `clock_adjtime` (with CLOCK ID interpretation)
+    - [x] System V IPC: `shmget`, `shmctl`, `semget`, `semop`, `semtimedop`, `semctl`, `msgget`, `msgsnd`, `msgrcv`, `msgctl`
   - [x] Syscall handlers for memory management:
     - [x] `mmap`, `munmap`, `mprotect`, `madvise`, `brk`
     - [x] `mremap`, `msync`, `mincore`, `shmat`, `shmdt`

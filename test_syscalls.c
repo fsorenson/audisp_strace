@@ -25,6 +25,13 @@
 #include <sys/ioctl.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <sys/sem.h>
+#include <sys/msg.h>
+#include <sys/prctl.h>
+#include <sys/fsuid.h>
+#include <sys/timex.h>
+#include <time.h>
+#include <grp.h>
 #include <termios.h>
 
 #ifdef __has_include
@@ -394,6 +401,28 @@ static void run_worker_tests(const char *base_dir) {
     res = utimensat(dir_fd, "openat_dirfd_rel.txt", NULL, 0);
     log_op("utimensat", "dir_fd + 'openat_dirfd_rel.txt'", res);
 
+    time_t t = time(NULL);
+    log_op("time", "time(NULL)", (t != (time_t)-1) ? 0 : -1);
+
+    struct timeval tv;
+    res = gettimeofday(&tv, NULL);
+    log_op("gettimeofday", "gettimeofday(&tv, NULL)", res);
+
+    struct timex tmx;
+    memset(&tmx, 0, sizeof(tmx));
+    res = adjtimex(&tmx);
+    log_op("adjtimex", "adjtimex query state", res);
+
+    struct timespec ts;
+    res = clock_gettime(CLOCK_REALTIME, &ts);
+    log_op("clock_gettime", "CLOCK_REALTIME", res);
+
+    res = clock_gettime(CLOCK_MONOTONIC, &ts);
+    log_op("clock_gettime", "CLOCK_MONOTONIC", res);
+
+    res = clock_getres(CLOCK_MONOTONIC, &ts);
+    log_op("clock_getres", "CLOCK_MONOTONIC", res);
+
     /* -------------------------------------------------------------
      * 10. RENAMING: rename, renameat, renameat2
      * ------------------------------------------------------------- */
@@ -409,9 +438,55 @@ static void run_worker_tests(const char *base_dir) {
     log_op("renameat2", "dir_fd with RENAME_NOREPLACE", res);
 
     /* -------------------------------------------------------------
-     * 11. CREDENTIALS: setuid, setgid
+     * 11. CREDENTIALS & PROCESS CONTROL: getuid, getgid, geteuid, getegid,
+     *                                   getresuid, getresgid, setreuid, setregid,
+     *                                   setresuid, setresgid, setfsuid, setfsgid,
+     *                                   getgroups, prctl, capget
      * ------------------------------------------------------------- */
-    printf("\n--- Credential Operations (setuid, setgid) ---\n");
+    printf("\n--- Credential Operations ---\n");
+
+    uid_t ruid, euid, suid;
+    gid_t rgid, egid, sgid;
+
+    res = (int)getuid();
+    log_op("getuid", "getuid()", res);
+
+    res = (int)getgid();
+    log_op("getgid", "getgid()", res);
+
+    res = (int)geteuid();
+    log_op("geteuid", "geteuid()", res);
+
+    res = (int)getegid();
+    log_op("getegid", "getegid()", res);
+
+    res = getresuid(&ruid, &euid, &suid);
+    log_op("getresuid", "getresuid(&ruid, &euid, &suid)", res);
+
+    res = getresgid(&rgid, &egid, &sgid);
+    log_op("getresgid", "getresgid(&rgid, &egid, &sgid)", res);
+
+    res = setreuid(uid, uid);
+    log_op("setreuid", "setreuid(uid, uid)", res);
+
+    res = setregid(gid, gid);
+    log_op("setregid", "setregid(gid, gid)", res);
+
+    res = setresuid(uid, uid, uid);
+    log_op("setresuid", "setresuid(uid, uid, uid)", res);
+
+    res = setresgid(gid, gid, gid);
+    log_op("setresgid", "setresgid(gid, gid, gid)", res);
+
+    res = setfsuid(uid);
+    log_op("setfsuid", "setfsuid(uid)", res);
+
+    res = setfsgid(gid);
+    log_op("setfsgid", "setfsgid(gid)", res);
+
+    gid_t groups[16];
+    res = getgroups(16, groups);
+    log_op("getgroups", "getgroups(16, groups)", res);
 
     res = setgid(gid);
     log_op("setgid", "setgid(current_gid)", res);
@@ -424,6 +499,16 @@ static void run_worker_tests(const char *base_dir) {
 
     res = setuid(0);
     log_op("setuid", "setuid(0)", res);
+
+    char comm_buf[16] = {0};
+    res = prctl(PR_GET_NAME, comm_buf);
+    log_op("prctl", "PR_GET_NAME", res);
+
+    res = prctl(PR_SET_NAME, "test_syscalls");
+    log_op("prctl", "PR_SET_NAME 'test_syscalls'", res);
+
+    res = prctl(PR_GET_DUMPABLE);
+    log_op("prctl", "PR_GET_DUMPABLE", res);
 
     /* -------------------------------------------------------------
      * 12. PROCESS LIFECYCLE & SIGNALS: clone, kill, tkill, tgkill, wait4, waitid
@@ -532,7 +617,7 @@ static void run_worker_tests(const char *base_dir) {
         res = munlockall();
         log_op("munlockall", "munlockall", res);
 
-        /* System V Shared Memory: shmat, shmdt */
+        /* System V Shared Memory: shmget, shmat, shmdt, shmctl */
         int shmid = shmget(IPC_PRIVATE, 4096, IPC_CREAT | 0600);
         log_op("shmget", "IPC_PRIVATE shmget 4096", shmid);
         if (shmid >= 0) {
@@ -542,7 +627,52 @@ static void run_worker_tests(const char *base_dir) {
                 res = shmdt(shm_addr);
                 log_op("shmdt", "shmdt detach shared memory", res);
             }
-            shmctl(shmid, IPC_RMID, NULL);
+            struct shmid_ds sds;
+            res = shmctl(shmid, IPC_STAT, &sds);
+            log_op("shmctl", "shmctl IPC_STAT", res);
+            res = shmctl(shmid, IPC_RMID, NULL);
+            log_op("shmctl", "shmctl IPC_RMID", res);
+        }
+
+        /* System V Semaphores: semget, semop, semtimedop, semctl */
+        int semid = semget(IPC_PRIVATE, 1, IPC_CREAT | 0600);
+        log_op("semget", "IPC_PRIVATE semget 1 sem", semid);
+        if (semid >= 0) {
+            struct sembuf sb = {0, 0, IPC_NOWAIT};
+            res = semop(semid, &sb, 1);
+            log_op("semop", "semop zero test", res);
+
+            struct timespec sem_to = {0, 1000};
+            res = semtimedop(semid, &sb, 1, &sem_to);
+            log_op("semtimedop", "semtimedop zero test", res);
+
+            res = semctl(semid, 0, GETVAL);
+            log_op("semctl", "semctl GETVAL", res);
+
+            res = semctl(semid, 0, IPC_RMID);
+            log_op("semctl", "semctl IPC_RMID", res);
+        }
+
+        /* System V Message Queues: msgget, msgsnd, msgrcv, msgctl */
+        int msqid = msgget(IPC_PRIVATE, IPC_CREAT | 0600);
+        log_op("msgget", "IPC_PRIVATE msgget", msqid);
+        if (msqid >= 0) {
+            struct {
+                long mtype;
+                char mtext[8];
+            } msg_buf = {1, "test"};
+            res = msgsnd(msqid, &msg_buf, sizeof(msg_buf.mtext), IPC_NOWAIT);
+            log_op("msgsnd", "msgsnd test message", res);
+
+            res = (int)msgrcv(msqid, &msg_buf, sizeof(msg_buf.mtext), 0, IPC_NOWAIT);
+            log_op("msgrcv", "msgrcv test message", res);
+
+            struct msqid_ds mds;
+            res = msgctl(msqid, IPC_STAT, &mds);
+            log_op("msgctl", "msgctl IPC_STAT", res);
+
+            res = msgctl(msqid, IPC_RMID, NULL);
+            log_op("msgctl", "msgctl IPC_RMID", res);
         }
 
         void *cur_brk = sbrk(0);

@@ -718,6 +718,35 @@ MPOL_MODES = {
     3: "MPOL_INTERLEAVE", 4: "MPOL_LOCAL", 5: "MPOL_PREFERRED_MANY"
 }
 
+IPC_CMDS = {
+    0: "IPC_RMID", 1: "IPC_SET", 2: "IPC_STAT", 3: "IPC_INFO",
+    11: "SHM_LOCK", 12: "SHM_UNLOCK", 13: "SHM_STAT", 14: "SHM_INFO",
+    15: "GETPID", 16: "GETVAL", 17: "GETALL", 18: "GETNCNT",
+    19: "GETZCNT", 20: "SETVAL", 21: "SETALL", 22: "SEM_STAT", 23: "SEM_INFO",
+    24: "MSG_STAT", 25: "MSG_INFO"
+}
+
+PRCTL_OPTIONS = {
+    1: "PR_SET_PDEATHSIG", 2: "PR_GET_PDEATHSIG",
+    3: "PR_GET_DUMPABLE", 4: "PR_SET_DUMPABLE",
+    7: "PR_GET_KEEPCAPS", 8: "PR_SET_KEEPCAPS",
+    15: "PR_SET_NAME", 16: "PR_GET_NAME",
+    21: "PR_GET_SECCOMP", 22: "PR_SET_SECCOMP",
+    23: "PR_CAPBSET_READ", 24: "PR_CAPBSET_DROP",
+    29: "PR_SET_TIMERSLACK", 30: "PR_GET_TIMERSLACK",
+    35: "PR_SET_TIMING", 36: "PR_SET_CHILD_SUBREAPER", 37: "PR_GET_CHILD_SUBREAPER",
+    38: "PR_SET_NO_NEW_PRIVS", 39: "PR_GET_NO_NEW_PRIVS",
+    40: "PR_GET_TID_ADDRESS", 55: "PR_PAC_RESET_KEYS",
+    0x59616d61: "PR_SET_PTRACER"
+}
+
+CLOCK_IDS = {
+    0: "CLOCK_REALTIME", 1: "CLOCK_MONOTONIC", 2: "CLOCK_PROCESS_CPUTIME_ID",
+    3: "CLOCK_THREAD_CPUTIME_ID", 4: "CLOCK_MONOTONIC_RAW", 5: "CLOCK_REALTIME_COARSE",
+    6: "CLOCK_MONOTONIC_COARSE", 7: "CLOCK_BOOTTIME", 8: "CLOCK_REALTIME_ALARM",
+    9: "CLOCK_BOOTTIME_ALARM", 11: "CLOCK_TAI"
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -738,6 +767,23 @@ class SyscallHandler:
             "fchownat": self.handle_fchownat,
             "setuid": self.handle_setuid,
             "setgid": self.handle_setgid,
+            "getuid": self.handle_get_id,
+            "getgid": self.handle_get_id,
+            "geteuid": self.handle_get_id,
+            "getegid": self.handle_get_id,
+            "setreuid": self.handle_setre_id,
+            "setregid": self.handle_setre_id,
+            "setresuid": self.handle_setres_id,
+            "setresgid": self.handle_setres_id,
+            "getresuid": self.handle_getres_id,
+            "getresgid": self.handle_getres_id,
+            "setfsuid": self.handle_setfs_id,
+            "setfsgid": self.handle_setfs_id,
+            "getgroups": self.handle_getgroups,
+            "setgroups": self.handle_setgroups,
+            "capget": self.handle_cap,
+            "capset": self.handle_cap,
+            "prctl": self.handle_prctl,
 
             # File & Directory Management
             "open": self.handle_open,
@@ -790,6 +836,24 @@ class SyscallHandler:
             "utimes": self.handle_utime,
             "futimesat": self.handle_utime,
             "utimensat": self.handle_utime,
+            "time": self.handle_time,
+            "gettimeofday": self.handle_timeofday,
+            "settimeofday": self.handle_timeofday,
+            "adjtimex": self.handle_adjtimex,
+            "clock_gettime": self.handle_clock,
+            "clock_settime": self.handle_clock,
+            "clock_getres": self.handle_clock,
+            "clock_adjtime": self.handle_clock,
+            "shmget": self.handle_shmget,
+            "shmctl": self.handle_shmctl,
+            "semget": self.handle_semget,
+            "semop": self.handle_semop,
+            "semtimedop": self.handle_semop,
+            "semctl": self.handle_semctl,
+            "msgget": self.handle_msgget,
+            "msgsnd": self.handle_msgsnd,
+            "msgrcv": self.handle_msgrcv,
+            "msgctl": self.handle_msgctl,
 
             # Memory Management
             "mmap": self.handle_mmap,
@@ -1305,6 +1369,65 @@ class SyscallHandler:
         gid = self._parse_id(event.syscall.get("a0", "0"))
         return f"setgid({gid}) = {event.exit_str}"
 
+    def handle_get_id(self, event, scname=None):
+        scname = scname or event.syscall_name
+        return f"{scname}() = {event.exit_str}"
+
+    def handle_setre_id(self, event, scname=None):
+        scname = scname or event.syscall_name
+        r = self._parse_id(event.syscall.get("a0", "-1"))
+        e = self._parse_id(event.syscall.get("a1", "-1"))
+        return f"{scname}({r}, {e}) = {event.exit_str}"
+
+    def handle_setres_id(self, event, scname=None):
+        scname = scname or event.syscall_name
+        r = self._parse_id(event.syscall.get("a0", "-1"))
+        e = self._parse_id(event.syscall.get("a1", "-1"))
+        s = self._parse_id(event.syscall.get("a2", "-1"))
+        return f"{scname}({r}, {e}, {s}) = {event.exit_str}"
+
+    def handle_getres_id(self, event, scname=None):
+        scname = scname or event.syscall_name
+        return f"{scname}([...], [...], [...]) = {event.exit_str}"
+
+    def handle_setfs_id(self, event, scname=None):
+        scname = scname or event.syscall_name
+        fid = self._parse_id(event.syscall.get("a0", "-1"))
+        return f"{scname}({fid}) = {event.exit_str}"
+
+    def handle_getgroups(self, event):
+        size = self._parse_id(event.syscall.get("a0", "0"))
+        list_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        list_str = "NULL" if list_ptr == 0 else "[...]"
+        return f"getgroups({size}, {list_str}) = {event.exit_str}"
+
+    def handle_setgroups(self, event):
+        size = self._parse_id(event.syscall.get("a0", "0"))
+        return f"setgroups({size}, [...]) = {event.exit_str}"
+
+    def handle_cap(self, event, scname=None):
+        scname = scname or event.syscall_name
+        hdr_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        hdr_str = "NULL" if hdr_ptr == 0 else "{...}"
+        data_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        data_str = "NULL" if data_ptr == 0 else "[...]"
+        return f"{scname}({hdr_str}, {data_str}) = {event.exit_str}"
+
+    def handle_prctl(self, event):
+        opt_val = self._parse_id(event.syscall.get("a0", "0"))
+        opt_str = PRCTL_OPTIONS.get(opt_val, f"0x{opt_val:x}" if opt_val > 0x1000 else str(opt_val))
+        a1 = self._parse_id(event.syscall.get("a1", "0"))
+        if opt_str == "PR_SET_NAME":
+            name = event.syscall_interp.get("a1") or event.syscall.get("a1", "")
+            name = name.strip('"')
+            arg_tail = f'"{name}"' if name else f"0x{a1:x}"
+        elif opt_str in ("PR_GET_NAME", "PR_GET_DUMPABLE", "PR_GET_KEEPCAPS", "PR_GET_NO_NEW_PRIVS", "PR_GET_SECCOMP"):
+            arg_tail = ""
+        else:
+            arg_tail = str(a1)
+        args = f"{opt_str}, {arg_tail}" if arg_tail else opt_str
+        return f"prctl({args}) = {event.exit_str}"
+
     def _get_path_by_nametype(self, event, nametypes, default_idx=0):
         for p in event.paths:
             nt = p.get("nametype", "")
@@ -1583,6 +1706,93 @@ class SyscallHandler:
             return f"futimesat({dirfd_str}, \"{name}\", [...]) = {event.exit_str}"
         name = self._get_pathname(event, "a0")
         return f"{scname}(\"{name}\", [...]) = {event.exit_str}"
+
+    def handle_time(self, event):
+        tloc = self._parse_id(event.syscall.get("a0", "0"))
+        tloc_str = "NULL" if tloc == 0 else "[...]"
+        return f"time({tloc_str}) = {event.exit_str}"
+
+    def handle_timeofday(self, event, scname=None):
+        scname = scname or event.syscall_name or "gettimeofday"
+        tv_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        tz_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        tv_str = "{...}" if tv_ptr else "NULL"
+        tz_str = "{...}" if tz_ptr else "NULL"
+        return f"{scname}({tv_str}, {tz_str}) = {event.exit_str}"
+
+    def handle_adjtimex(self, event):
+        return f"adjtimex({{...}}) = {event.exit_str}"
+
+    def handle_clock(self, event, scname=None):
+        scname = scname or event.syscall_name
+        clk_id = self._parse_id(event.syscall.get("a0", "0"))
+        clk_str = CLOCK_IDS.get(clk_id, str(clk_id))
+        return f"{scname}({clk_str}, {{...}}) = {event.exit_str}"
+
+    def handle_shmget(self, event):
+        key = self._parse_id(event.syscall.get("a0", "0"))
+        key_str = "IPC_PRIVATE" if key == 0 else f"0x{key:x}"
+        size = self._parse_id(event.syscall.get("a1", "0"))
+        flg = self._parse_id(event.syscall.get("a2", "0"))
+        flg_str = self._resolve_mode(flg, event.syscall_interp.get("a2"))
+        return f"shmget({key_str}, {size}, {flg_str}) = {event.exit_str}"
+
+    def handle_shmctl(self, event):
+        shmid = self._parse_id(event.syscall.get("a0", "0"))
+        cmd_val = self._parse_id(event.syscall.get("a1", "0"))
+        cmd_str = IPC_CMDS.get(cmd_val, str(cmd_val))
+        return f"shmctl({shmid}, {cmd_str}, [...]) = {event.exit_str}"
+
+    def handle_semget(self, event):
+        key = self._parse_id(event.syscall.get("a0", "0"))
+        key_str = "IPC_PRIVATE" if key == 0 else f"0x{key:x}"
+        nsems = self._parse_id(event.syscall.get("a1", "0"))
+        flg = self._parse_id(event.syscall.get("a2", "0"))
+        flg_str = self._resolve_mode(flg, event.syscall_interp.get("a2"))
+        return f"semget({key_str}, {nsems}, {flg_str}) = {event.exit_str}"
+
+    def handle_semop(self, event, scname=None):
+        scname = scname or event.syscall_name or "semop"
+        semid = self._parse_id(event.syscall.get("a0", "0"))
+        nsops = self._parse_id(event.syscall.get("a2", "0"))
+        if scname == "semtimedop":
+            to_ptr = self._parse_id(event.syscall.get("a3", "0"))
+            to_str = ", NULL" if to_ptr == 0 else ", {...}"
+            return f"semtimedop({semid}, [{nsops}], {nsops}{to_str}) = {event.exit_str}"
+        return f"semop({semid}, [{nsops}], {nsops}) = {event.exit_str}"
+
+    def handle_semctl(self, event):
+        semid = self._parse_id(event.syscall.get("a0", "0"))
+        semnum = self._parse_id(event.syscall.get("a1", "0"))
+        cmd_val = self._parse_id(event.syscall.get("a2", "0"))
+        cmd_str = IPC_CMDS.get(cmd_val, str(cmd_val))
+        return f"semctl({semid}, {semnum}, {cmd_str}, ...) = {event.exit_str}"
+
+    def handle_msgget(self, event):
+        key = self._parse_id(event.syscall.get("a0", "0"))
+        key_str = "IPC_PRIVATE" if key == 0 else f"0x{key:x}"
+        flg = self._parse_id(event.syscall.get("a1", "0"))
+        flg_str = self._resolve_mode(flg, event.syscall_interp.get("a1"))
+        return f"msgget({key_str}, {flg_str}) = {event.exit_str}"
+
+    def handle_msgsnd(self, event):
+        msqid = self._parse_id(event.syscall.get("a0", "0"))
+        msgsz = self._parse_id(event.syscall.get("a2", "0"))
+        flg = self._parse_id(event.syscall.get("a3", "0"))
+        return f"msgsnd({msqid}, [...], {msgsz}, {flg}) = {event.exit_str}"
+
+    def handle_msgrcv(self, event):
+        msqid = self._parse_id(event.syscall.get("a0", "0"))
+        msgsz = self._parse_id(event.syscall.get("a2", "0"))
+        msgtyp = self._parse_id(event.syscall.get("a3", "0"))
+        flg = self._parse_id(event.syscall.get("a4", "0"))
+        return f"msgrcv({msqid}, [...], {msgsz}, {msgtyp}, {flg}) = {event.exit_str}"
+
+    def handle_msgctl(self, event):
+        msqid = self._parse_id(event.syscall.get("a0", "0"))
+        cmd_val = self._parse_id(event.syscall.get("a1", "0"))
+        cmd_str = IPC_CMDS.get(cmd_val, str(cmd_val))
+        return f"msgctl({msqid}, {cmd_str}, [...]) = {event.exit_str}"
 
     def handle_clone(self, event):
         child_pid = event.syscall.get("exit")

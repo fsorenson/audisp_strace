@@ -21,7 +21,9 @@ auditctl -a never,exit -F sessionid=$sessionid
 # Permissions & Ownership
 auditctl -a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F key="$KEY"
-auditctl -a always,exit -F arch=b64 -S setuid,setgid -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S setuid,setgid,setreuid,setregid,setresuid,setresgid,setfsuid,setfsgid -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S getuid,getgid,geteuid,getegid,getresuid,getresgid,getgroups,setgroups -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S capget,capset,prctl -F key="$KEY"
 
 # File Creation, Open, Close & Directories
 auditctl -a always,exit -F arch=b64 -S creat,open,openat,openat2,close -F key="$KEY"
@@ -46,6 +48,14 @@ auditctl -a always,exit -F arch=b64 -S listxattr,llistxattr,flistxattr,removexat
 # Special Files & Descriptors
 auditctl -a always,exit -F arch=b64 -S mknod,mknodat -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S dup,dup2,dup3,pipe,pipe2 -F key="$KEY"
+
+# IPC: System V Shared Memory, Semaphores & Message Queues
+auditctl -a always,exit -F arch=b64 -S shmget,shmctl,semget,semop,semtimedop,semctl -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S msgget,msgsnd,msgrcv,msgctl -F key="$KEY"
+
+# Time & Clock
+auditctl -a always,exit -F arch=b64 -S time,gettimeofday,settimeofday,adjtimex -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S clock_gettime,clock_settime,clock_getres,clock_adjtime -F key="$KEY"
 
 # Memory Management
 auditctl -a always,exit -F arch=b64 -S mmap,munmap,mprotect,madvise,brk,mremap,msync,mincore -F key="$KEY"
