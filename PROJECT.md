@@ -122,6 +122,7 @@ Sample 3-line format per monitored event:
     - [x] Tracks `FD_PAIR` records from `pipe`, `pipe2`, `socketpair`.
     - [x] In-flight resolution for `fstat`, `fchmod`, `fchown`, `ftruncate`, `fallocate`, `f*xattr`, directory descriptors in `*at` syscalls, read/write, sockets, fcntl/ioctl, and `close(fd<path>)`.
     - [x] Inherits open descriptors across `fork`/`clone`, handles `O_CLOEXEC` closure on `execve`, and cleans up on `exit`.
+- [x] Refactored `SyscallHandler` dispatch from an $O(N)$ `if/elif` chain to an $O(1)$ dictionary method dispatch table (`self._handlers`), unifying handler method signatures (`handle_*(self, event)`) and validating zero output regressions across all test logs.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`

@@ -678,6 +678,133 @@ class SyscallHandler:
         self.resolver = resolver
         self.formatter = formatter
 
+        self._handlers = {
+            # Permissions, Ownership & Credentials
+            "chmod": self.handle_chmod,
+            "fchmod": self.handle_fchmod,
+            "fchmodat": self.handle_fchmodat,
+            "chown": self.handle_chown_lchown,
+            "lchown": self.handle_chown_lchown,
+            "fchown": self.handle_fchown,
+            "fchownat": self.handle_fchownat,
+            "setuid": self.handle_setuid,
+            "setgid": self.handle_setgid,
+
+            # File & Directory Management
+            "open": self.handle_open,
+            "openat": self.handle_openat,
+            "openat2": self.handle_openat2,
+            "creat": self.handle_creat,
+            "close": self.handle_close,
+            "unlink": self.handle_unlink,
+            "unlinkat": self.handle_unlinkat,
+            "rename": self.handle_rename,
+            "renameat": self.handle_renameat,
+            "renameat2": self.handle_renameat2,
+            "mkdir": self.handle_mkdir,
+            "mkdirat": self.handle_mkdirat,
+            "rmdir": self.handle_rmdir,
+            "link": self.handle_link,
+            "linkat": self.handle_linkat,
+            "symlink": self.handle_symlink,
+            "symlinkat": self.handle_symlinkat,
+            "readlink": self.handle_readlink,
+            "readlinkat": self.handle_readlinkat,
+
+            # File Metadata, Inspection & Access
+            "stat": self.handle_stat_lstat,
+            "lstat": self.handle_stat_lstat,
+            "fstat": self.handle_fstat,
+            "newfstatat": self.handle_newfstatat,
+            "fstatat": self.handle_newfstatat,
+            "statx": self.handle_statx,
+            "statfs": self.handle_statfs,
+            "fstatfs": self.handle_fstatfs,
+            "access": self.handle_access,
+            "faccessat": self.handle_faccessat,
+            "faccessat2": self.handle_faccessat,
+
+            # File Sizing & Descriptors
+            "dup": self.handle_dup,
+            "dup2": self.handle_dup2,
+            "dup3": self.handle_dup3,
+            "truncate": self.handle_truncate,
+            "ftruncate": self.handle_ftruncate,
+            "fallocate": self.handle_fallocate,
+
+            # Special Files, IPC & Timestamps
+            "mknod": self.handle_mknod,
+            "mknodat": self.handle_mknodat,
+            "pipe": self.handle_pipe,
+            "pipe2": self.handle_pipe,
+            "utime": self.handle_utime,
+            "utimes": self.handle_utime,
+            "futimesat": self.handle_utime,
+            "utimensat": self.handle_utime,
+
+            # Memory Management
+            "mmap": self.handle_mmap,
+            "munmap": self.handle_munmap,
+            "mprotect": self.handle_mprotect,
+            "madvise": self.handle_madvise,
+            "brk": self.handle_brk,
+
+            # Sockets & Networking
+            "socket": self.handle_socket,
+            "socketpair": self.handle_socketpair,
+            "bind": self.handle_bind,
+            "listen": self.handle_listen,
+            "accept": self.handle_accept,
+            "accept4": self.handle_accept,
+            "connect": self.handle_connect,
+            "getsockname": self.handle_getsockname,
+            "getpeername": self.handle_getsockname,
+            "sendto": self.handle_sendto,
+            "recvfrom": self.handle_recvfrom,
+            "sendmsg": self.handle_sendmsg_recvmsg,
+            "recvmsg": self.handle_sendmsg_recvmsg,
+            "shutdown": self.handle_shutdown,
+
+            # Read, Write & I/O
+            "read": self.handle_read_write,
+            "write": self.handle_read_write,
+            "readv": self.handle_readv_writev,
+            "writev": self.handle_readv_writev,
+            "pread": self.handle_pread_pwrite,
+            "pread64": self.handle_pread_pwrite,
+            "pwrite": self.handle_pread_pwrite,
+            "pwrite64": self.handle_pread_pwrite,
+            "preadv": self.handle_preadv_pwritev,
+            "pwritev": self.handle_preadv_pwritev,
+            "preadv2": self.handle_preadv_pwritev,
+            "pwritev2": self.handle_preadv_pwritev,
+            "sendfile": self.handle_sendfile,
+            "sendfile64": self.handle_sendfile,
+
+            # Descriptor Control
+            "fcntl": self.handle_fcntl,
+            "ioctl": self.handle_ioctl,
+
+            # Process Lifecycle & Tracking
+            "clone": self.handle_clone,
+            "clone3": self.handle_clone,
+            "fork": self.handle_clone,
+            "vfork": self.handle_clone,
+            "execve": self.handle_execve,
+            "execveat": self.handle_execve,
+            "exit": self.handle_exit,
+            "exit_group": self.handle_exit,
+        }
+
+        # Extended Attributes (xattr)
+        for sc in (
+            "setxattr", "lsetxattr", "fsetxattr",
+            "getxattr", "lgetxattr", "fgetxattr",
+            "listxattr", "llistxattr", "flistxattr",
+            "removexattr", "lremovexattr", "fremovexattr"
+        ):
+            self._handlers[sc] = self.handle_xattr
+
     def _resolve_dirfd(self, event, a0_val):
         try:
             val_int = int(str(a0_val), 16) if isinstance(a0_val, str) and not str(a0_val).startswith("-") else int(a0_val)
@@ -942,7 +1069,8 @@ class SyscallHandler:
         call_str = f"fchownat({dirfd_str}, \"{name}\", {uid_val}, {gid_val}, {flags_str}) = {event.exit_str}"
         return call_str
 
-    def handle_chown_lchown(self, event, scname):
+    def handle_chown_lchown(self, event, scname=None):
+        scname = scname or event.syscall_name
         name = event.paths[0].get("name") if event.paths else event.syscall.get("a0", "")
         name = name.strip('"')
         uid_val = self._parse_id(event.syscall.get("a1", "-1"))
@@ -1169,7 +1297,8 @@ class SyscallHandler:
         bufsiz = self._parse_id(event.syscall.get("a3", "1024"))
         return f"readlinkat({dirfd_str}, \"{name}\", ..., {bufsiz}) = {event.exit_str}"
 
-    def handle_stat_lstat(self, event, scname):
+    def handle_stat_lstat(self, event, scname=None):
+        scname = scname or event.syscall_name
         name = self._get_pathname(event, "a0")
         return f"{scname}(\"{name}\", {{...}}) = {event.exit_str}"
 
@@ -1177,7 +1306,8 @@ class SyscallHandler:
         fd_str = self._resolve_fd(event, "a0")
         return f"fstat({fd_str}, {{...}}) = {event.exit_str}"
 
-    def handle_newfstatat(self, event, scname="newfstatat"):
+    def handle_newfstatat(self, event, scname=None):
+        scname = scname or event.syscall_name or "newfstatat"
         dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
         name = self._get_pathname(event, "a1")
         flags_val = self._parse_id(event.syscall.get("a3", "0"))
@@ -1212,7 +1342,8 @@ class SyscallHandler:
         mode_str = self._format_access_mode(event.syscall.get("a1", "0"))
         return f"access(\"{name}\", {mode_str}) = {event.exit_str}"
 
-    def handle_faccessat(self, event, scname="faccessat"):
+    def handle_faccessat(self, event, scname=None):
+        scname = scname or event.syscall_name or "faccessat"
         dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
         name = self._get_pathname(event, "a1")
         mode_str = self._format_access_mode(event.syscall.get("a2", "0"))
@@ -1266,7 +1397,8 @@ class SyscallHandler:
         length = self._parse_id(event.syscall.get("a3", "0"))
         return f"fallocate({fd_str}, {mode_str}, {offset}, {length}) = {event.exit_str}"
 
-    def handle_xattr(self, event, scname):
+    def handle_xattr(self, event, scname=None):
+        scname = scname or event.syscall_name
         if scname.startswith("f"):
             target_str = self._resolve_fd(event, "a0")
         else:
@@ -1288,7 +1420,8 @@ class SyscallHandler:
         dev_str = self._format_dev(event.syscall.get("a3", "0"))
         return f"mknodat({dirfd_str}, \"{name}\", {mode_str}, {dev_str}) = {event.exit_str}"
 
-    def handle_pipe(self, event, scname="pipe"):
+    def handle_pipe(self, event, scname=None):
+        scname = scname or event.syscall_name or "pipe"
         flags = ""
         if scname == "pipe2":
             fval = self._parse_id(event.syscall.get("a1", "0"))
@@ -1299,7 +1432,8 @@ class SyscallHandler:
             return f"{scname}([{fd0}, {fd1}]{flags}) = {event.exit_str}"
         return f"{scname}([...]{flags}) = {event.exit_str}"
 
-    def handle_utime(self, event, scname):
+    def handle_utime(self, event, scname=None):
+        scname = scname or event.syscall_name
         if scname in ("futimesat", "utimensat"):
             dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
             name = self._get_pathname(event, "a1")
@@ -1412,7 +1546,8 @@ class SyscallHandler:
         backlog = self._parse_id(event.syscall.get("a1", "128"))
         return f"listen({fd_str}, {backlog}) = {event.exit_str}"
 
-    def handle_accept(self, event, scname="accept"):
+    def handle_accept(self, event, scname=None):
+        scname = scname or event.syscall_name or "accept"
         fd_str = self._resolve_fd(event, "a0")
         sa_str = self._format_sockaddr(event, "a1", "a2")
         flags_str = ""
@@ -1421,7 +1556,8 @@ class SyscallHandler:
             flags_str = ", SOCK_CLOEXEC" if fval == 0x80000 else (f", {fval}" if fval else ", 0")
         return f"{scname}({fd_str}, {sa_str}, [...]{flags_str}) = {event.exit_str}"
 
-    def handle_getsockname(self, event, scname):
+    def handle_getsockname(self, event, scname=None):
+        scname = scname or event.syscall_name
         fd_str = self._resolve_fd(event, "a0")
         sa_str = self._format_sockaddr(event, "a1", "a2")
         return f"{scname}({fd_str}, {sa_str}, [...]) = {event.exit_str}"
@@ -1446,7 +1582,8 @@ class SyscallHandler:
             src_str = f", {sa_str}, [...]"
         return f"recvfrom({fd_str}, \"...\", {len_val}, {flags_val}{src_str}) = {event.exit_str}"
 
-    def handle_sendmsg_recvmsg(self, event, scname):
+    def handle_sendmsg_recvmsg(self, event, scname=None):
+        scname = scname or event.syscall_name
         fd_str = self._resolve_fd(event, "a0")
         flags_val = self._parse_id(event.syscall.get("a2", "0"))
         return f"{scname}({fd_str}, {{...}}, {flags_val}) = {event.exit_str}"
@@ -1457,23 +1594,27 @@ class SyscallHandler:
         how_str = SHUTDOWN_HOW.get(how, str(how))
         return f"shutdown({fd_str}, {how_str}) = {event.exit_str}"
 
-    def handle_read_write(self, event, scname):
+    def handle_read_write(self, event, scname=None):
+        scname = scname or event.syscall_name
         fd_str = self._resolve_fd(event, "a0")
         count = self._parse_id(event.syscall.get("a2", "0"))
         return f"{scname}({fd_str}, \"...\", {count}) = {event.exit_str}"
 
-    def handle_readv_writev(self, event, scname):
+    def handle_readv_writev(self, event, scname=None):
+        scname = scname or event.syscall_name
         fd_str = self._resolve_fd(event, "a0")
         iovcnt = self._parse_id(event.syscall.get("a2", "0"))
         return f"{scname}({fd_str}, [...], {iovcnt}) = {event.exit_str}"
 
-    def handle_pread_pwrite(self, event, scname):
+    def handle_pread_pwrite(self, event, scname=None):
+        scname = scname or event.syscall_name
         fd_str = self._resolve_fd(event, "a0")
         count = self._parse_id(event.syscall.get("a2", "0"))
         offset = self._parse_id(event.syscall.get("a3", "0"))
         return f"{scname}({fd_str}, \"...\", {count}, {offset}) = {event.exit_str}"
 
-    def handle_preadv_pwritev(self, event, scname):
+    def handle_preadv_pwritev(self, event, scname=None):
+        scname = scname or event.syscall_name
         fd_str = self._resolve_fd(event, "a0")
         iovcnt = self._parse_id(event.syscall.get("a2", "0"))
         offset = self._parse_id(event.syscall.get("a3", "0"))
@@ -1483,7 +1624,8 @@ class SyscallHandler:
             flags_str = f", {flags_val}"
         return f"{scname}({fd_str}, [...], {iovcnt}, {offset}{flags_str}) = {event.exit_str}"
 
-    def handle_sendfile(self, event, scname="sendfile"):
+    def handle_sendfile(self, event, scname=None):
+        scname = scname or event.syscall_name or "sendfile"
         out_fd = self._resolve_fd(event, "a0")
         in_fd = self._resolve_fd(event, "a1")
         offset_ptr = self._parse_id(event.syscall.get("a2", "0"))
@@ -1520,151 +1662,9 @@ class SyscallHandler:
         if not scname:
             return None
 
-        # Build Line 1 syscall description
-        if scname == 'fchmodat':
-            call_str = self.handle_fchmodat(event)
-        elif scname == 'chmod':
-            call_str = self.handle_chmod(event)
-        elif scname == 'fchmod':
-            call_str = self.handle_fchmod(event)
-        elif scname == 'fchownat':
-            call_str = self.handle_fchownat(event)
-        elif scname in ('chown', 'lchown'):
-            call_str = self.handle_chown_lchown(event, scname)
-        elif scname == 'fchown':
-            call_str = self.handle_fchown(event)
-        elif scname == 'open':
-            call_str = self.handle_open(event)
-        elif scname == 'openat':
-            call_str = self.handle_openat(event)
-        elif scname == 'openat2':
-            call_str = self.handle_openat2(event)
-        elif scname == 'creat':
-            call_str = self.handle_creat(event)
-        elif scname == 'close':
-            call_str = self.handle_close(event)
-        elif scname == 'unlink':
-            call_str = self.handle_unlink(event)
-        elif scname == 'unlinkat':
-            call_str = self.handle_unlinkat(event)
-        elif scname == 'rename':
-            call_str = self.handle_rename(event)
-        elif scname == 'renameat':
-            call_str = self.handle_renameat(event)
-        elif scname == 'renameat2':
-            call_str = self.handle_renameat2(event)
-        elif scname == 'mkdir':
-            call_str = self.handle_mkdir(event)
-        elif scname == 'mkdirat':
-            call_str = self.handle_mkdirat(event)
-        elif scname == 'rmdir':
-            call_str = self.handle_rmdir(event)
-        elif scname == 'link':
-            call_str = self.handle_link(event)
-        elif scname == 'linkat':
-            call_str = self.handle_linkat(event)
-        elif scname == 'symlink':
-            call_str = self.handle_symlink(event)
-        elif scname == 'symlinkat':
-            call_str = self.handle_symlinkat(event)
-        elif scname == 'setuid':
-            call_str = self.handle_setuid(event)
-        elif scname == 'setgid':
-            call_str = self.handle_setgid(event)
-        elif scname == 'readlink':
-            call_str = self.handle_readlink(event)
-        elif scname == 'readlinkat':
-            call_str = self.handle_readlinkat(event)
-        elif scname in ('stat', 'lstat'):
-            call_str = self.handle_stat_lstat(event, scname)
-        elif scname == 'fstat':
-            call_str = self.handle_fstat(event)
-        elif scname in ('newfstatat', 'fstatat'):
-            call_str = self.handle_newfstatat(event, scname)
-        elif scname == 'statx':
-            call_str = self.handle_statx(event)
-        elif scname == 'statfs':
-            call_str = self.handle_statfs(event)
-        elif scname == 'fstatfs':
-            call_str = self.handle_fstatfs(event)
-        elif scname == 'access':
-            call_str = self.handle_access(event)
-        elif scname in ('faccessat', 'faccessat2'):
-            call_str = self.handle_faccessat(event, scname)
-        elif scname == 'dup':
-            call_str = self.handle_dup(event)
-        elif scname == 'dup2':
-            call_str = self.handle_dup2(event)
-        elif scname == 'dup3':
-            call_str = self.handle_dup3(event)
-        elif scname == 'truncate':
-            call_str = self.handle_truncate(event)
-        elif scname == 'ftruncate':
-            call_str = self.handle_ftruncate(event)
-        elif scname == 'fallocate':
-            call_str = self.handle_fallocate(event)
-        elif scname.endswith('xattr'):
-            call_str = self.handle_xattr(event, scname)
-        elif scname == 'mknod':
-            call_str = self.handle_mknod(event)
-        elif scname == 'mknodat':
-            call_str = self.handle_mknodat(event)
-        elif scname in ('pipe', 'pipe2'):
-            call_str = self.handle_pipe(event, scname)
-        elif scname in ('utime', 'utimes', 'futimesat', 'utimensat'):
-            call_str = self.handle_utime(event, scname)
-        elif scname == 'mmap':
-            call_str = self.handle_mmap(event)
-        elif scname == 'munmap':
-            call_str = self.handle_munmap(event)
-        elif scname == 'mprotect':
-            call_str = self.handle_mprotect(event)
-        elif scname == 'madvise':
-            call_str = self.handle_madvise(event)
-        elif scname == 'brk':
-            call_str = self.handle_brk(event)
-        elif scname == 'socket':
-            call_str = self.handle_socket(event)
-        elif scname == 'socketpair':
-            call_str = self.handle_socketpair(event)
-        elif scname == 'bind':
-            call_str = self.handle_bind(event)
-        elif scname == 'listen':
-            call_str = self.handle_listen(event)
-        elif scname in ('accept', 'accept4'):
-            call_str = self.handle_accept(event, scname)
-        elif scname == 'connect':
-            call_str = self.handle_connect(event)
-        elif scname in ('getsockname', 'getpeername'):
-            call_str = self.handle_getsockname(event, scname)
-        elif scname == 'sendto':
-            call_str = self.handle_sendto(event)
-        elif scname == 'recvfrom':
-            call_str = self.handle_recvfrom(event)
-        elif scname in ('sendmsg', 'recvmsg'):
-            call_str = self.handle_sendmsg_recvmsg(event, scname)
-        elif scname == 'shutdown':
-            call_str = self.handle_shutdown(event)
-        elif scname in ('read', 'write'):
-            call_str = self.handle_read_write(event, scname)
-        elif scname in ('readv', 'writev'):
-            call_str = self.handle_readv_writev(event, scname)
-        elif scname in ('pread', 'pread64', 'pwrite', 'pwrite64'):
-            call_str = self.handle_pread_pwrite(event, scname)
-        elif scname in ('preadv', 'pwritev', 'preadv2', 'pwritev2'):
-            call_str = self.handle_preadv_pwritev(event, scname)
-        elif scname in ('sendfile', 'sendfile64'):
-            call_str = self.handle_sendfile(event, scname)
-        elif scname == 'fcntl':
-            call_str = self.handle_fcntl(event)
-        elif scname == 'ioctl':
-            call_str = self.handle_ioctl(event)
-        elif scname in ('clone', 'clone3', 'fork', 'vfork'):
-            call_str = self.handle_clone(event)
-        elif scname in ('execve', 'execveat'):
-            call_str = self.handle_execve(event)
-        elif scname in ('exit', 'exit_group'):
-            call_str = self.handle_exit(event)
+        handler = self._handlers.get(scname)
+        if handler:
+            call_str = handler(event)
         else:
             call_str = f"{scname}(...) = {event.exit_str}"
 
