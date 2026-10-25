@@ -233,6 +233,10 @@ Sample 3-line format per monitored event:
   - Linux Security Modules (LSM): `lsm_get_self_attr`, `lsm_set_self_attr`, `lsm_list_modules` (decoding `LSM_ATTR_*`)
   - Namespaces & Concurrency: `listns`, `rseq_slice_yield`
   - Added Section 16.13 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
+- [x] Verified and completed full test & audit coverage for all 37 classed syscalls from `syscallent-common.h`:
+  - Verified 100% handler registration in `audisp-strace` and membership across `%desc`, `%file`, `%memory`, `%process`, `%signal`.
+  - Added Section 16.14 to `test_syscalls.c` covering the remaining 29 classed syscalls safely.
+  - Added audit rules for all remaining classed syscalls in `setup_audit_rules.sh`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`

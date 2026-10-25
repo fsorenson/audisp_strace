@@ -179,6 +179,180 @@
 #  endif
 #endif
 
+#ifndef SYS_pidfd_send_signal
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_pidfd_send_signal 424
+#  endif
+#endif
+
+#ifndef SYS_io_uring_setup
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_io_uring_setup 425
+#  endif
+#endif
+
+#ifndef SYS_io_uring_enter
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_io_uring_enter 426
+#  endif
+#endif
+
+#ifndef SYS_io_uring_register
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_io_uring_register 427
+#  endif
+#endif
+
+#ifndef SYS_fsopen
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_fsopen 430
+#  endif
+#endif
+
+#ifndef SYS_fsmount
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_fsmount 432
+#  endif
+#endif
+
+#ifndef SYS_clone3
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_clone3 435
+#  endif
+#endif
+
+#ifndef SYS_pidfd_getfd
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_pidfd_getfd 438
+#  endif
+#endif
+
+#ifndef SYS_faccessat2
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_faccessat2 439
+#  endif
+#endif
+
+#ifndef SYS_process_madvise
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_process_madvise 440
+#  endif
+#endif
+
+#ifndef SYS_epoll_pwait2
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_epoll_pwait2 441
+#  endif
+#endif
+
+#ifndef SYS_quotactl_fd
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_quotactl_fd 443
+#  endif
+#endif
+
+#ifndef SYS_landlock_create_ruleset
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_landlock_create_ruleset 444
+#  endif
+#endif
+
+#ifndef SYS_landlock_add_rule
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_landlock_add_rule 445
+#  endif
+#endif
+
+#ifndef SYS_landlock_restrict_self
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_landlock_restrict_self 446
+#  endif
+#endif
+
+#ifndef SYS_memfd_secret
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_memfd_secret 447
+#  endif
+#endif
+
+#ifndef SYS_process_mrelease
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_process_mrelease 448
+#  endif
+#endif
+
+#ifndef SYS_set_mempolicy_home_node
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_set_mempolicy_home_node 450
+#  endif
+#endif
+
+#ifndef SYS_cachestat
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_cachestat 451
+#  endif
+#endif
+
+#ifndef SYS_fchmodat2
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_fchmodat2 452
+#  endif
+#endif
+
+#ifndef SYS_map_shadow_stack
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_map_shadow_stack 453
+#  endif
+#endif
+
+#ifndef SYS_setxattrat
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_setxattrat 463
+#  endif
+#endif
+
+#ifndef SYS_getxattrat
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_getxattrat 464
+#  endif
+#endif
+
+#ifndef SYS_listxattrat
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_listxattrat 465
+#  endif
+#endif
+
+#ifndef SYS_removexattrat
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_removexattrat 466
+#  endif
+#endif
+
+#ifndef SYS_open_tree_attr
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_open_tree_attr 467
+#  endif
+#endif
+
+#ifndef SYS_file_getattr
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_file_getattr 468
+#  endif
+#endif
+
+#ifndef SYS_file_setattr
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_file_setattr 469
+#  endif
+#endif
+
+#ifndef SYS_fchroot
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_fchroot 472
+#  endif
+#endif
+
 #ifndef RENAME_NOREPLACE
 #  define RENAME_NOREPLACE (1 << 0)
 #endif
@@ -1681,6 +1855,109 @@ static void run_worker_tests(const char *base_dir) {
 
     res = (int)syscall(SYS_rseq_slice_yield);
     log_op("rseq_slice_yield", "rseq_slice_yield()", res);
+
+    /* -------------------------------------------------------------
+     * 16.14. CLASSED GENERIC & RECENT SYSCALLS (syscallent-common.h):
+     * pidfd_send_signal, io_uring_setup, io_uring_enter, io_uring_register,
+     * fsopen, fsmount, clone3, pidfd_getfd, faccessat2, process_madvise,
+     * epoll_pwait2, quotactl_fd, landlock_create_ruleset, landlock_add_rule,
+     * landlock_restrict_self, memfd_secret, process_mrelease,
+     * set_mempolicy_home_node, cachestat, fchmodat2, map_shadow_stack,
+     * setxattrat, getxattrat, listxattrat, removexattrat, open_tree_attr,
+     * file_getattr, file_setattr, fchroot
+     * ------------------------------------------------------------- */
+    printf("\n--- Classed Generic & Recent Syscalls (syscallent-common.h) ---\n");
+
+    res = (int)syscall(SYS_pidfd_send_signal, -1, 0, NULL, 0);
+    log_op("pidfd_send_signal", "pidfd_send_signal(-1, 0, NULL, 0)", res);
+
+    res = (int)syscall(SYS_io_uring_setup, 0, NULL);
+    log_op("io_uring_setup", "dummy io_uring_setup", res);
+
+    res = (int)syscall(SYS_io_uring_enter, -1, 0, 0, 0, NULL, 0);
+    log_op("io_uring_enter", "dummy io_uring_enter", res);
+
+    res = (int)syscall(SYS_io_uring_register, -1, 0, NULL, 0);
+    log_op("io_uring_register", "dummy io_uring_register", res);
+
+    res = (int)syscall(SYS_fsopen, "nonexistent_fs", 0);
+    log_op("fsopen", "dummy fsopen", res);
+
+    res = (int)syscall(SYS_fsmount, -1, 0, 0);
+    log_op("fsmount", "dummy fsmount", res);
+
+    res = (int)syscall(SYS_clone3, NULL, 0);
+    log_op("clone3", "dummy clone3", res);
+
+    res = (int)syscall(SYS_pidfd_getfd, -1, -1, 0);
+    log_op("pidfd_getfd", "dummy pidfd_getfd", res);
+
+    res = (int)syscall(SYS_faccessat2, AT_FDCWD, "open_file.txt", R_OK, 0);
+    log_op("faccessat2", "faccessat2(AT_FDCWD, 'open_file.txt', R_OK, 0)", res);
+
+    res = (int)syscall(SYS_process_madvise, -1, NULL, 0, 0, 0);
+    log_op("process_madvise", "dummy process_madvise", res);
+
+    res = (int)syscall(SYS_epoll_pwait2, -1, NULL, 0, NULL, NULL);
+    log_op("epoll_pwait2", "dummy epoll_pwait2", res);
+
+    res = (int)syscall(SYS_quotactl_fd, -1, 0, 0, NULL);
+    log_op("quotactl_fd", "dummy quotactl_fd", res);
+
+    res = (int)syscall(SYS_landlock_create_ruleset, NULL, 0, 0);
+    log_op("landlock_create_ruleset", "dummy landlock_create_ruleset", res);
+
+    res = (int)syscall(SYS_landlock_add_rule, -1, 0, NULL, 0);
+    log_op("landlock_add_rule", "dummy landlock_add_rule", res);
+
+    res = (int)syscall(SYS_landlock_restrict_self, -1, 0);
+    log_op("landlock_restrict_self", "dummy landlock_restrict_self", res);
+
+    res = (int)syscall(SYS_memfd_secret, 0);
+    log_op("memfd_secret", "memfd_secret(0)", res);
+    if (res >= 0) {
+        close(res);
+    }
+
+    res = (int)syscall(SYS_process_mrelease, -1, 0);
+    log_op("process_mrelease", "dummy process_mrelease", res);
+
+    res = (int)syscall(SYS_set_mempolicy_home_node, 0, 0, 0, 0);
+    log_op("set_mempolicy_home_node", "dummy set_mempolicy_home_node", res);
+
+    res = (int)syscall(SYS_cachestat, -1, NULL, NULL, 0);
+    log_op("cachestat", "dummy cachestat", res);
+
+    res = (int)syscall(SYS_fchmodat2, -1, "dummy", 0644, 0);
+    log_op("fchmodat2", "dummy fchmodat2", res);
+
+    res = (int)syscall(SYS_map_shadow_stack, 0, 0, 0);
+    log_op("map_shadow_stack", "dummy map_shadow_stack", res);
+
+    res = (int)syscall(SYS_setxattrat, -1, "dummy", "user.audisp_test", "val", 3, 0);
+    log_op("setxattrat", "dummy setxattrat", res);
+
+    res = (int)syscall(SYS_getxattrat, -1, "dummy", "user.audisp_test", xattr_buf, sizeof(xattr_buf), 0);
+    log_op("getxattrat", "dummy getxattrat", res);
+
+    res = (int)syscall(SYS_listxattrat, -1, "dummy", xattr_buf, sizeof(xattr_buf), 0);
+    log_op("listxattrat", "dummy listxattrat", res);
+
+    res = (int)syscall(SYS_removexattrat, -1, "dummy", "user.audisp_test", 0);
+    log_op("removexattrat", "dummy removexattrat", res);
+
+    res = (int)syscall(SYS_open_tree_attr, -1, "dummy", 0, NULL, 0);
+    log_op("open_tree_attr", "dummy open_tree_attr", res);
+
+    res = (int)syscall(SYS_file_getattr, -1, NULL, NULL, 0, 0);
+    log_op("file_getattr", "dummy file_getattr", res);
+
+    res = (int)syscall(SYS_file_setattr, -1, NULL, NULL, 0, 0);
+    log_op("file_setattr", "dummy file_setattr", res);
+
+    /* Safe test with invalid fd so process root is never modified */
+    res = (int)syscall(SYS_fchroot, -1);
+    log_op("fchroot", "fchroot(-1) invalid fd", res);
 
     /* -------------------------------------------------------------
      * 17. DELETION & CLEANUP: unlink, unlinkat, rmdir, close

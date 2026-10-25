@@ -126,5 +126,10 @@ auditctl -a always,exit -F arch=b64 -S _sysctl,sysfs,epoll_ctl_old,epoll_wait_ol
 auditctl -a always,exit -F arch=b64 -S close_range,futex_waitv,futex_wake,futex_wait,futex_requeue,statmount,listmount -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S lsm_get_self_attr,lsm_set_self_attr,lsm_list_modules,listns,rseq_slice_yield -F key="$KEY"
 
+# Modern Classed Syscalls (syscallent-common.h)
+auditctl -a always,exit -F arch=b64 -S pidfd_send_signal,process_madvise,process_mrelease,cachestat,quotactl_fd,fchmodat2 -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S landlock_create_ruleset,landlock_add_rule,landlock_restrict_self -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S setxattrat,getxattrat,listxattrat,removexattrat,open_tree_attr,file_getattr,file_setattr -F key="$KEY"
+
 echo "Current active rules with key $KEY:"
 auditctl -l | grep "$KEY"
