@@ -187,6 +187,12 @@ Sample 3-line format per monitored event:
   - Advanced filesystem & directories: `fchdir`, `fchroot`, `fsmount`, `fsopen`, `quotactl_fd`, `cachestat`, `getdents`, `getdents64`, `open_by_handle_at`, `fanotify_init`, `perf_event_open`, `setns`
   - Added test exercises to `test_syscalls.c` (Section 16.6) and audit rules to `setup_audit_rules.sh`.
   - Verified with synthetic unit tests for all 60 handlers and regression-checked against `out-v6.txt`.
+- [x] Implemented unclassed Batch 1: Process Control, Scheduling & Resource Limits (30 syscalls):
+  - Scheduling: `sched_yield`, `sched_setparam`, `sched_getparam`, `sched_setscheduler`, `sched_getscheduler`, `sched_get_priority_max`, `sched_get_priority_min`, `sched_rr_get_interval`, `sched_setaffinity`, `sched_getaffinity`, `sched_setattr`, `sched_getattr`, `getcpu`
+  - Process IDs & Priority: `setpgid`, `getpgid`, `setsid`, `getsid`, `getpriority`, `setpriority`
+  - Resource Limits & System Attributes: `umask`, `personality`, `getrlimit`, `setrlimit`, `prlimit64`, `getrusage`
+  - Namespaces, Execution & Threading: `unshare`, `set_tid_address`, `rseq`, `vhangup`, `restart_syscall`
+  - Added Section 16.7 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`

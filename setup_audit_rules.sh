@@ -96,5 +96,11 @@ auditctl -a always,exit -F arch=b64 -S clone,clone3,fork,vfork,execve,execveat -
 auditctl -a always,exit -F arch=b64 -S kill,tkill,tgkill,wait4,waitid -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S pause,rt_sigaction,rt_sigpending,rt_sigprocmask,rt_sigqueueinfo,rt_tgsigqueueinfo,sigaltstack,signalfd,signalfd4 -F key="$KEY"
 
+# Process Control, Scheduling & Resource Limits
+auditctl -a always,exit -F arch=b64 -S sched_yield,sched_setparam,sched_getparam,sched_setscheduler,sched_getscheduler -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S sched_get_priority_max,sched_get_priority_min,sched_rr_get_interval,sched_setaffinity,sched_getaffinity -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S sched_setattr,sched_getattr,getcpu,setpgid,getpgid,setsid,getsid,getpriority,setpriority -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S umask,personality,getrlimit,setrlimit,prlimit64,getrusage,unshare,set_tid_address,rseq,vhangup,restart_syscall -F key="$KEY"
+
 echo "Current active rules with key $KEY:"
 auditctl -l | grep "$KEY"

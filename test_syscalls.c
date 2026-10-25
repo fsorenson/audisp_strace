@@ -43,6 +43,8 @@
 #include <sys/timerfd.h>
 #include <poll.h>
 #include <sys/select.h>
+#include <sys/personality.h>
+#include <sys/resource.h>
 
 #ifdef __has_include
 #  if __has_include(<linux/openat2.h>)
@@ -1175,6 +1177,108 @@ static void run_worker_tests(const char *base_dir) {
     log_op("pidfd_open", "pidfd_open self", pfd_fd);
     if (pfd_fd >= 0) close(pfd_fd);
 #endif
+
+    /* -------------------------------------------------------------
+     * 16.7. PROCESS CONTROL, SCHEDULING & RESOURCE LIMITS:
+     *       sched_yield, sched_getparam, sched_setparam,
+     *       sched_getscheduler, sched_setscheduler,
+     *       sched_get_priority_max, sched_get_priority_min,
+     *       sched_rr_get_interval, sched_getaffinity, sched_setaffinity,
+     *       getcpu, getpgid, setpgid, getsid, getpriority,
+     *       setpriority, umask, personality, getrlimit, setrlimit,
+     *       prlimit64, getrusage, set_tid_address, unshare, vhangup
+     * ------------------------------------------------------------- */
+    printf("\n--- Process Control, Scheduling & Resource Limits ---\n");
+    res = sched_yield();
+    log_op("sched_yield", "yield execution", res);
+
+    struct sched_param sp;
+    memset(&sp, 0, sizeof(sp));
+    res = sched_getparam(0, &sp);
+    log_op("sched_getparam", "get current sched param", res);
+
+    res = sched_setparam(0, &sp);
+    log_op("sched_setparam", "set current sched param", res);
+
+    int sched_pol = sched_getscheduler(0);
+    log_op("sched_getscheduler", "get current policy", sched_pol);
+
+    if (sched_pol >= 0) {
+        res = sched_setscheduler(0, sched_pol, &sp);
+        log_op("sched_setscheduler", "restore current policy", res);
+    }
+
+    res = sched_get_priority_max(SCHED_OTHER);
+    log_op("sched_get_priority_max", "SCHED_OTHER max priority", res);
+
+    res = sched_get_priority_min(SCHED_OTHER);
+    log_op("sched_get_priority_min", "SCHED_OTHER min priority", res);
+
+    struct timespec rr_tp;
+    res = sched_rr_get_interval(0, &rr_tp);
+    log_op("sched_rr_get_interval", "get round-robin timeslice", res);
+
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    res = sched_getaffinity(0, sizeof(cpuset), &cpuset);
+    log_op("sched_getaffinity", "get affinity mask", res);
+    if (res >= 0) {
+        res = sched_setaffinity(0, sizeof(cpuset), &cpuset);
+        log_op("sched_setaffinity", "restore affinity mask", res);
+    }
+
+    unsigned cpu_id = 0, node_id = 0;
+    res = (int)syscall(SYS_getcpu, &cpu_id, &node_id, NULL);
+    log_op("getcpu", "getcpu &cpu, &node, NULL", res);
+
+    pid_t cur_pgrp = getpgid(0);
+    log_op("getpgid", "getpgid(0)", (int)cur_pgrp);
+
+    res = setpgid(0, cur_pgrp);
+    log_op("setpgid", "setpgid self to current pgrp", res);
+
+    pid_t cur_sid = getsid(0);
+    log_op("getsid", "getsid(0)", (int)cur_sid);
+
+    res = getpriority(PRIO_PROCESS, 0);
+    log_op("getpriority", "PRIO_PROCESS self", res);
+
+    res = setpriority(PRIO_PROCESS, 0, res);
+    log_op("setpriority", "restore PRIO_PROCESS priority", res);
+
+    mode_t cur_umask = umask(022);
+    log_op("umask", "umask(022)", (int)cur_umask);
+    res = (int)umask(cur_umask);
+    log_op("umask", "restore umask", res);
+
+    res = personality(0xffffffff);
+    log_op("personality", "query personality(0xffffffff)", res);
+
+    struct rlimit rlim;
+    res = getrlimit(RLIMIT_NOFILE, &rlim);
+    log_op("getrlimit", "RLIMIT_NOFILE", res);
+
+    if (res >= 0) {
+        res = setrlimit(RLIMIT_NOFILE, &rlim);
+        log_op("setrlimit", "restore RLIMIT_NOFILE", res);
+
+        res = (int)syscall(SYS_prlimit64, 0, RLIMIT_NOFILE, NULL, &rlim);
+        log_op("prlimit64", "query prlimit64 RLIMIT_NOFILE", res);
+    }
+
+    struct rusage ru;
+    res = getrusage(RUSAGE_SELF, &ru);
+    log_op("getrusage", "RUSAGE_SELF", res);
+
+    int dummy_tid = 0;
+    res = (int)syscall(SYS_set_tid_address, &dummy_tid);
+    log_op("set_tid_address", "set_tid_address", res);
+
+    res = (int)syscall(SYS_unshare, 0);
+    log_op("unshare", "unshare(0)", res);
+
+    res = (int)syscall(SYS_vhangup);
+    log_op("vhangup", "dummy vhangup", res);
 
     /* -------------------------------------------------------------
      * 17. DELETION & CLEANUP: unlink, unlinkat, rmdir, close

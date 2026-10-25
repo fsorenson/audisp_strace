@@ -1369,6 +1369,53 @@ BPF_CMDS = {
     35: "BPF_PROG_BIND_MAP", 36: "BPF_TOKEN_CREATE"
 }
 
+SCHED_POLICIES = {
+    0: "SCHED_OTHER",
+    1: "SCHED_FIFO",
+    2: "SCHED_RR",
+    3: "SCHED_BATCH",
+    4: "SCHED_ISO",
+    5: "SCHED_IDLE",
+    6: "SCHED_DEADLINE",
+    7: "SCHED_EXT",
+}
+
+RLIMIT_RESOURCES = {
+    0: "RLIMIT_CPU",
+    1: "RLIMIT_FSIZE",
+    2: "RLIMIT_DATA",
+    3: "RLIMIT_STACK",
+    4: "RLIMIT_CORE",
+    5: "RLIMIT_RSS",
+    6: "RLIMIT_NPROC",
+    7: "RLIMIT_NOFILE",
+    8: "RLIMIT_MEMLOCK",
+    9: "RLIMIT_AS",
+    10: "RLIMIT_LOCKS",
+    11: "RLIMIT_SIGPENDING",
+    12: "RLIMIT_MSGQUEUE",
+    13: "RLIMIT_NICE",
+    14: "RLIMIT_RTPRIO",
+    15: "RLIMIT_RTTIME",
+}
+
+PRIO_WHICH = {
+    0: "PRIO_PROCESS",
+    1: "PRIO_PGRP",
+    2: "PRIO_USER",
+}
+
+RUSAGE_WHOS = {
+    0: "RUSAGE_SELF",
+    -1: "RUSAGE_CHILDREN",
+    1: "RUSAGE_THREAD",
+}
+
+PERSONALITY_TYPES = {
+    0: "PER_LINUX",
+    8: "PER_LINUX32",
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -1681,6 +1728,38 @@ class SyscallHandler:
             "landlock_restrict_self": self.handle_landlock_restrict_self,
             "process_madvise": self.handle_process_madvise,
             "process_mrelease": self.handle_process_mrelease,
+
+            # Process Control, Scheduling & Resource Limits
+            "sched_yield": self.handle_sched_yield,
+            "sched_setparam": self.handle_sched_setparam,
+            "sched_getparam": self.handle_sched_getparam,
+            "sched_setscheduler": self.handle_sched_setscheduler,
+            "sched_getscheduler": self.handle_sched_getscheduler,
+            "sched_get_priority_max": self.handle_sched_get_priority_max,
+            "sched_get_priority_min": self.handle_sched_get_priority_min,
+            "sched_rr_get_interval": self.handle_sched_rr_get_interval,
+            "sched_setaffinity": self.handle_sched_setaffinity,
+            "sched_getaffinity": self.handle_sched_getaffinity,
+            "sched_setattr": self.handle_sched_setattr,
+            "sched_getattr": self.handle_sched_getattr,
+            "getcpu": self.handle_getcpu,
+            "setpgid": self.handle_setpgid,
+            "getpgid": self.handle_getpgid,
+            "setsid": self.handle_setsid,
+            "getsid": self.handle_getsid,
+            "getpriority": self.handle_getpriority,
+            "setpriority": self.handle_setpriority,
+            "umask": self.handle_umask,
+            "personality": self.handle_personality,
+            "getrlimit": self.handle_getrlimit,
+            "setrlimit": self.handle_setrlimit,
+            "prlimit64": self.handle_prlimit64,
+            "getrusage": self.handle_getrusage,
+            "unshare": self.handle_unshare,
+            "set_tid_address": self.handle_set_tid_address,
+            "rseq": self.handle_rseq,
+            "vhangup": self.handle_vhangup,
+            "restart_syscall": self.handle_restart_syscall,
         }
 
         # Extended Attributes (xattr)
@@ -2129,6 +2208,42 @@ class SyscallHandler:
         subcmd_str = QUOTA_SUBCMDS.get(subcmd, QUOTA_SUBCMDS.get(cmd >> 8, str(subcmd)))
         type_str = QUOTA_TYPES.get(qtype, str(qtype))
         return f"QCMD({subcmd_str}, {type_str})"
+
+    def _format_sched_policy(self, policy_raw):
+        p = self._parse_id(policy_raw)
+        if not isinstance(p, int):
+            return str(policy_raw)
+        flags = []
+        if p & 0x40000000:
+            flags.append("SCHED_RESET_ON_FORK")
+        base = p & ~0x40000000
+        base_str = SCHED_POLICIES.get(base, str(base))
+        if flags:
+            return f"{flags[0]}|{base_str}"
+        return base_str
+
+    def _format_personality(self, persona_raw):
+        p = self._parse_id(persona_raw)
+        if not isinstance(p, int):
+            return str(persona_raw)
+        if p in (-1, 0xffffffff):
+            return "0xffffffff"
+        base = p & 0xff
+        name = PERSONALITY_TYPES.get(base, f"0x{base:x}")
+        flags = []
+        if p & 0x0020000: flags.append("ADDR_NO_RANDOMIZE")
+        if p & 0x0040000: flags.append("FDPIC_FUNCPTRS")
+        if p & 0x0080000: flags.append("MMAP_PAGE_ZERO")
+        if p & 0x0100000: flags.append("ADDR_COMPAT_LAYOUT")
+        if p & 0x0200000: flags.append("READ_IMPLIES_EXEC")
+        if p & 0x0400000: flags.append("ADDR_LIMIT_32BIT")
+        if p & 0x0800000: flags.append("SHORT_INODE")
+        if p & 0x1000000: flags.append("WHOLE_SECONDS")
+        if p & 0x2000000: flags.append("STICKY_TIMEOUTS")
+        if p & 0x4000000: flags.append("ADDR_LIMIT_3GB")
+        if flags:
+            return f"{name}|{'|'.join(flags)}"
+        return name
 
     def _get_pathname(self, event, default_arg="a0"):
         if event.paths:
@@ -3916,6 +4031,192 @@ class SyscallHandler:
         flags_val = self._parse_id(event.syscall.get("a3", "0"))
         flags_str = self._format_splice_flags(flags_val)
         return f"vmsplice({fd_str}, {iov_str}, {nr_segs}, {flags_str}) = {event.exit_str}"
+
+    def handle_sched_yield(self, event):
+        return f"sched_yield() = {event.exit_str}"
+
+    def handle_sched_setparam(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        param_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        param_str = "NULL" if param_ptr == 0 else "{...}"
+        return f"sched_setparam({pid}, {param_str}) = {event.exit_str}"
+
+    def handle_sched_getparam(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        param_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        param_str = "NULL" if param_ptr == 0 else "{...}"
+        return f"sched_getparam({pid}, {param_str}) = {event.exit_str}"
+
+    def handle_sched_setscheduler(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        policy_str = self._format_sched_policy(event.syscall.get("a1", "0"))
+        param_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        param_str = "NULL" if param_ptr == 0 else "{...}"
+        return f"sched_setscheduler({pid}, {policy_str}, {param_str}) = {event.exit_str}"
+
+    def handle_sched_getscheduler(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        if event.is_success and event.exit_code is not None and event.exit_code >= 0:
+            policy_str = self._format_sched_policy(event.exit_code)
+            exit_display = f"{event.exit_code} ({policy_str})"
+        else:
+            exit_display = event.exit_str
+        return f"sched_getscheduler({pid}) = {exit_display}"
+
+    def handle_sched_get_priority_max(self, event):
+        policy_str = self._format_sched_policy(event.syscall.get("a0", "0"))
+        return f"sched_get_priority_max({policy_str}) = {event.exit_str}"
+
+    def handle_sched_get_priority_min(self, event):
+        policy_str = self._format_sched_policy(event.syscall.get("a0", "0"))
+        return f"sched_get_priority_min({policy_str}) = {event.exit_str}"
+
+    def handle_sched_rr_get_interval(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        tp_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        tp_str = "NULL" if tp_ptr == 0 else "{...}"
+        return f"sched_rr_get_interval({pid}, {tp_str}) = {event.exit_str}"
+
+    def handle_sched_setaffinity(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        mask_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        mask_str = "NULL" if mask_ptr == 0 else "[...]"
+        return f"sched_setaffinity({pid}, {len_val}, {mask_str}) = {event.exit_str}"
+
+    def handle_sched_getaffinity(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        mask_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        mask_str = "NULL" if mask_ptr == 0 else "[...]"
+        return f"sched_getaffinity({pid}, {len_val}, {mask_str}) = {event.exit_str}"
+
+    def handle_sched_setattr(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        attr_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        attr_str = "NULL" if attr_ptr == 0 else "{...}"
+        flags_val = self._parse_id(event.syscall.get("a2", "0"))
+        return f"sched_setattr({pid}, {attr_str}, {flags_val}) = {event.exit_str}"
+
+    def handle_sched_getattr(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        attr_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        attr_str = "NULL" if attr_ptr == 0 else "{...}"
+        size_val = self._parse_id(event.syscall.get("a2", "0"))
+        flags_val = self._parse_id(event.syscall.get("a3", "0"))
+        return f"sched_getattr({pid}, {attr_str}, {size_val}, {flags_val}) = {event.exit_str}"
+
+    def handle_getcpu(self, event):
+        cpu_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        node_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        tc_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        cpu_str = "NULL" if cpu_ptr == 0 else "[...]"
+        node_str = "NULL" if node_ptr == 0 else "[...]"
+        tc_str = "NULL" if tc_ptr == 0 else f"0x{tc_ptr:x}"
+        return f"getcpu({cpu_str}, {node_str}, {tc_str}) = {event.exit_str}"
+
+    def handle_setpgid(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        pgid = self._parse_id(event.syscall.get("a1", "0"))
+        return f"setpgid({pid}, {pgid}) = {event.exit_str}"
+
+    def handle_getpgid(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        return f"getpgid({pid}) = {event.exit_str}"
+
+    def handle_setsid(self, event):
+        return f"setsid() = {event.exit_str}"
+
+    def handle_getsid(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        return f"getsid({pid}) = {event.exit_str}"
+
+    def handle_getpriority(self, event):
+        which_val = self._parse_id(event.syscall.get("a0", "0"))
+        which_str = PRIO_WHICH.get(which_val, str(which_val))
+        who = self._parse_id(event.syscall.get("a1", "0"))
+        return f"getpriority({which_str}, {who}) = {event.exit_str}"
+
+    def handle_setpriority(self, event):
+        which_val = self._parse_id(event.syscall.get("a0", "0"))
+        which_str = PRIO_WHICH.get(which_val, str(which_val))
+        who = self._parse_id(event.syscall.get("a1", "0"))
+        prio = self._parse_id(event.syscall.get("a2", "0"))
+        return f"setpriority({which_str}, {who}, {prio}) = {event.exit_str}"
+
+    def handle_umask(self, event):
+        mask_val = self._parse_id(event.syscall.get("a0", "0"))
+        mask_str = f"0{mask_val:o}" if isinstance(mask_val, int) and mask_val >= 0 else str(mask_val)
+        if event.is_success and event.exit_code is not None and event.exit_code >= 0:
+            exit_str = f"0{event.exit_code:o}"
+        else:
+            exit_str = event.exit_str
+        return f"umask({mask_str}) = {exit_str}"
+
+    def handle_personality(self, event):
+        persona_raw = event.syscall.get("a0", "0")
+        persona_str = self._format_personality(persona_raw)
+        if event.is_success and event.exit_code is not None and event.exit_code >= 0:
+            exit_display = f"{event.exit_code} ({self._format_personality(event.exit_code)})"
+        else:
+            exit_display = event.exit_str
+        return f"personality({persona_str}) = {exit_display}"
+
+    def handle_getrlimit(self, event):
+        res_val = self._parse_id(event.syscall.get("a0", "0"))
+        res_str = RLIMIT_RESOURCES.get(res_val, str(res_val))
+        rlim_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        rlim_str = "NULL" if rlim_ptr == 0 else "{...}"
+        return f"getrlimit({res_str}, {rlim_str}) = {event.exit_str}"
+
+    def handle_setrlimit(self, event):
+        res_val = self._parse_id(event.syscall.get("a0", "0"))
+        res_str = RLIMIT_RESOURCES.get(res_val, str(res_val))
+        rlim_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        rlim_str = "NULL" if rlim_ptr == 0 else "{...}"
+        return f"setrlimit({res_str}, {rlim_str}) = {event.exit_str}"
+
+    def handle_prlimit64(self, event):
+        pid = self._parse_id(event.syscall.get("a0", "0"))
+        res_val = self._parse_id(event.syscall.get("a1", "0"))
+        res_str = RLIMIT_RESOURCES.get(res_val, str(res_val))
+        new_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        old_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        new_str = "NULL" if new_ptr == 0 else "{...}"
+        old_str = "NULL" if old_ptr == 0 else "{...}"
+        return f"prlimit64({pid}, {res_str}, {new_str}, {old_str}) = {event.exit_str}"
+
+    def handle_getrusage(self, event):
+        who_val = self._parse_id(event.syscall.get("a0", "0"))
+        who_str = RUSAGE_WHOS.get(who_val, str(who_val))
+        usage_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        usage_str = "NULL" if usage_ptr == 0 else "{...}"
+        return f"getrusage({who_str}, {usage_str}) = {event.exit_str}"
+
+    def handle_unshare(self, event):
+        flags_val = self._parse_id(event.syscall.get("a0", "0"))
+        flags_str = self._format_clone_flags(flags_val)
+        return f"unshare({flags_str}) = {event.exit_str}"
+
+    def handle_set_tid_address(self, event):
+        tidptr = self._parse_id(event.syscall.get("a0", "0"))
+        ptr_str = "NULL" if tidptr == 0 else f"0x{tidptr:x}"
+        return f"set_tid_address({ptr_str}) = {event.exit_str}"
+
+    def handle_rseq(self, event):
+        rseq_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        ptr_str = "NULL" if rseq_ptr == 0 else f"0x{rseq_ptr:x}"
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_val = self._parse_id(event.syscall.get("a2", "0"))
+        sig_val = self._parse_id(event.syscall.get("a3", "0"))
+        sig_str = f"0x{sig_val:x}" if isinstance(sig_val, int) and sig_val >= 0 else str(sig_val)
+        return f"rseq({ptr_str}, {len_val}, {flags_val}, {sig_str}) = {event.exit_str}"
+
+    def handle_vhangup(self, event):
+        return f"vhangup() = {event.exit_str}"
+
+    def handle_restart_syscall(self, event):
+        return f"restart_syscall() = {event.exit_str}"
 
     def format_event(self, event, caller_comm=None):
         scname = event.syscall_name
