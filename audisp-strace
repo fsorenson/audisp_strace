@@ -1458,6 +1458,187 @@ REBOOT_CMDS = {
     0x45584543: "LINUX_REBOOT_CMD_KEXEC",
 }
 
+KEY_SPECS = {
+    -1: "KEY_SPEC_THREAD_KEYRING",
+    -2: "KEY_SPEC_PROCESS_KEYRING",
+    -3: "KEY_SPEC_SESSION_KEYRING",
+    -4: "KEY_SPEC_USER_KEYRING",
+    -5: "KEY_SPEC_USER_SESSION_KEYRING",
+    -6: "KEY_SPEC_GROUP_KEYRING",
+    -7: "KEY_SPEC_REQKEY_AUTH_KEY",
+    -8: "KEY_SPEC_REQUESTOR_KEYRING",
+}
+
+KEY_REQKEYS = {
+    -1: "KEY_REQKEY_DEFL_NO_CHANGE",
+    0: "KEY_REQKEY_DEFL_DEFAULT",
+    1: "KEY_REQKEY_DEFL_THREAD_KEYRING",
+    2: "KEY_REQKEY_DEFL_PROCESS_KEYRING",
+    3: "KEY_REQKEY_DEFL_SESSION_KEYRING",
+    4: "KEY_REQKEY_DEFL_USER_KEYRING",
+    5: "KEY_REQKEY_DEFL_USER_SESSION_KEYRING",
+    6: "KEY_REQKEY_DEFL_GROUP_KEYRING",
+    7: "KEY_REQKEY_DEFL_REQUESTOR_KEYRING",
+}
+
+KEYCTL_COMMANDS = {
+    0: "KEYCTL_GET_KEYRING_ID",
+    1: "KEYCTL_JOIN_SESSION_KEYRING",
+    2: "KEYCTL_UPDATE",
+    3: "KEYCTL_REVOKE",
+    4: "KEYCTL_CHOWN",
+    5: "KEYCTL_SETPERM",
+    6: "KEYCTL_DESCRIBE",
+    7: "KEYCTL_CLEAR",
+    8: "KEYCTL_LINK",
+    9: "KEYCTL_UNLINK",
+    10: "KEYCTL_SEARCH",
+    11: "KEYCTL_READ",
+    12: "KEYCTL_INSTANTIATE",
+    13: "KEYCTL_NEGATE",
+    14: "KEYCTL_SET_REQKEY_KEYRING",
+    15: "KEYCTL_SET_TIMEOUT",
+    16: "KEYCTL_ASSUME_AUTHORITY",
+    17: "KEYCTL_GET_SECURITY",
+    18: "KEYCTL_SESSION_TO_PARENT",
+    19: "KEYCTL_REJECT",
+    20: "KEYCTL_INSTANTIATE_IOV",
+    21: "KEYCTL_INVALIDATE",
+    22: "KEYCTL_GET_PERSISTENT",
+    23: "KEYCTL_DH_COMPUTE",
+    24: "KEYCTL_PKEY_QUERY",
+    25: "KEYCTL_PKEY_ENCRYPT",
+    26: "KEYCTL_PKEY_DECRYPT",
+    27: "KEYCTL_PKEY_SIGN",
+    28: "KEYCTL_PKEY_VERIFY",
+    29: "KEYCTL_RESTRICT_KEYRING",
+    30: "KEYCTL_MOVE",
+    31: "KEYCTL_CAPABILITIES",
+    32: "KEYCTL_WATCH_KEY",
+}
+
+SECCOMP_OPS = {
+    0: "SECCOMP_SET_MODE_STRICT",
+    1: "SECCOMP_SET_MODE_FILTER",
+    2: "SECCOMP_GET_ACTION_AVAIL",
+    3: "SECCOMP_GET_NOTIF_SIZES",
+}
+
+SECCOMP_FILTER_FLAGS = {
+    1: "SECCOMP_FILTER_FLAG_TSYNC",
+    2: "SECCOMP_FILTER_FLAG_LOG",
+    4: "SECCOMP_FILTER_FLAG_SPEC_ALLOW",
+    8: "SECCOMP_FILTER_FLAG_NEW_LISTENER",
+    16: "SECCOMP_FILTER_FLAG_TSYNC_ESRCH",
+    32: "SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV",
+}
+
+GETRANDOM_FLAGS = {
+    1: "GRND_NONBLOCK",
+    2: "GRND_RANDOM",
+    4: "GRND_INSECURE",
+}
+
+MEMBARRIER_CMDS = {
+    0: "MEMBARRIER_CMD_QUERY",
+    1: "MEMBARRIER_CMD_GLOBAL",
+    2: "MEMBARRIER_CMD_GLOBAL_EXPEDITED",
+    4: "MEMBARRIER_CMD_REGISTER_GLOBAL_EXPEDITED",
+    8: "MEMBARRIER_CMD_PRIVATE_EXPEDITED",
+    16: "MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED",
+    32: "MEMBARRIER_CMD_PRIVATE_EXPEDITED_SYNC_CORE",
+    64: "MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE",
+    128: "MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ",
+    256: "MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ",
+    512: "MEMBARRIER_CMD_GET_REGISTRATIONS",
+}
+
+MEMBARRIER_FLAGS = {
+    1: "MEMBARRIER_CMD_FLAG_CPU",
+}
+
+PTRACE_REQUESTS = {
+    0: "PTRACE_TRACEME",
+    1: "PTRACE_PEEKTEXT",
+    2: "PTRACE_PEEKDATA",
+    3: "PTRACE_PEEKUSER",
+    4: "PTRACE_POKETEXT",
+    5: "PTRACE_POKEDATA",
+    6: "PTRACE_POKEUSER",
+    7: "PTRACE_CONT",
+    8: "PTRACE_KILL",
+    9: "PTRACE_SINGLESTEP",
+    12: "PTRACE_GETREGS",
+    13: "PTRACE_SETREGS",
+    14: "PTRACE_GETFPREGS",
+    15: "PTRACE_SETFPREGS",
+    16: "PTRACE_ATTACH",
+    17: "PTRACE_DETACH",
+    18: "PTRACE_GETFPXREGS",
+    19: "PTRACE_SETFPXREGS",
+    24: "PTRACE_SYSCALL",
+    30: "PTRACE_ARCH_PRCTL",
+    31: "PTRACE_SYSEMU",
+    32: "PTRACE_SYSEMU_SINGLESTEP",
+    33: "PTRACE_SINGLEBLOCK",
+    0x4200: "PTRACE_SETOPTIONS",
+    0x4201: "PTRACE_GETEVENTMSG",
+    0x4202: "PTRACE_GETSIGINFO",
+    0x4203: "PTRACE_SETSIGINFO",
+    0x4204: "PTRACE_GETREGSET",
+    0x4205: "PTRACE_SETREGSET",
+    0x4206: "PTRACE_SEIZE",
+    0x4207: "PTRACE_INTERRUPT",
+    0x4208: "PTRACE_LISTEN",
+    0x4209: "PTRACE_PEEKSIGINFO",
+    0x420a: "PTRACE_GETSIGMASK",
+    0x420b: "PTRACE_SETSIGMASK",
+    0x420c: "PTRACE_SECCOMP_GET_FILTER",
+    0x420d: "PTRACE_SECCOMP_GET_METADATA",
+    0x420e: "PTRACE_GET_SYSCALL_INFO",
+    0x420f: "PTRACE_GET_RSEQ_CONFIGURATION",
+    0x4210: "PTRACE_SET_SYSCALL_USER_DISPATCH_CONFIG",
+    0x4211: "PTRACE_GET_SYSCALL_USER_DISPATCH_CONFIG",
+    0x4212: "PTRACE_SET_SYSCALL_INFO",
+}
+
+PTRACE_O_FLAGS = {
+    1: "PTRACE_O_TRACESYSGOOD",
+    2: "PTRACE_O_TRACEFORK",
+    4: "PTRACE_O_TRACEVFORK",
+    8: "PTRACE_O_TRACECLONE",
+    16: "PTRACE_O_TRACEEXEC",
+    32: "PTRACE_O_TRACEVFORKDONE",
+    64: "PTRACE_O_TRACEEXIT",
+    128: "PTRACE_O_TRACESECCOMP",
+    0x100000: "PTRACE_O_EXITKILL",
+    0x200000: "PTRACE_O_SUSPEND_SECCOMP",
+}
+
+KCMP_TYPES = {
+    0: "KCMP_FILE",
+    1: "KCMP_VM",
+    2: "KCMP_FILES",
+    3: "KCMP_FS",
+    4: "KCMP_SIGHAND",
+    5: "KCMP_IO",
+    6: "KCMP_SYSVSEM",
+    7: "KCMP_EPOLL_TFD",
+}
+
+IOPRIO_WHO = {
+    1: "IOPRIO_WHO_PROCESS",
+    2: "IOPRIO_WHO_PGRP",
+    3: "IOPRIO_WHO_USER",
+}
+
+IOPRIO_CLASSES = {
+    0: "IOPRIO_CLASS_NONE",
+    1: "IOPRIO_CLASS_RT",
+    2: "IOPRIO_CLASS_BE",
+    3: "IOPRIO_CLASS_IDLE",
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -1824,6 +2005,20 @@ class SyscallHandler:
             "setdomainname": self.handle_setdomainname,
             "sync": self.handle_sync,
             "reboot": self.handle_reboot,
+
+            # Keys, Security, Seccomp & Random
+            "add_key": self.handle_add_key,
+            "request_key": self.handle_request_key,
+            "keyctl": self.handle_keyctl,
+            "seccomp": self.handle_seccomp,
+            "getrandom": self.handle_getrandom,
+            "membarrier": self.handle_membarrier,
+            "ptrace": self.handle_ptrace,
+            "kcmp": self.handle_kcmp,
+            "process_vm_readv": self.handle_process_vm_readv,
+            "process_vm_writev": self.handle_process_vm_writev,
+            "ioprio_set": self.handle_ioprio_set,
+            "ioprio_get": self.handle_ioprio_get,
         }
 
         # Extended Attributes (xattr)
@@ -2308,6 +2503,63 @@ class SyscallHandler:
         if flags:
             return f"{name}|{'|'.join(flags)}"
         return name
+
+    def _format_pointer(self, ptr_raw):
+        p = self._parse_id(ptr_raw)
+        if p == 0 or ptr_raw == "0":
+            return "NULL"
+        if isinstance(p, int):
+            if p == -1:
+                return "0xffffffffffffffff"
+            return f"0x{p:x}"
+        return str(ptr_raw)
+
+    def _format_bitmask(self, val_raw, flag_dict):
+        f = self._parse_id(val_raw)
+        if not isinstance(f, int) or f == 0:
+            return "0"
+        matched = []
+        rem = f
+        for bit, name in flag_dict.items():
+            if (f & bit) == bit:
+                matched.append(name)
+                rem &= ~bit
+        if rem != 0:
+            matched.append(f"0x{rem:x}")
+        return "|".join(matched) if matched else f"0x{f:x}"
+
+    def _format_int(self, val_raw):
+        v = self._parse_id(val_raw)
+        if not isinstance(v, int):
+            return str(val_raw)
+        if v >= 0x8000000000000000:
+            v -= 0x10000000000000000
+        elif v >= 0x80000000:
+            v -= 0x100000000
+        return str(v)
+
+    def _format_key_serial(self, val):
+        if val is None:
+            return "NULL"
+        ival = self._parse_id(val)
+        if not isinstance(ival, int):
+            return str(val)
+        if ival >= 0x8000000000000000:
+            ival -= 0x10000000000000000
+        elif ival >= 0x80000000:
+            ival -= 0x100000000
+        if ival in KEY_SPECS:
+            return KEY_SPECS[ival]
+        return str(ival)
+
+    def _format_ioprio(self, val):
+        ival = self._parse_id(val)
+        if not isinstance(ival, int):
+            return str(val)
+        ioclass = (ival >> 13) & 0x7
+        iodata = ival & 0x1fff
+        cls_str = IOPRIO_CLASSES.get(ioclass, f"IOPRIO_CLASS_??? /* {ioclass} */")
+        return f"IOPRIO_PRIO_VALUE({cls_str}, {iodata})"
 
     def _get_pathname(self, event, default_arg="a0"):
         if event.paths:
@@ -4399,6 +4651,200 @@ class SyscallHandler:
         arg_ptr = self._parse_id(event.syscall.get("a3", "0"))
         arg_str = "NULL" if arg_ptr == 0 else f"0x{arg_ptr:x}"
         return f"reboot({m1_str}, {m2_str}, {cmd_str}, {arg_str}) = {event.exit_str}"
+
+    def handle_add_key(self, event):
+        type_str = self._format_pointer(event.syscall.get("a0", "0"))
+        desc_str = self._format_pointer(event.syscall.get("a1", "0"))
+        payload_str = self._format_pointer(event.syscall.get("a2", "0"))
+        plen = self._parse_id(event.syscall.get("a3", "0"))
+        keyring_str = self._format_key_serial(event.syscall.get("a4", "0"))
+        return f"add_key({type_str}, {desc_str}, {payload_str}, {plen}, {keyring_str}) = {event.exit_str}"
+
+    def handle_request_key(self, event):
+        type_str = self._format_pointer(event.syscall.get("a0", "0"))
+        desc_str = self._format_pointer(event.syscall.get("a1", "0"))
+        callout_str = self._format_pointer(event.syscall.get("a2", "0"))
+        keyring_str = self._format_key_serial(event.syscall.get("a3", "0"))
+        return f"request_key({type_str}, {desc_str}, {callout_str}, {keyring_str}) = {event.exit_str}"
+
+    def handle_keyctl(self, event):
+        cmd = self._parse_id(event.syscall.get("a0", "0"))
+        cmd_str = KEYCTL_COMMANDS.get(cmd, f"0x{cmd:x}" if isinstance(cmd, int) else str(cmd))
+        a1 = event.syscall.get("a1", "0")
+        a2 = event.syscall.get("a2", "0")
+        a3 = event.syscall.get("a3", "0")
+        a4 = event.syscall.get("a4", "0")
+
+        if cmd == 0:  # KEYCTL_GET_KEYRING_ID
+            k_str = self._format_key_serial(a1)
+            create = self._format_int(a2)
+            args_str = f"{cmd_str}, {k_str}, {create}"
+        elif cmd == 1:  # KEYCTL_JOIN_SESSION_KEYRING
+            p1_str = self._format_pointer(a1)
+            args_str = f"{cmd_str}, {p1_str}"
+        elif cmd == 2:  # KEYCTL_UPDATE
+            k_str = self._format_key_serial(a1)
+            p_str = self._format_pointer(a2)
+            plen = self._parse_id(a3)
+            args_str = f"{cmd_str}, {k_str}, {p_str}, {plen}"
+        elif cmd in (3, 7, 21, 16):  # REVOKE, CLEAR, INVALIDATE, ASSUME_AUTHORITY
+            k_str = self._format_key_serial(a1)
+            args_str = f"{cmd_str}, {k_str}"
+        elif cmd in (8, 9):  # LINK, UNLINK
+            k1_str = self._format_key_serial(a1)
+            k2_str = self._format_key_serial(a2)
+            args_str = f"{cmd_str}, {k1_str}, {k2_str}"
+        elif cmd in (6, 11, 17):  # DESCRIBE, READ, GET_SECURITY
+            k_str = self._format_key_serial(a1)
+            buf_str = self._format_pointer(a2)
+            buflen = self._parse_id(a3)
+            args_str = f"{cmd_str}, {k_str}, {buf_str}, {buflen}"
+        elif cmd == 10:  # SEARCH
+            k1_str = self._format_key_serial(a1)
+            t_str = self._format_pointer(a2)
+            d_str = self._format_pointer(a3)
+            k2_str = self._format_key_serial(a4)
+            args_str = f"{cmd_str}, {k1_str}, {t_str}, {d_str}, {k2_str}"
+        elif cmd == 4:  # CHOWN
+            k_str = self._format_key_serial(a1)
+            u = self._format_int(a2)
+            g = self._format_int(a3)
+            args_str = f"{cmd_str}, {k_str}, {u}, {g}"
+        elif cmd == 5:  # SETPERM
+            k_str = self._format_key_serial(a1)
+            perm = self._parse_id(a2)
+            perm_str = f"0{perm:o}" if isinstance(perm, int) else str(perm)
+            args_str = f"{cmd_str}, {k_str}, {perm_str}"
+        elif cmd == 14:  # SET_REQKEY_KEYRING
+            rk = self._parse_id(a1)
+            if isinstance(rk, int) and rk >= 0x80000000:
+                rk -= 0x100000000
+            rk_str = KEY_REQKEYS.get(rk, str(rk))
+            args_str = f"{cmd_str}, {rk_str}"
+        elif cmd == 15:  # SET_TIMEOUT
+            k_str = self._format_key_serial(a1)
+            to = self._parse_id(a2)
+            args_str = f"{cmd_str}, {k_str}, {to}"
+        elif cmd == 18:  # SESSION_TO_PARENT
+            args_str = f"{cmd_str}"
+        elif cmd == 31:  # CAPABILITIES
+            buf_str = self._format_pointer(a1)
+            buflen = self._parse_id(a2)
+            args_str = f"{cmd_str}, {buf_str}, {buflen}"
+        else:
+            p1_str = self._format_pointer(a1)
+            p2_str = self._format_pointer(a2)
+            p3_str = self._format_pointer(a3)
+            p4_str = self._format_pointer(a4)
+            args_str = f"{cmd_str}, {p1_str}, {p2_str}, {p3_str}, {p4_str}"
+
+        return f"keyctl({args_str}) = {event.exit_str}"
+
+    def handle_seccomp(self, event):
+        op = self._parse_id(event.syscall.get("a0", "0"))
+        op_str = SECCOMP_OPS.get(op, f"0x{op:x}" if isinstance(op, int) else str(op))
+        flags = self._parse_id(event.syscall.get("a1", "0"))
+        if op == 1:  # SECCOMP_SET_MODE_FILTER
+            flags_str = self._format_bitmask(flags, SECCOMP_FILTER_FLAGS)
+        else:
+            flags_str = f"0x{flags:x}" if isinstance(flags, int) else str(flags)
+        arg_str = self._format_pointer(event.syscall.get("a2", "0"))
+        return f"seccomp({op_str}, {flags_str}, {arg_str}) = {event.exit_str}"
+
+    def handle_getrandom(self, event):
+        buf_str = self._format_pointer(event.syscall.get("a0", "0"))
+        buflen = self._parse_id(event.syscall.get("a1", "0"))
+        flags = self._parse_id(event.syscall.get("a2", "0"))
+        flags_str = self._format_bitmask(flags, GETRANDOM_FLAGS)
+        return f"getrandom({buf_str}, {buflen}, {flags_str}) = {event.exit_str}"
+
+    def handle_membarrier(self, event):
+        cmd = self._parse_id(event.syscall.get("a0", "0"))
+        cmd_str = MEMBARRIER_CMDS.get(cmd, f"0x{cmd:x}" if isinstance(cmd, int) else str(cmd))
+        flags = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = self._format_bitmask(flags, MEMBARRIER_FLAGS)
+        if isinstance(flags, int) and (flags & 1):  # MEMBARRIER_CMD_FLAG_CPU
+            cpu_id = self._format_int(event.syscall.get("a2", "0"))
+            return f"membarrier({cmd_str}, {flags_str}, {cpu_id}) = {event.exit_str}"
+        return f"membarrier({cmd_str}, {flags_str}) = {event.exit_str}"
+
+    def handle_ptrace(self, event):
+        req = self._parse_id(event.syscall.get("a0", "0"))
+        req_str = PTRACE_REQUESTS.get(req, f"0x{req:x}" if isinstance(req, int) else str(req))
+        if req == 0:  # PTRACE_TRACEME
+            return f"ptrace({req_str}) = {event.exit_str}"
+
+        pid = self._format_int(event.syscall.get("a1", "0"))
+        if req in (16, 0x4207, 8, 0x4208):  # ATTACH, INTERRUPT, KILL, LISTEN
+            return f"ptrace({req_str}, {pid}) = {event.exit_str}"
+
+        addr_str = self._format_pointer(event.syscall.get("a2", "0"))
+        a3 = event.syscall.get("a3", "0")
+
+        if req in (7, 17, 24, 9):  # CONT, DETACH, SYSCALL, SINGLESTEP
+            data_str = self._format_sig(a3)
+        elif req == 0x4200:  # PTRACE_SETOPTIONS
+            data_val = self._parse_id(a3)
+            data_str = self._format_bitmask(data_val, PTRACE_O_FLAGS)
+        else:
+            data_str = self._format_pointer(a3)
+
+        return f"ptrace({req_str}, {pid}, {addr_str}, {data_str}) = {event.exit_str}"
+
+    def handle_kcmp(self, event):
+        pid1 = self._format_int(event.syscall.get("a0", "0"))
+        pid2 = self._format_int(event.syscall.get("a1", "0"))
+        ktype = self._parse_id(event.syscall.get("a2", "0"))
+        type_str = KCMP_TYPES.get(ktype, f"0x{ktype:x}" if isinstance(ktype, int) else str(ktype))
+
+        if ktype in (1, 2, 3, 4, 5, 6):  # KCMP_VM, KCMP_FILES, KCMP_FS, KCMP_SIGHAND, KCMP_IO, KCMP_SYSVSEM
+            return f"kcmp({pid1}, {pid2}, {type_str}) = {event.exit_str}"
+
+        idx1 = self._parse_id(event.syscall.get("a3", "0"))
+        idx2 = self._parse_id(event.syscall.get("a4", "0"))
+        if ktype == 0:  # KCMP_FILE
+            return f"kcmp({pid1}, {pid2}, {type_str}, {idx1}, {idx2}) = {event.exit_str}"
+        else:
+            idx1_str = f"0x{idx1:x}" if isinstance(idx1, int) else str(idx1)
+            idx2_str = f"0x{idx2:x}" if isinstance(idx2, int) else str(idx2)
+            return f"kcmp({pid1}, {pid2}, {type_str}, {idx1_str}, {idx2_str}) = {event.exit_str}"
+
+    def handle_process_vm_readv(self, event):
+        pid = self._format_int(event.syscall.get("a0", "0"))
+        lvec_str = self._format_pointer(event.syscall.get("a1", "0"))
+        liovcnt = self._parse_id(event.syscall.get("a2", "0"))
+        rvec_str = self._format_pointer(event.syscall.get("a3", "0"))
+        riovcnt = self._parse_id(event.syscall.get("a4", "0"))
+        flags = self._parse_id(event.syscall.get("a5", "0"))
+        return f"process_vm_readv({pid}, {lvec_str}, {liovcnt}, {rvec_str}, {riovcnt}, {flags}) = {event.exit_str}"
+
+    def handle_process_vm_writev(self, event):
+        pid = self._format_int(event.syscall.get("a0", "0"))
+        lvec_str = self._format_pointer(event.syscall.get("a1", "0"))
+        liovcnt = self._parse_id(event.syscall.get("a2", "0"))
+        rvec_str = self._format_pointer(event.syscall.get("a3", "0"))
+        riovcnt = self._parse_id(event.syscall.get("a4", "0"))
+        flags = self._parse_id(event.syscall.get("a5", "0"))
+        return f"process_vm_writev({pid}, {lvec_str}, {liovcnt}, {rvec_str}, {riovcnt}, {flags}) = {event.exit_str}"
+
+    def handle_ioprio_set(self, event):
+        which = self._parse_id(event.syscall.get("a0", "0"))
+        which_str = IOPRIO_WHO.get(which, f"0x{which:x}" if isinstance(which, int) else str(which))
+        who = self._format_int(event.syscall.get("a1", "0"))
+        ioprio_val = self._parse_id(event.syscall.get("a2", "0"))
+        ioprio_str = self._format_ioprio(ioprio_val)
+        return f"ioprio_set({which_str}, {who}, {ioprio_str}) = {event.exit_str}"
+
+    def handle_ioprio_get(self, event):
+        which = self._parse_id(event.syscall.get("a0", "0"))
+        which_str = IOPRIO_WHO.get(which, f"0x{which:x}" if isinstance(which, int) else str(which))
+        who = self._format_int(event.syscall.get("a1", "0"))
+        if event.success and event.exit_code is not None and event.exit_code >= 0:
+            ioprio_val = event.exit_code
+            exit_display = f"{ioprio_val} ({self._format_ioprio(ioprio_val)})"
+        else:
+            exit_display = event.exit_str
+        return f"ioprio_get({which_str}, {who}) = {exit_display}"
 
     def format_event(self, event, caller_comm=None):
         scname = event.syscall_name

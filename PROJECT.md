@@ -203,6 +203,15 @@ Sample 3-line format per monitored event:
   - Host & domain naming: `sethostname`, `setdomainname`
   - Filesystem sync & reboot control: `sync`, `reboot`
   - Added Section 16.9 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
+- [x] Implemented unclassed Batch 4: Keys, Security, Seccomp & Random (12 syscalls):
+  - Keys subsystem: `add_key`, `request_key`, `keyctl` (formatting key serial numbers, `KEY_SPEC_*`, and all keyctl subcommands)
+  - Security & Sandboxing: `seccomp` (supporting `SECCOMP_SET_MODE_*`, `SECCOMP_GET_ACTION_AVAIL`, and filter flags)
+  - Randomness & Memory barriers: `getrandom`, `membarrier` (supporting commands, CPU flags, and command queries)
+  - Process tracing & inspection: `ptrace` (with single-arg `PTRACE_TRACEME`, 2-arg `ATTACH`/`INTERRUPT`/`KILL`/`LISTEN`, signals, and `PTRACE_O_*` options), `kcmp` (handling omitted idx args for non-file resource types, and file descriptor indexing for `KCMP_FILE`)
+  - Cross-process memory transfer: `process_vm_readv`, `process_vm_writev`
+  - I/O Scheduling Priority: `ioprio_set`, `ioprio_get` (formatting `IOPRIO_PRIO_VALUE(class, data)`)
+  - Added Section 16.10 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
+  - Added root safety guards in `test_syscalls.c` (defanged `vhangup`, `reboot`, `sethostname`/`setdomainname` via UTS namespace, and `acct`).
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`

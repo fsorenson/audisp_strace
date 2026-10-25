@@ -1023,8 +1023,8 @@ static void run_worker_tests(const char *base_dir) {
     res = swapoff("/invalid_swap_file");
     log_op("swapoff", "dummy swap file", res);
 
-    res = acct(NULL);
-    log_op("acct", "disable accounting acct(NULL)", res);
+    res = acct("/invalid_acct_file");
+    log_op("acct", "dummy acct file", res);
 
     res = quotactl(QCMD(Q_GETINFO, USRQUOTA), "/dev/null", 0, NULL);
     log_op("quotactl", "dummy quotactl", res);
@@ -1280,8 +1280,12 @@ static void run_worker_tests(const char *base_dir) {
     res = (int)syscall(SYS_unshare, 0);
     log_op("unshare", "unshare(0)", res);
 
-    res = (int)syscall(SYS_vhangup);
-    log_op("vhangup", "dummy vhangup", res);
+    if (geteuid() == 0) {
+        printf("  [SKIP] %-14s: skipped when running as root to avoid terminal disconnect\n", "vhangup");
+    } else {
+        res = (int)syscall(SYS_vhangup);
+        log_op("vhangup", "dummy vhangup", res);
+    }
 
     /* -------------------------------------------------------------
      * 16.8. TIME, TIMERS & CLOCKS (non-%clock):
@@ -1347,17 +1351,90 @@ static void run_worker_tests(const char *base_dir) {
     res = (int)syscall(SYS_syslog, 10 /* SYSLOG_ACTION_SIZE_BUFFER */, NULL, 0);
     log_op("syslog", "syslog(SYSLOG_ACTION_SIZE_BUFFER)", res);
 
-    res = sethostname("audisp_dummy_host", 17);
-    log_op("sethostname", "dummy sethostname", res);
-
-    res = setdomainname("audisp_dummy_domain", 19);
-    log_op("setdomainname", "dummy setdomainname", res);
+    pid_t uts_child = fork();
+    if (uts_child == 0) {
+        if (unshare(CLONE_NEWUTS) == 0) {
+            res = sethostname("audisp_dummy_host", 17);
+            log_op("sethostname", "private UTS namespace sethostname", res);
+            res = setdomainname("audisp_dummy_domain", 19);
+            log_op("setdomainname", "private UTS namespace setdomainname", res);
+        } else {
+            res = (int)syscall(SYS_sethostname, (const char *)-1, 0);
+            log_op("sethostname", "dummy sethostname", res);
+            res = (int)syscall(SYS_setdomainname, (const char *)-1, 0);
+            log_op("setdomainname", "dummy setdomainname", res);
+        }
+        _exit(0);
+    } else if (uts_child > 0) {
+        waitpid(uts_child, NULL, 0);
+    }
 
     sync();
     log_op("sync", "sync filesystems", 0);
 
-    res = (int)syscall(SYS_reboot, 0, 0, 0, NULL);
-    log_op("reboot", "reboot(0, 0, 0, NULL) safe invalid call", res);
+    if (geteuid() == 0) {
+        printf("  [SKIP] %-14s: skipped when running as root to avoid risk\n", "reboot");
+    } else {
+        res = (int)syscall(SYS_reboot, 0, 0, 0, NULL);
+        log_op("reboot", "reboot(0, 0, 0, NULL) safe invalid call", res);
+    }
+
+    /* -------------------------------------------------------------
+     * 16.10. KEYS, SECURITY, SECCOMP & RANDOM:
+     * add_key, request_key, keyctl, seccomp, getrandom, membarrier,
+     * ptrace, kcmp, process_vm_readv, process_vm_writev,
+     * ioprio_set, ioprio_get
+     * ------------------------------------------------------------- */
+    printf("\n--- Keys, Security, Seccomp & Random ---\n");
+
+    res = (int)syscall(SYS_add_key, "user", "audisp_test_key", "payload_data", 12, -2 /* KEY_SPEC_PROCESS_KEYRING */);
+    log_op("add_key", "add_key(\"user\", ...)", res);
+
+    res = (int)syscall(SYS_request_key, "user", "audisp_nonexistent_key", NULL, -2 /* KEY_SPEC_PROCESS_KEYRING */);
+    log_op("request_key", "request_key(\"user\", ...)", res);
+
+    res = (int)syscall(SYS_keyctl, 0 /* KEYCTL_GET_KEYRING_ID */, -3 /* KEY_SPEC_SESSION_KEYRING */, 0);
+    log_op("keyctl", "keyctl(KEYCTL_GET_KEYRING_ID, KEY_SPEC_SESSION_KEYRING, 0)", res);
+
+    unsigned int seccomp_action = 0x7fff0000U; /* SECCOMP_RET_ALLOW */
+    res = (int)syscall(SYS_seccomp, 2 /* SECCOMP_GET_ACTION_AVAIL */, 0, &seccomp_action);
+    log_op("seccomp", "seccomp(SECCOMP_GET_ACTION_AVAIL, 0, &action)", res);
+
+    char rnd_buf[8] = {0};
+    res = (int)syscall(SYS_getrandom, rnd_buf, sizeof(rnd_buf), 1 /* GRND_NONBLOCK */);
+    log_op("getrandom", "getrandom(rnd_buf, 8, GRND_NONBLOCK)", res);
+
+    res = (int)syscall(SYS_membarrier, 0 /* MEMBARRIER_CMD_QUERY */, 0, 0);
+    log_op("membarrier", "membarrier(MEMBARRIER_CMD_QUERY, 0)", res);
+
+    pid_t ptr_child = fork();
+    if (ptr_child == 0) {
+        res = (int)syscall(SYS_ptrace, 0 /* PTRACE_TRACEME */, 0, NULL, NULL);
+        log_op("ptrace", "ptrace(PTRACE_TRACEME)", res);
+        _exit(0);
+    } else if (ptr_child > 0) {
+        waitpid(ptr_child, NULL, 0);
+    }
+
+    res = (int)syscall(SYS_kcmp, getpid(), getpid(), 0 /* KCMP_FILE */, 0, 1);
+    log_op("kcmp", "kcmp(getpid(), getpid(), KCMP_FILE, 0, 1)", res);
+
+    char vm_local_buf[16] = "audisp_vm_test";
+    char vm_remote_buf[16] = {0};
+    struct iovec vm_local_iov = { .iov_base = vm_remote_buf, .iov_len = sizeof(vm_remote_buf) };
+    struct iovec vm_remote_iov = { .iov_base = vm_local_buf, .iov_len = sizeof(vm_local_buf) };
+
+    res = (int)syscall(SYS_process_vm_readv, getpid(), &vm_local_iov, 1, &vm_remote_iov, 1, 0);
+    log_op("process_vm_readv", "process_vm_readv self test", res);
+
+    res = (int)syscall(SYS_process_vm_writev, getpid(), &vm_local_iov, 1, &vm_remote_iov, 1, 0);
+    log_op("process_vm_writev", "process_vm_writev self test", res);
+
+    res = (int)syscall(SYS_ioprio_get, 1 /* IOPRIO_WHO_PROCESS */, 0);
+    log_op("ioprio_get", "ioprio_get(IOPRIO_WHO_PROCESS, 0)", res);
+
+    res = (int)syscall(SYS_ioprio_set, 1 /* IOPRIO_WHO_PROCESS */, 0, (2 << 13) | 4 /* IOPRIO_PRIO_VALUE(IOPRIO_CLASS_BE, 4) */);
+    log_op("ioprio_set", "ioprio_set(IOPRIO_WHO_PROCESS, 0, IOPRIO_PRIO_VALUE(IOPRIO_CLASS_BE, 4))", res);
 
     /* -------------------------------------------------------------
      * 17. DELETION & CLEANUP: unlink, unlinkat, rmdir, close

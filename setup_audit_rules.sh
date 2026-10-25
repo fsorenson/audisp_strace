@@ -109,5 +109,9 @@ auditctl -a always,exit -F arch=b64 -S timer_create,timer_settime,timer_gettime,
 # System Info, Hostname & Administration
 auditctl -a always,exit -F arch=b64 -S uname,sysinfo,syslog,sethostname,setdomainname,sync,reboot -F key="$KEY"
 
+# Keys, Security, Seccomp & Random
+auditctl -a always,exit -F arch=b64 -S add_key,request_key,keyctl,seccomp,getrandom,membarrier -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S ptrace,kcmp,process_vm_readv,process_vm_writev,ioprio_set,ioprio_get -F key="$KEY"
+
 echo "Current active rules with key $KEY:"
 auditctl -l | grep "$KEY"
