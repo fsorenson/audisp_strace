@@ -1484,6 +1484,88 @@ static void run_worker_tests(const char *base_dir) {
     log_op("io_pgetevents", "io_pgetevents(0, 0, 0, NULL, NULL, NULL)", res);
 
     /* -------------------------------------------------------------
+     * 16.12. KERNEL MODULES, ARCHITECTURE-SPECIFIC & LEGACY:
+     * init_module, delete_module, create_module, get_kernel_syms,
+     * query_module, kexec_load, mq_unlink, arch_prctl, modify_ldt,
+     * iopl, ioperm, set_thread_area, get_thread_area, lookup_dcookie,
+     * _sysctl, sysfs, epoll_ctl_old, epoll_wait_old, security,
+     * nfsservctl, afs_syscall, tuxcall, vserver, uretprobe
+     * ------------------------------------------------------------- */
+    printf("\n--- Kernel Modules, Architecture-specific & Legacy ---\n");
+
+    res = (int)syscall(SYS_init_module, NULL, 0, NULL);
+    log_op("init_module", "dummy init_module", res);
+
+    res = (int)syscall(SYS_delete_module, "nonexistent_dummy_module", 0);
+    log_op("delete_module", "dummy delete_module", res);
+
+    res = (int)syscall(SYS_create_module, NULL, 0);
+    log_op("create_module", "dummy create_module", res);
+
+    res = (int)syscall(SYS_get_kernel_syms, NULL);
+    log_op("get_kernel_syms", "dummy get_kernel_syms", res);
+
+    res = (int)syscall(SYS_query_module, NULL, 0, NULL, 0, NULL);
+    log_op("query_module", "dummy query_module", res);
+
+    res = (int)syscall(SYS_kexec_load, NULL, 0, NULL, 0);
+    log_op("kexec_load", "dummy kexec_load", res);
+
+    res = (int)syscall(SYS_mq_unlink, "/nonexistent_dummy_queue");
+    log_op("mq_unlink", "dummy mq_unlink", res);
+
+    unsigned long fs_base = 0;
+    res = (int)syscall(SYS_arch_prctl, 0x1003 /* ARCH_GET_FS */, &fs_base);
+    log_op("arch_prctl", "arch_prctl(ARCH_GET_FS, &fs_base)", res);
+
+    res = (int)syscall(SYS_modify_ldt, 0 /* read */, NULL, 0);
+    log_op("modify_ldt", "modify_ldt(0, NULL, 0)", res);
+
+    res = (int)syscall(SYS_iopl, 0);
+    log_op("iopl", "iopl(0)", res);
+
+    res = (int)syscall(SYS_ioperm, 0, 0, 0);
+    log_op("ioperm", "ioperm(0, 0, 0)", res);
+
+    res = (int)syscall(SYS_set_thread_area, NULL);
+    log_op("set_thread_area", "dummy set_thread_area", res);
+
+    res = (int)syscall(SYS_get_thread_area, NULL);
+    log_op("get_thread_area", "dummy get_thread_area", res);
+
+    res = (int)syscall(SYS_lookup_dcookie, 0, NULL, 0);
+    log_op("lookup_dcookie", "dummy lookup_dcookie", res);
+
+    res = (int)syscall(SYS__sysctl, NULL);
+    log_op("_sysctl", "dummy _sysctl", res);
+
+    res = (int)syscall(SYS_sysfs, 0, 0, 0);
+    log_op("sysfs", "dummy sysfs", res);
+
+    res = (int)syscall(SYS_epoll_ctl_old, 0, 0, 0, NULL);
+    log_op("epoll_ctl_old", "dummy epoll_ctl_old", res);
+
+    res = (int)syscall(SYS_epoll_wait_old, 0, NULL, 0, 0);
+    log_op("epoll_wait_old", "dummy epoll_wait_old", res);
+
+    res = (int)syscall(SYS_security, NULL, NULL, NULL);
+    log_op("security", "dummy security", res);
+
+    res = (int)syscall(SYS_nfsservctl, 0, NULL, NULL);
+    log_op("nfsservctl", "dummy nfsservctl", res);
+
+    res = (int)syscall(SYS_afs_syscall, 0, 0, 0, 0, 0);
+    log_op("afs_syscall", "dummy afs_syscall", res);
+
+    res = (int)syscall(SYS_tuxcall, 0, 0, 0);
+    log_op("tuxcall", "dummy tuxcall", res);
+
+    res = (int)syscall(SYS_vserver, 0, 0, 0, 0, 0);
+    log_op("vserver", "dummy vserver", res);
+
+    printf("  [SKIP] %-14s: skipped (internal return trampoline; not userspace invokable)\n", "uretprobe");
+
+    /* -------------------------------------------------------------
      * 17. DELETION & CLEANUP: unlink, unlinkat, rmdir, close
      * ------------------------------------------------------------- */
     printf("\n--- Deletion & Cleanup (unlink, unlinkat, rmdir, close) ---\n");

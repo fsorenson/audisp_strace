@@ -218,6 +218,14 @@ Sample 3-line format per monitored event:
   - Memory protection keys: `pkey_alloc` (supporting `PKEY_UNRESTRICTED` and `PKEY_DISABLE_*` rights), `pkey_free`
   - Asynchronous I/O: `io_submit`, `io_cancel`, `io_getevents`, `io_pgetevents`
   - Added Section 16.11 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
+- [x] Implemented unclassed Batch 6: Kernel Modules, Architecture-specific & Legacy (24 syscalls) — **100% of unclassed syscalls completed (93/93)**:
+  - Kernel module management: `init_module`, `delete_module`, `create_module`, `get_kernel_syms`, `query_module`
+  - Boot & messaging: `kexec_load`, `mq_unlink`
+  - Architecture-specific controls: `arch_prctl` (decoding `ARCH_*` subcommands and `ARCH_GET_CPUID`), `modify_ldt`, `iopl`, `ioperm`, `set_thread_area`, `get_thread_area`
+  - Cookie lookup & system control: `lookup_dcookie`, `_sysctl`, `sysfs`
+  - Legacy event poll & subsystems: `epoll_ctl_old`, `epoll_wait_old`, `security`, `nfsservctl`, `afs_syscall`, `tuxcall`, `vserver`
+  - Kernel trampoline: `uretprobe`
+  - Added Section 16.12 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`

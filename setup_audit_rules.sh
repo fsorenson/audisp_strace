@@ -117,5 +117,10 @@ auditctl -a always,exit -F arch=b64 -S ptrace,kcmp,process_vm_readv,process_vm_w
 auditctl -a always,exit -F arch=b64 -S futex,set_robust_list,get_robust_list,pkey_alloc,pkey_free -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S io_submit,io_cancel,io_getevents,io_pgetevents -F key="$KEY"
 
+# Kernel Modules, Architecture-specific & Legacy
+auditctl -a always,exit -F arch=b64 -S init_module,delete_module,create_module,get_kernel_syms,query_module,kexec_load,mq_unlink -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S arch_prctl,modify_ldt,iopl,ioperm,set_thread_area,get_thread_area,lookup_dcookie -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S _sysctl,sysfs,epoll_ctl_old,epoll_wait_old,security,nfsservctl,afs_syscall,tuxcall,vserver -F key="$KEY"
+
 echo "Current active rules with key $KEY:"
 auditctl -l | grep "$KEY"

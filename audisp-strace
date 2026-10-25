@@ -1662,6 +1662,63 @@ PKEY_ACCESS_RIGHTS = {
     0x4: "PKEY_DISABLE_EXECUTE",
 }
 
+DELETE_MODULE_FLAGS = {
+    0x800: "O_NONBLOCK",
+    0x200: "O_TRUNC",
+}
+
+ARCH_PRCTL_CODES = {
+    0x1001: "ARCH_SET_GS",
+    0x1002: "ARCH_SET_FS",
+    0x1003: "ARCH_GET_FS",
+    0x1004: "ARCH_GET_GS",
+    0x1011: "ARCH_GET_CPUID",
+    0x1012: "ARCH_SET_CPUID",
+    0x1021: "ARCH_GET_XCOMP_SUPP",
+    0x1022: "ARCH_GET_XCOMP_PERM",
+    0x1023: "ARCH_REQ_XCOMP_PERM",
+    0x1024: "ARCH_GET_XCOMP_GUEST_PERM",
+    0x1025: "ARCH_REQ_XCOMP_GUEST_PERM",
+    0x2001: "ARCH_MAP_VDSO_X32",
+    0x2002: "ARCH_MAP_VDSO_32",
+    0x2003: "ARCH_MAP_VDSO_64",
+    0x4001: "ARCH_GET_UNTAG_MASK",
+    0x4002: "ARCH_ENABLE_TAGGED_ADDR",
+    0x4003: "ARCH_GET_MAX_TAG_BITS",
+    0x4004: "ARCH_FORCE_TAGGED_SVA",
+    0x5001: "ARCH_SHSTK_ENABLE",
+    0x5002: "ARCH_SHSTK_DISABLE",
+    0x5003: "ARCH_SHSTK_LOCK",
+    0x5004: "ARCH_SHSTK_UNLOCK",
+    0x5005: "ARCH_SHSTK_STATUS",
+}
+
+KEXEC_ARCH_VALUES = {
+    0 << 16: "KEXEC_ARCH_DEFAULT",
+    3 << 16: "KEXEC_ARCH_386",
+    4 << 16: "KEXEC_ARCH_68K",
+    15 << 16: "KEXEC_ARCH_PARISC",
+    62 << 16: "KEXEC_ARCH_X86_64",
+    20 << 16: "KEXEC_ARCH_PPC",
+    21 << 16: "KEXEC_ARCH_PPC64",
+    50 << 16: "KEXEC_ARCH_IA_64",
+    40 << 16: "KEXEC_ARCH_ARM",
+    22 << 16: "KEXEC_ARCH_S390",
+    42 << 16: "KEXEC_ARCH_SH",
+    10 << 16: "KEXEC_ARCH_MIPS_LE",
+    8 << 16: "KEXEC_ARCH_MIPS",
+    183 << 16: "KEXEC_ARCH_AARCH64",
+    243 << 16: "KEXEC_ARCH_RISCV",
+    258 << 16: "KEXEC_ARCH_LOONGARCH",
+}
+
+KEXEC_LOAD_FLAGS = {
+    0x00000001: "KEXEC_ON_CRASH",
+    0x00000002: "KEXEC_PRESERVE_CONTEXT",
+    0x00000004: "KEXEC_UPDATE_ELFCOREHDR",
+    0x00000008: "KEXEC_CRASH_HOTPLUG_SUPPORT",
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -2053,6 +2110,32 @@ class SyscallHandler:
             "io_cancel": self.handle_io_cancel,
             "io_getevents": self.handle_io_getevents,
             "io_pgetevents": self.handle_io_pgetevents,
+
+            # Kernel Modules, Architecture-specific & Legacy
+            "init_module": self.handle_init_module,
+            "delete_module": self.handle_delete_module,
+            "create_module": self.handle_create_module,
+            "get_kernel_syms": self.handle_get_kernel_syms,
+            "query_module": self.handle_query_module,
+            "kexec_load": self.handle_kexec_load,
+            "mq_unlink": self.handle_mq_unlink,
+            "arch_prctl": self.handle_arch_prctl,
+            "modify_ldt": self.handle_modify_ldt,
+            "iopl": self.handle_iopl,
+            "ioperm": self.handle_ioperm,
+            "set_thread_area": self.handle_set_thread_area,
+            "get_thread_area": self.handle_get_thread_area,
+            "lookup_dcookie": self.handle_lookup_dcookie,
+            "_sysctl": self.handle_sysctl,
+            "sysfs": self.handle_sysfs,
+            "epoll_ctl_old": self.handle_epoll_ctl_old,
+            "epoll_wait_old": self.handle_epoll_wait_old,
+            "security": self.handle_security,
+            "nfsservctl": self.handle_nfsservctl,
+            "afs_syscall": self.handle_afs_syscall,
+            "tuxcall": self.handle_tuxcall,
+            "vserver": self.handle_vserver,
+            "uretprobe": self.handle_uretprobe,
         }
 
         # Extended Attributes (xattr)
@@ -2629,6 +2712,18 @@ class SyscallHandler:
         if not isinstance(v, int) or v == 0:
             return "PKEY_UNRESTRICTED"
         return self._format_bitmask(v, PKEY_ACCESS_RIGHTS)
+
+    def _format_kexec_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int) or f == 0:
+            return "KEXEC_ARCH_DEFAULT"
+        arch_part = f & 0xffff0000
+        arch_str = KEXEC_ARCH_VALUES.get(arch_part, f"0x{arch_part:x}")
+        load_part = f & 0x0000ffff
+        load_str = self._format_bitmask(load_part, KEXEC_LOAD_FLAGS)
+        if load_str != "0":
+            return f"{arch_str}|{load_str}"
+        return arch_str
 
     def _get_pathname(self, event, default_arg="a0"):
         if event.paths:
@@ -5001,6 +5096,149 @@ class SyscallHandler:
         timeout = self._format_pointer(event.syscall.get("a4", "0"))
         sig = self._format_pointer(event.syscall.get("a5", "0"))
         return f"io_pgetevents({ctx_id}, {min_nr}, {nr}, {events}, {timeout}, {sig}) = {event.exit_str}"
+
+    def handle_init_module(self, event):
+        image_str = self._format_pointer(event.syscall.get("a0", "0"))
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        params_str = self._format_pointer(event.syscall.get("a2", "0"))
+        return f"init_module({image_str}, {len_val}, {params_str}) = {event.exit_str}"
+
+    def handle_delete_module(self, event):
+        name = self._get_pathname(event, "a0")
+        name_str = f'"{name}"' if name else self._format_pointer(event.syscall.get("a0", "0"))
+        flags = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = self._format_bitmask(flags, DELETE_MODULE_FLAGS)
+        return f"delete_module({name_str}, {flags_str}) = {event.exit_str}"
+
+    def handle_create_module(self, event):
+        name_str = self._format_pointer(event.syscall.get("a0", "0"))
+        size_str = self._format_pointer(event.syscall.get("a1", "0"))
+        return f"create_module({name_str}, {size_str}) = {event.exit_str}"
+
+    def handle_get_kernel_syms(self, event):
+        table_str = self._format_pointer(event.syscall.get("a0", "0"))
+        return f"get_kernel_syms({table_str}) = {event.exit_str}"
+
+    def handle_query_module(self, event):
+        a0 = self._format_pointer(event.syscall.get("a0", "0"))
+        a1 = self._format_pointer(event.syscall.get("a1", "0"))
+        a2 = self._format_pointer(event.syscall.get("a2", "0"))
+        a3 = self._format_pointer(event.syscall.get("a3", "0"))
+        a4 = self._format_pointer(event.syscall.get("a4", "0"))
+        return f"query_module({a0}, {a1}, {a2}, {a3}, {a4}) = {event.exit_str}"
+
+    def handle_kexec_load(self, event):
+        entry_str = self._format_pointer(event.syscall.get("a0", "0"))
+        nr_segs = self._parse_id(event.syscall.get("a1", "0"))
+        segs_str = self._format_pointer(event.syscall.get("a2", "0"))
+        flags_str = self._format_kexec_flags(event.syscall.get("a3", "0"))
+        return f"kexec_load({entry_str}, {nr_segs}, {segs_str}, {flags_str}) = {event.exit_str}"
+
+    def handle_mq_unlink(self, event):
+        name = self._get_pathname(event, "a0")
+        name_str = f'"{name}"' if name else self._format_pointer(event.syscall.get("a0", "0"))
+        return f"mq_unlink({name_str}) = {event.exit_str}"
+
+    def handle_arch_prctl(self, event):
+        code = self._parse_id(event.syscall.get("a0", "0"))
+        code_str = ARCH_PRCTL_CODES.get(code, f"0x{code:x}" if isinstance(code, int) else str(code))
+        if code == 0x1011:  # ARCH_GET_CPUID
+            return f"arch_prctl({code_str}) = {event.exit_str}"
+        addr_str = self._format_pointer(event.syscall.get("a1", "0"))
+        return f"arch_prctl({code_str}, {addr_str}) = {event.exit_str}"
+
+    def handle_modify_ldt(self, event):
+        func = self._format_int(event.syscall.get("a0", "0"))
+        ptr_str = self._format_pointer(event.syscall.get("a1", "0"))
+        bytecount = self._parse_id(event.syscall.get("a2", "0"))
+        return f"modify_ldt({func}, {ptr_str}, {bytecount}) = {event.exit_str}"
+
+    def handle_iopl(self, event):
+        level = self._format_int(event.syscall.get("a0", "0"))
+        return f"iopl({level}) = {event.exit_str}"
+
+    def handle_ioperm(self, event):
+        from_val = self._parse_id(event.syscall.get("a0", "0"))
+        from_str = f"0x{from_val:x}" if isinstance(from_val, int) else str(from_val)
+        num_val = self._parse_id(event.syscall.get("a1", "0"))
+        num_str = f"0x{num_val:x}" if isinstance(num_val, int) else str(num_val)
+        turn_on = self._format_int(event.syscall.get("a2", "0"))
+        return f"ioperm({from_str}, {num_str}, {turn_on}) = {event.exit_str}"
+
+    def handle_set_thread_area(self, event):
+        u_info = self._format_pointer(event.syscall.get("a0", "0"))
+        return f"set_thread_area({u_info}) = {event.exit_str}"
+
+    def handle_get_thread_area(self, event):
+        u_info = self._format_pointer(event.syscall.get("a0", "0"))
+        return f"get_thread_area({u_info}) = {event.exit_str}"
+
+    def handle_lookup_dcookie(self, event):
+        cookie = self._parse_id(event.syscall.get("a0", "0"))
+        buf_str = self._format_pointer(event.syscall.get("a1", "0"))
+        len_val = self._parse_id(event.syscall.get("a2", "0"))
+        return f"lookup_dcookie({cookie}, {buf_str}, {len_val}) = {event.exit_str}"
+
+    def handle_sysctl(self, event):
+        args_str = self._format_pointer(event.syscall.get("a0", "0"))
+        return f"_sysctl({args_str}) = {event.exit_str}"
+
+    def handle_sysfs(self, event):
+        a0 = self._format_pointer(event.syscall.get("a0", "0"))
+        a1 = self._format_pointer(event.syscall.get("a1", "0"))
+        a2 = self._format_pointer(event.syscall.get("a2", "0"))
+        return f"sysfs({a0}, {a1}, {a2}) = {event.exit_str}"
+
+    def handle_epoll_ctl_old(self, event):
+        a0 = self._format_pointer(event.syscall.get("a0", "0"))
+        a1 = self._format_pointer(event.syscall.get("a1", "0"))
+        a2 = self._format_pointer(event.syscall.get("a2", "0"))
+        a3 = self._format_pointer(event.syscall.get("a3", "0"))
+        return f"epoll_ctl_old({a0}, {a1}, {a2}, {a3}) = {event.exit_str}"
+
+    def handle_epoll_wait_old(self, event):
+        a0 = self._format_pointer(event.syscall.get("a0", "0"))
+        a1 = self._format_pointer(event.syscall.get("a1", "0"))
+        a2 = self._format_pointer(event.syscall.get("a2", "0"))
+        a3 = self._format_pointer(event.syscall.get("a3", "0"))
+        return f"epoll_wait_old({a0}, {a1}, {a2}, {a3}) = {event.exit_str}"
+
+    def handle_security(self, event):
+        a0 = self._format_pointer(event.syscall.get("a0", "0"))
+        a1 = self._format_pointer(event.syscall.get("a1", "0"))
+        a2 = self._format_pointer(event.syscall.get("a2", "0"))
+        return f"security({a0}, {a1}, {a2}) = {event.exit_str}"
+
+    def handle_nfsservctl(self, event):
+        a0 = self._format_pointer(event.syscall.get("a0", "0"))
+        a1 = self._format_pointer(event.syscall.get("a1", "0"))
+        a2 = self._format_pointer(event.syscall.get("a2", "0"))
+        return f"nfsservctl({a0}, {a1}, {a2}) = {event.exit_str}"
+
+    def handle_afs_syscall(self, event):
+        a0 = self._format_pointer(event.syscall.get("a0", "0"))
+        a1 = self._format_pointer(event.syscall.get("a1", "0"))
+        a2 = self._format_pointer(event.syscall.get("a2", "0"))
+        a3 = self._format_pointer(event.syscall.get("a3", "0"))
+        a4 = self._format_pointer(event.syscall.get("a4", "0"))
+        return f"afs_syscall({a0}, {a1}, {a2}, {a3}, {a4}) = {event.exit_str}"
+
+    def handle_tuxcall(self, event):
+        a0 = self._format_pointer(event.syscall.get("a0", "0"))
+        a1 = self._format_pointer(event.syscall.get("a1", "0"))
+        a2 = self._format_pointer(event.syscall.get("a2", "0"))
+        return f"tuxcall({a0}, {a1}, {a2}) = {event.exit_str}"
+
+    def handle_vserver(self, event):
+        a0 = self._format_pointer(event.syscall.get("a0", "0"))
+        a1 = self._format_pointer(event.syscall.get("a1", "0"))
+        a2 = self._format_pointer(event.syscall.get("a2", "0"))
+        a3 = self._format_pointer(event.syscall.get("a3", "0"))
+        a4 = self._format_pointer(event.syscall.get("a4", "0"))
+        return f"vserver({a0}, {a1}, {a2}, {a3}, {a4}) = {event.exit_str}"
+
+    def handle_uretprobe(self, event):
+        return f"uretprobe() = {event.exit_str}"
 
     def format_event(self, event, caller_comm=None):
         scname = event.syscall_name
