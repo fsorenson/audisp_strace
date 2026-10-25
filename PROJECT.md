@@ -212,6 +212,12 @@ Sample 3-line format per monitored event:
   - I/O Scheduling Priority: `ioprio_set`, `ioprio_get` (formatting `IOPRIO_PRIO_VALUE(class, data)`)
   - Added Section 16.10 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
   - Added root safety guards in `test_syscalls.c` (defanged `vhangup`, `reboot`, `sethostname`/`setdomainname` via UTS namespace, and `acct`).
+- [x] Implemented unclassed Batch 5: Futex, Robust Lists, Memory Keys & Async I/O (9 syscalls):
+  - Fast user-space locking: `futex` (supporting all 14 futex operations, private/realtime flags, and `FUTEX_BITSET_MATCH_ANY`)
+  - Robust futex lists: `set_robust_list`, `get_robust_list`
+  - Memory protection keys: `pkey_alloc` (supporting `PKEY_UNRESTRICTED` and `PKEY_DISABLE_*` rights), `pkey_free`
+  - Asynchronous I/O: `io_submit`, `io_cancel`, `io_getevents`, `io_pgetevents`
+  - Added Section 16.11 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`

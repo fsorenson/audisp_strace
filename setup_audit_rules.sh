@@ -113,5 +113,9 @@ auditctl -a always,exit -F arch=b64 -S uname,sysinfo,syslog,sethostname,setdomai
 auditctl -a always,exit -F arch=b64 -S add_key,request_key,keyctl,seccomp,getrandom,membarrier -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S ptrace,kcmp,process_vm_readv,process_vm_writev,ioprio_set,ioprio_get -F key="$KEY"
 
+# Futex, Robust Lists, Memory Keys & Async I/O
+auditctl -a always,exit -F arch=b64 -S futex,set_robust_list,get_robust_list,pkey_alloc,pkey_free -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S io_submit,io_cancel,io_getevents,io_pgetevents -F key="$KEY"
+
 echo "Current active rules with key $KEY:"
 auditctl -l | grep "$KEY"

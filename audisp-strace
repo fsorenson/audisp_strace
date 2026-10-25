@@ -1639,6 +1639,29 @@ IOPRIO_CLASSES = {
     3: "IOPRIO_CLASS_IDLE",
 }
 
+FUTEX_OPS = {
+    0: "FUTEX_WAIT",
+    1: "FUTEX_WAKE",
+    2: "FUTEX_FD",
+    3: "FUTEX_REQUEUE",
+    4: "FUTEX_CMP_REQUEUE",
+    5: "FUTEX_WAKE_OP",
+    6: "FUTEX_LOCK_PI",
+    7: "FUTEX_UNLOCK_PI",
+    8: "FUTEX_TRYLOCK_PI",
+    9: "FUTEX_WAIT_BITSET",
+    10: "FUTEX_WAKE_BITSET",
+    11: "FUTEX_WAIT_REQUEUE_PI",
+    12: "FUTEX_CMP_REQUEUE_PI",
+    13: "FUTEX_LOCK_PI2",
+}
+
+PKEY_ACCESS_RIGHTS = {
+    0x1: "PKEY_DISABLE_ACCESS",
+    0x2: "PKEY_DISABLE_WRITE",
+    0x4: "PKEY_DISABLE_EXECUTE",
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -2019,6 +2042,17 @@ class SyscallHandler:
             "process_vm_writev": self.handle_process_vm_writev,
             "ioprio_set": self.handle_ioprio_set,
             "ioprio_get": self.handle_ioprio_get,
+
+            # Futex, Robust Lists, Memory Keys & Async I/O
+            "futex": self.handle_futex,
+            "set_robust_list": self.handle_set_robust_list,
+            "get_robust_list": self.handle_get_robust_list,
+            "pkey_alloc": self.handle_pkey_alloc,
+            "pkey_free": self.handle_pkey_free,
+            "io_submit": self.handle_io_submit,
+            "io_cancel": self.handle_io_cancel,
+            "io_getevents": self.handle_io_getevents,
+            "io_pgetevents": self.handle_io_pgetevents,
         }
 
         # Extended Attributes (xattr)
@@ -2560,6 +2594,41 @@ class SyscallHandler:
         iodata = ival & 0x1fff
         cls_str = IOPRIO_CLASSES.get(ioclass, f"IOPRIO_CLASS_??? /* {ioclass} */")
         return f"IOPRIO_PRIO_VALUE({cls_str}, {iodata})"
+
+    def _format_futex_op(self, op_raw):
+        op = self._parse_id(op_raw)
+        if not isinstance(op, int):
+            return str(op_raw)
+        cmd = op & 127
+        is_private = bool(op & 128)
+        is_realtime = bool(op & 256)
+        base = FUTEX_OPS.get(cmd)
+        if base:
+            s = f"{base}_PRIVATE" if is_private else base
+        else:
+            s = f"0x{cmd:x}"
+            if is_private:
+                s += "|FUTEX_PRIVATE_FLAG"
+        if is_realtime:
+            s += "|FUTEX_CLOCK_REALTIME"
+        rem = op & ~(127 | 128 | 256)
+        if rem:
+            s += f"|0x{rem:x}"
+        return s
+
+    def _format_futex_bitset(self, val_raw):
+        v = self._parse_id(val_raw)
+        if v in (0xffffffff, -1, 4294967295):
+            return "FUTEX_BITSET_MATCH_ANY"
+        if isinstance(v, int):
+            return f"0x{v:x}"
+        return str(val_raw)
+
+    def _format_pkey_access(self, val_raw):
+        v = self._parse_id(val_raw)
+        if not isinstance(v, int) or v == 0:
+            return "PKEY_UNRESTRICTED"
+        return self._format_bitmask(v, PKEY_ACCESS_RIGHTS)
 
     def _get_pathname(self, event, default_arg="a0"):
         if event.paths:
@@ -4845,6 +4914,93 @@ class SyscallHandler:
         else:
             exit_display = event.exit_str
         return f"ioprio_get({which_str}, {who}) = {exit_display}"
+
+    def handle_futex(self, event):
+        uaddr = self._format_pointer(event.syscall.get("a0", "0"))
+        op_val = self._parse_id(event.syscall.get("a1", "0"))
+        op_str = self._format_futex_op(op_val)
+        cmd = op_val & 127 if isinstance(op_val, int) else -1
+
+        val = self._parse_id(event.syscall.get("a2", "0"))
+        timeout = self._format_pointer(event.syscall.get("a3", "0"))
+        val2 = self._parse_id(event.syscall.get("a3", "0"))
+        uaddr2 = self._format_pointer(event.syscall.get("a4", "0"))
+        val3 = self._parse_id(event.syscall.get("a5", "0"))
+
+        if cmd == 0:  # FUTEX_WAIT
+            args_str = f"{uaddr}, {op_str}, {val}, {timeout}"
+        elif cmd in (1, 2):  # FUTEX_WAKE, FUTEX_FD
+            args_str = f"{uaddr}, {op_str}, {val}"
+        elif cmd in (6, 13):  # FUTEX_LOCK_PI, FUTEX_LOCK_PI2
+            args_str = f"{uaddr}, {op_str}, {timeout}"
+        elif cmd in (7, 8):  # FUTEX_UNLOCK_PI, FUTEX_TRYLOCK_PI
+            args_str = f"{uaddr}, {op_str}"
+        elif cmd == 9:  # FUTEX_WAIT_BITSET
+            bs_str = self._format_futex_bitset(val3)
+            args_str = f"{uaddr}, {op_str}, {val}, {timeout}, {bs_str}"
+        elif cmd == 10:  # FUTEX_WAKE_BITSET
+            bs_str = self._format_futex_bitset(val3)
+            args_str = f"{uaddr}, {op_str}, {val}, {bs_str}"
+        elif cmd == 3:  # FUTEX_REQUEUE
+            args_str = f"{uaddr}, {op_str}, {val}, {val2}, {uaddr2}"
+        elif cmd in (4, 12):  # FUTEX_CMP_REQUEUE, FUTEX_CMP_REQUEUE_PI
+            args_str = f"{uaddr}, {op_str}, {val}, {val2}, {uaddr2}, {val3}"
+        elif cmd == 11:  # FUTEX_WAIT_REQUEUE_PI
+            args_str = f"{uaddr}, {op_str}, {val}, {timeout}, {uaddr2}"
+        else:
+            args_str = f"{uaddr}, {op_str}, {val}, {timeout}, {uaddr2}, 0x{val3:x}"
+
+        return f"futex({args_str}) = {event.exit_str}"
+
+    def handle_set_robust_list(self, event):
+        head = self._format_pointer(event.syscall.get("a0", "0"))
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f"set_robust_list({head}, {len_val}) = {event.exit_str}"
+
+    def handle_get_robust_list(self, event):
+        pid = self._format_int(event.syscall.get("a0", "0"))
+        head_ptr = self._format_pointer(event.syscall.get("a1", "0"))
+        len_ptr = self._format_pointer(event.syscall.get("a2", "0"))
+        return f"get_robust_list({pid}, {head_ptr}, {len_ptr}) = {event.exit_str}"
+
+    def handle_pkey_alloc(self, event):
+        flags = self._parse_id(event.syscall.get("a0", "0"))
+        flags_str = f"0x{flags:x}" if isinstance(flags, int) else str(flags)
+        rights_str = self._format_pkey_access(event.syscall.get("a1", "0"))
+        return f"pkey_alloc({flags_str}, {rights_str}) = {event.exit_str}"
+
+    def handle_pkey_free(self, event):
+        pkey = self._format_int(event.syscall.get("a0", "0"))
+        return f"pkey_free({pkey}) = {event.exit_str}"
+
+    def handle_io_submit(self, event):
+        ctx_id = self._format_pointer(event.syscall.get("a0", "0"))
+        nr = self._format_int(event.syscall.get("a1", "0"))
+        iocbpp = self._format_pointer(event.syscall.get("a2", "0"))
+        return f"io_submit({ctx_id}, {nr}, {iocbpp}) = {event.exit_str}"
+
+    def handle_io_cancel(self, event):
+        ctx_id = self._format_pointer(event.syscall.get("a0", "0"))
+        iocb = self._format_pointer(event.syscall.get("a1", "0"))
+        result = self._format_pointer(event.syscall.get("a2", "0"))
+        return f"io_cancel({ctx_id}, {iocb}, {result}) = {event.exit_str}"
+
+    def handle_io_getevents(self, event):
+        ctx_id = self._format_pointer(event.syscall.get("a0", "0"))
+        min_nr = self._format_int(event.syscall.get("a1", "0"))
+        nr = self._format_int(event.syscall.get("a2", "0"))
+        events = self._format_pointer(event.syscall.get("a3", "0"))
+        timeout = self._format_pointer(event.syscall.get("a4", "0"))
+        return f"io_getevents({ctx_id}, {min_nr}, {nr}, {events}, {timeout}) = {event.exit_str}"
+
+    def handle_io_pgetevents(self, event):
+        ctx_id = self._format_pointer(event.syscall.get("a0", "0"))
+        min_nr = self._format_int(event.syscall.get("a1", "0"))
+        nr = self._format_int(event.syscall.get("a2", "0"))
+        events = self._format_pointer(event.syscall.get("a3", "0"))
+        timeout = self._format_pointer(event.syscall.get("a4", "0"))
+        sig = self._format_pointer(event.syscall.get("a5", "0"))
+        return f"io_pgetevents({ctx_id}, {min_nr}, {nr}, {events}, {timeout}, {sig}) = {event.exit_str}"
 
     def format_event(self, event, caller_comm=None):
         scname = event.syscall_name

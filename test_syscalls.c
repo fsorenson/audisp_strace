@@ -1437,6 +1437,53 @@ static void run_worker_tests(const char *base_dir) {
     log_op("ioprio_set", "ioprio_set(IOPRIO_WHO_PROCESS, 0, IOPRIO_PRIO_VALUE(IOPRIO_CLASS_BE, 4))", res);
 
     /* -------------------------------------------------------------
+     * 16.11. FUTEX, ROBUST LISTS, MEMORY KEYS & ASYNC I/O:
+     * futex, set_robust_list, get_robust_list, pkey_alloc, pkey_free,
+     * io_submit, io_cancel, io_getevents, io_pgetevents
+     * ------------------------------------------------------------- */
+    printf("\n--- Futex, Robust Lists, Memory Keys & Async I/O ---\n");
+
+    int futex_word = 0;
+    res = (int)syscall(SYS_futex, &futex_word, 1 /* FUTEX_WAKE */, 1, NULL, NULL, 0);
+    log_op("futex", "futex(&futex_word, FUTEX_WAKE, 1)", res);
+
+    void *rob_head = NULL;
+    size_t rob_len = 0;
+    res = (int)syscall(SYS_get_robust_list, 0, &rob_head, &rob_len);
+    log_op("get_robust_list", "get_robust_list(0, &rob_head, &rob_len)", res);
+
+    pid_t rob_child = fork();
+    if (rob_child == 0) {
+        res = (int)syscall(SYS_set_robust_list, (void *)-1, 0);
+        log_op("set_robust_list", "set_robust_list((void *)-1, 0)", res);
+        _exit(0);
+    } else if (rob_child > 0) {
+        waitpid(rob_child, NULL, 0);
+    }
+
+    res = (int)syscall(SYS_pkey_alloc, 0, 0 /* PKEY_UNRESTRICTED */);
+    log_op("pkey_alloc", "pkey_alloc(0, PKEY_UNRESTRICTED)", res);
+    if (res >= 0) {
+        int free_res = (int)syscall(SYS_pkey_free, res);
+        log_op("pkey_free", "pkey_free(allocated_key)", free_res);
+    } else {
+        res = (int)syscall(SYS_pkey_free, 0);
+        log_op("pkey_free", "pkey_free(0) fallback", res);
+    }
+
+    res = (int)syscall(SYS_io_submit, 0, 0, NULL);
+    log_op("io_submit", "io_submit(0, 0, NULL)", res);
+
+    res = (int)syscall(SYS_io_cancel, 0, NULL, NULL);
+    log_op("io_cancel", "io_cancel(0, NULL, NULL)", res);
+
+    res = (int)syscall(SYS_io_getevents, 0, 0, 0, NULL, NULL);
+    log_op("io_getevents", "io_getevents(0, 0, 0, NULL, NULL)", res);
+
+    res = (int)syscall(SYS_io_pgetevents, 0, 0, 0, NULL, NULL, NULL);
+    log_op("io_pgetevents", "io_pgetevents(0, 0, 0, NULL, NULL, NULL)", res);
+
+    /* -------------------------------------------------------------
      * 17. DELETION & CLEANUP: unlink, unlinkat, rmdir, close
      * ------------------------------------------------------------- */
     printf("\n--- Deletion & Cleanup (unlink, unlinkat, rmdir, close) ---\n");
