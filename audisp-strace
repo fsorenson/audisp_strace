@@ -1422,6 +1422,42 @@ ITIMER_WHICH = {
     2: "ITIMER_PROF",
 }
 
+SYSLOG_ACTIONS = {
+    0: "SYSLOG_ACTION_CLOSE",
+    1: "SYSLOG_ACTION_OPEN",
+    2: "SYSLOG_ACTION_READ",
+    3: "SYSLOG_ACTION_READ_ALL",
+    4: "SYSLOG_ACTION_READ_CLEAR",
+    5: "SYSLOG_ACTION_CLEAR",
+    6: "SYSLOG_ACTION_CONSOLE_OFF",
+    7: "SYSLOG_ACTION_CONSOLE_ON",
+    8: "SYSLOG_ACTION_CONSOLE_LEVEL",
+    9: "SYSLOG_ACTION_SIZE_UNREAD",
+    10: "SYSLOG_ACTION_SIZE_BUFFER",
+}
+
+REBOOT_MAGIC1 = {
+    0xfee1dead: "LINUX_REBOOT_MAGIC1",
+}
+
+REBOOT_MAGIC2 = {
+    672274793: "LINUX_REBOOT_MAGIC2",
+    85072278: "LINUX_REBOOT_MAGIC2A",
+    369367448: "LINUX_REBOOT_MAGIC2B",
+    537993216: "LINUX_REBOOT_MAGIC2C",
+}
+
+REBOOT_CMDS = {
+    0x01234567: "LINUX_REBOOT_CMD_RESTART",
+    0xcdef0123: "LINUX_REBOOT_CMD_HALT",
+    0x89abcdef: "LINUX_REBOOT_CMD_CAD_ON",
+    0x00000000: "LINUX_REBOOT_CMD_CAD_OFF",
+    0x4321fedc: "LINUX_REBOOT_CMD_POWER_OFF",
+    0xa1b2c3d4: "LINUX_REBOOT_CMD_RESTART2",
+    0xd000fce2: "LINUX_REBOOT_CMD_SW_SUSPEND",
+    0x45584543: "LINUX_REBOOT_CMD_KEXEC",
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -1779,6 +1815,15 @@ class SyscallHandler:
             "timer_gettime": self.handle_timer_gettime,
             "timer_getoverrun": self.handle_timer_getoverrun,
             "timer_delete": self.handle_timer_delete,
+
+            # System Info, Hostname & Administration
+            "uname": self.handle_uname,
+            "sysinfo": self.handle_sysinfo,
+            "syslog": self.handle_syslog,
+            "sethostname": self.handle_sethostname,
+            "setdomainname": self.handle_setdomainname,
+            "sync": self.handle_sync,
+            "reboot": self.handle_reboot,
         }
 
         # Extended Attributes (xattr)
@@ -4312,6 +4357,48 @@ class SyscallHandler:
     def handle_timer_delete(self, event):
         timerid = self._parse_id(event.syscall.get("a0", "0"))
         return f"timer_delete({timerid}) = {event.exit_str}"
+
+    def handle_uname(self, event):
+        buf_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        buf_str = "NULL" if buf_ptr == 0 else "{...}"
+        return f"uname({buf_str}) = {event.exit_str}"
+
+    def handle_sysinfo(self, event):
+        info_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        info_str = "NULL" if info_ptr == 0 else "{...}"
+        return f"sysinfo({info_str}) = {event.exit_str}"
+
+    def handle_syslog(self, event):
+        type_val = self._parse_id(event.syscall.get("a0", "0"))
+        type_str = SYSLOG_ACTIONS.get(type_val, str(type_val))
+        buf_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        buf_str = "NULL" if buf_ptr == 0 else f"0x{buf_ptr:x}"
+        len_val = self._parse_id(event.syscall.get("a2", "0"))
+        return f"syslog({type_str}, {buf_str}, {len_val}) = {event.exit_str}"
+
+    def handle_sethostname(self, event):
+        name = self._get_pathname(event, "a0")
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f'sethostname("{name}", {len_val}) = {event.exit_str}'
+
+    def handle_setdomainname(self, event):
+        name = self._get_pathname(event, "a0")
+        len_val = self._parse_id(event.syscall.get("a1", "0"))
+        return f'setdomainname("{name}", {len_val}) = {event.exit_str}'
+
+    def handle_sync(self, event):
+        return f"sync() = {event.exit_str}"
+
+    def handle_reboot(self, event):
+        m1 = self._parse_id(event.syscall.get("a0", "0"))
+        m1_str = REBOOT_MAGIC1.get(m1, f"0x{m1:x}" if isinstance(m1, int) else str(m1))
+        m2 = self._parse_id(event.syscall.get("a1", "0"))
+        m2_str = REBOOT_MAGIC2.get(m2, f"0x{m2:x}" if isinstance(m2, int) else str(m2))
+        cmd = self._parse_id(event.syscall.get("a2", "0"))
+        cmd_str = REBOOT_CMDS.get(cmd, f"0x{cmd:x}" if isinstance(cmd, int) else str(cmd))
+        arg_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        arg_str = "NULL" if arg_ptr == 0 else f"0x{arg_ptr:x}"
+        return f"reboot({m1_str}, {m2_str}, {cmd_str}, {arg_str}) = {event.exit_str}"
 
     def format_event(self, event, caller_comm=None):
         scname = event.syscall_name

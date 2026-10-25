@@ -46,6 +46,8 @@
 #include <sys/personality.h>
 #include <sys/resource.h>
 #include <sys/times.h>
+#include <sys/utsname.h>
+#include <sys/sysinfo.h>
 
 #ifdef __has_include
 #  if __has_include(<linux/openat2.h>)
@@ -1327,6 +1329,35 @@ static void run_worker_tests(const char *base_dir) {
         res = timer_delete(posix_tid);
         log_op("timer_delete", "timer_delete", res);
     }
+
+    /* -------------------------------------------------------------
+     * 16.9. SYSTEM INFO, HOSTNAME & ADMINISTRATION:
+     *       uname, sysinfo, syslog, sethostname, setdomainname,
+     *       sync, reboot
+     * ------------------------------------------------------------- */
+    printf("\n--- System Info, Hostname & Administration ---\n");
+    struct utsname uts_buf;
+    res = uname(&uts_buf);
+    log_op("uname", "query system info (uname)", res);
+
+    struct sysinfo si_buf;
+    res = sysinfo(&si_buf);
+    log_op("sysinfo", "query system statistics (sysinfo)", res);
+
+    res = (int)syscall(SYS_syslog, 10 /* SYSLOG_ACTION_SIZE_BUFFER */, NULL, 0);
+    log_op("syslog", "syslog(SYSLOG_ACTION_SIZE_BUFFER)", res);
+
+    res = sethostname("audisp_dummy_host", 17);
+    log_op("sethostname", "dummy sethostname", res);
+
+    res = setdomainname("audisp_dummy_domain", 19);
+    log_op("setdomainname", "dummy setdomainname", res);
+
+    sync();
+    log_op("sync", "sync filesystems", 0);
+
+    res = (int)syscall(SYS_reboot, 0, 0, 0, NULL);
+    log_op("reboot", "reboot(0, 0, 0, NULL) safe invalid call", res);
 
     /* -------------------------------------------------------------
      * 17. DELETION & CLEANUP: unlink, unlinkat, rmdir, close

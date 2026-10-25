@@ -106,5 +106,8 @@ auditctl -a always,exit -F arch=b64 -S umask,personality,getrlimit,setrlimit,prl
 auditctl -a always,exit -F arch=b64 -S nanosleep,clock_nanosleep,alarm,getitimer,setitimer,times -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S timer_create,timer_settime,timer_gettime,timer_getoverrun,timer_delete -F key="$KEY"
 
+# System Info, Hostname & Administration
+auditctl -a always,exit -F arch=b64 -S uname,sysinfo,syslog,sethostname,setdomainname,sync,reboot -F key="$KEY"
+
 echo "Current active rules with key $KEY:"
 auditctl -l | grep "$KEY"
