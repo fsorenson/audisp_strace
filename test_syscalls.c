@@ -45,6 +45,7 @@
 #include <sys/select.h>
 #include <sys/personality.h>
 #include <sys/resource.h>
+#include <sys/times.h>
 
 #ifdef __has_include
 #  if __has_include(<linux/openat2.h>)
@@ -1279,6 +1280,53 @@ static void run_worker_tests(const char *base_dir) {
 
     res = (int)syscall(SYS_vhangup);
     log_op("vhangup", "dummy vhangup", res);
+
+    /* -------------------------------------------------------------
+     * 16.8. TIME, TIMERS & CLOCKS (non-%clock):
+     *       nanosleep, clock_nanosleep, alarm, getitimer, setitimer,
+     *       times, timer_create, timer_settime, timer_gettime,
+     *       timer_getoverrun, timer_delete
+     * ------------------------------------------------------------- */
+    printf("\n--- Time, Timers & Clocks (non-%%clock) ---\n");
+    struct timespec ns_req = {0, 1000};
+    res = nanosleep(&ns_req, NULL);
+    log_op("nanosleep", "nanosleep 1us", res);
+
+    res = clock_nanosleep(CLOCK_REALTIME, 0, &ns_req, NULL);
+    log_op("clock_nanosleep", "clock_nanosleep CLOCK_REALTIME 1us", res);
+
+    unsigned int prev_alarm = alarm(0);
+    log_op("alarm", "alarm(0) cancel/query", (int)prev_alarm);
+
+    struct itimerval itv;
+    res = getitimer(ITIMER_REAL, &itv);
+    log_op("getitimer", "ITIMER_REAL", res);
+
+    memset(&itv, 0, sizeof(itv));
+    res = setitimer(ITIMER_REAL, &itv, NULL);
+    log_op("setitimer", "ITIMER_REAL disable", res);
+
+    struct tms tms_buf;
+    clock_t tms_res = times(&tms_buf);
+    log_op("times", "query process times", (tms_res != (clock_t)-1) ? 0 : -1);
+
+    timer_t posix_tid;
+    res = timer_create(CLOCK_REALTIME, NULL, &posix_tid);
+    log_op("timer_create", "CLOCK_REALTIME POSIX timer", res);
+    if (res == 0) {
+        struct itimerspec its = { {0, 0}, {0, 1000000} };
+        res = timer_settime(posix_tid, 0, &its, NULL);
+        log_op("timer_settime", "timer_settime 1ms", res);
+
+        res = timer_gettime(posix_tid, &its);
+        log_op("timer_gettime", "timer_gettime", res);
+
+        res = timer_getoverrun(posix_tid);
+        log_op("timer_getoverrun", "timer_getoverrun", res);
+
+        res = timer_delete(posix_tid);
+        log_op("timer_delete", "timer_delete", res);
+    }
 
     /* -------------------------------------------------------------
      * 17. DELETION & CLEANUP: unlink, unlinkat, rmdir, close

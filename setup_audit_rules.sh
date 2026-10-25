@@ -102,5 +102,9 @@ auditctl -a always,exit -F arch=b64 -S sched_get_priority_max,sched_get_priority
 auditctl -a always,exit -F arch=b64 -S sched_setattr,sched_getattr,getcpu,setpgid,getpgid,setsid,getsid,getpriority,setpriority -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S umask,personality,getrlimit,setrlimit,prlimit64,getrusage,unshare,set_tid_address,rseq,vhangup,restart_syscall -F key="$KEY"
 
+# Time, Timers & Clocks (non-%clock)
+auditctl -a always,exit -F arch=b64 -S nanosleep,clock_nanosleep,alarm,getitimer,setitimer,times -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S timer_create,timer_settime,timer_gettime,timer_getoverrun,timer_delete -F key="$KEY"
+
 echo "Current active rules with key $KEY:"
 auditctl -l | grep "$KEY"

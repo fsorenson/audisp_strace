@@ -1416,6 +1416,12 @@ PERSONALITY_TYPES = {
     8: "PER_LINUX32",
 }
 
+ITIMER_WHICH = {
+    0: "ITIMER_REAL",
+    1: "ITIMER_VIRTUAL",
+    2: "ITIMER_PROF",
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -1760,6 +1766,19 @@ class SyscallHandler:
             "rseq": self.handle_rseq,
             "vhangup": self.handle_vhangup,
             "restart_syscall": self.handle_restart_syscall,
+
+            # Time, Timers & Clocks (non-%clock)
+            "nanosleep": self.handle_nanosleep,
+            "clock_nanosleep": self.handle_clock_nanosleep,
+            "alarm": self.handle_alarm,
+            "getitimer": self.handle_getitimer,
+            "setitimer": self.handle_setitimer,
+            "times": self.handle_times,
+            "timer_create": self.handle_timer_create,
+            "timer_settime": self.handle_timer_settime,
+            "timer_gettime": self.handle_timer_gettime,
+            "timer_getoverrun": self.handle_timer_getoverrun,
+            "timer_delete": self.handle_timer_delete,
         }
 
         # Extended Attributes (xattr)
@@ -4217,6 +4236,82 @@ class SyscallHandler:
 
     def handle_restart_syscall(self, event):
         return f"restart_syscall() = {event.exit_str}"
+
+    def handle_nanosleep(self, event):
+        req_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        rem_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        req_str = "NULL" if req_ptr == 0 else "{...}"
+        rem_str = "NULL" if rem_ptr == 0 else "{...}"
+        return f"nanosleep({req_str}, {rem_str}) = {event.exit_str}"
+
+    def handle_clock_nanosleep(self, event):
+        clockid = self._parse_id(event.syscall.get("a0", "0"))
+        clock_str = CLOCK_IDS.get(clockid, str(clockid))
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = "TIMER_ABSTIME" if flags_val == 1 else str(flags_val)
+        req_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        rem_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        req_str = "NULL" if req_ptr == 0 else "{...}"
+        rem_str = "NULL" if rem_ptr == 0 else "{...}"
+        return f"clock_nanosleep({clock_str}, {flags_str}, {req_str}, {rem_str}) = {event.exit_str}"
+
+    def handle_alarm(self, event):
+        secs = self._parse_id(event.syscall.get("a0", "0"))
+        return f"alarm({secs}) = {event.exit_str}"
+
+    def handle_getitimer(self, event):
+        which_val = self._parse_id(event.syscall.get("a0", "0"))
+        which_str = ITIMER_WHICH.get(which_val, str(which_val))
+        val_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        val_str = "NULL" if val_ptr == 0 else "{...}"
+        return f"getitimer({which_str}, {val_str}) = {event.exit_str}"
+
+    def handle_setitimer(self, event):
+        which_val = self._parse_id(event.syscall.get("a0", "0"))
+        which_str = ITIMER_WHICH.get(which_val, str(which_val))
+        new_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        old_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        new_str = "NULL" if new_ptr == 0 else "{...}"
+        old_str = "NULL" if old_ptr == 0 else "{...}"
+        return f"setitimer({which_str}, {new_str}, {old_str}) = {event.exit_str}"
+
+    def handle_times(self, event):
+        buf_ptr = self._parse_id(event.syscall.get("a0", "0"))
+        buf_str = "NULL" if buf_ptr == 0 else "{...}"
+        return f"times({buf_str}) = {event.exit_str}"
+
+    def handle_timer_create(self, event):
+        clockid = self._parse_id(event.syscall.get("a0", "0"))
+        clock_str = CLOCK_IDS.get(clockid, str(clockid))
+        sevp_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        sevp_str = "NULL" if sevp_ptr == 0 else "{...}"
+        tid_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        tid_str = "NULL" if tid_ptr == 0 else "[{...}]"
+        return f"timer_create({clock_str}, {sevp_str}, {tid_str}) = {event.exit_str}"
+
+    def handle_timer_settime(self, event):
+        timerid = self._parse_id(event.syscall.get("a0", "0"))
+        flags_val = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = "TIMER_ABSTIME" if flags_val == 1 else str(flags_val)
+        new_ptr = self._parse_id(event.syscall.get("a2", "0"))
+        old_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        new_str = "NULL" if new_ptr == 0 else "{...}"
+        old_str = "NULL" if old_ptr == 0 else "{...}"
+        return f"timer_settime({timerid}, {flags_str}, {new_str}, {old_str}) = {event.exit_str}"
+
+    def handle_timer_gettime(self, event):
+        timerid = self._parse_id(event.syscall.get("a0", "0"))
+        val_ptr = self._parse_id(event.syscall.get("a1", "0"))
+        val_str = "NULL" if val_ptr == 0 else "{...}"
+        return f"timer_gettime({timerid}, {val_str}) = {event.exit_str}"
+
+    def handle_timer_getoverrun(self, event):
+        timerid = self._parse_id(event.syscall.get("a0", "0"))
+        return f"timer_getoverrun({timerid}) = {event.exit_str}"
+
+    def handle_timer_delete(self, event):
+        timerid = self._parse_id(event.syscall.get("a0", "0"))
+        return f"timer_delete({timerid}) = {event.exit_str}"
 
     def format_event(self, event, caller_comm=None):
         scname = event.syscall_name

@@ -193,6 +193,11 @@ Sample 3-line format per monitored event:
   - Resource Limits & System Attributes: `umask`, `personality`, `getrlimit`, `setrlimit`, `prlimit64`, `getrusage`
   - Namespaces, Execution & Threading: `unshare`, `set_tid_address`, `rseq`, `vhangup`, `restart_syscall`
   - Added Section 16.7 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
+- [x] Implemented unclassed Batch 2: Time, Timers & Clocks (non-%clock) (11 syscalls):
+  - Sleep & alarms: `nanosleep`, `clock_nanosleep`, `alarm`
+  - Interval timers & process accounting: `getitimer`, `setitimer`, `times`
+  - POSIX interval timers: `timer_create`, `timer_settime`, `timer_gettime`, `timer_getoverrun`, `timer_delete`
+  - Added Section 16.8 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`
