@@ -218,7 +218,7 @@ Sample 3-line format per monitored event:
   - Memory protection keys: `pkey_alloc` (supporting `PKEY_UNRESTRICTED` and `PKEY_DISABLE_*` rights), `pkey_free`
   - Asynchronous I/O: `io_submit`, `io_cancel`, `io_getevents`, `io_pgetevents`
   - Added Section 16.11 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
-- [x] Implemented unclassed Batch 6: Kernel Modules, Architecture-specific & Legacy (24 syscalls) — **100% of unclassed syscalls completed (93/93)**:
+- [x] Implemented unclassed Batch 6: Kernel Modules, Architecture-specific & Legacy (24 syscalls) — **100% of x86_64 unclassed syscalls completed (93/93)**:
   - Kernel module management: `init_module`, `delete_module`, `create_module`, `get_kernel_syms`, `query_module`
   - Boot & messaging: `kexec_load`, `mq_unlink`
   - Architecture-specific controls: `arch_prctl` (decoding `ARCH_*` subcommands and `ARCH_GET_CPUID`), `modify_ldt`, `iopl`, `ioperm`, `set_thread_area`, `get_thread_area`
@@ -226,6 +226,13 @@ Sample 3-line format per monitored event:
   - Legacy event poll & subsystems: `epoll_ctl_old`, `epoll_wait_old`, `security`, `nfsservctl`, `afs_syscall`, `tuxcall`, `vserver`
   - Kernel trampoline: `uretprobe`
   - Added Section 16.12 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
+- [x] Implemented unclassed Batch 7: Generic & Recent Syscalls from `syscallent-common.h` (12 syscalls):
+  - File descriptors: `close_range` (with in-memory descriptor lifecycle tracking in `ProcessTracker` for single FDs and ranges)
+  - Futex2 subsystem: `futex_waitv`, `futex_wake`, `futex_wait`, `futex_requeue` (decoding futex2 size flags `FUTEX2_SIZE_*`, `FUTEX2_PRIVATE`, and `FUTEX2_NUMA`)
+  - Mount inspection: `statmount`, `listmount`
+  - Linux Security Modules (LSM): `lsm_get_self_attr`, `lsm_set_self_attr`, `lsm_list_modules` (decoding `LSM_ATTR_*`)
+  - Namespaces & Concurrency: `listns`, `rseq_slice_yield`
+  - Added Section 16.13 in `test_syscalls.c` exercising these syscalls, and updated `setup_audit_rules.sh`.
 - [x] Verified against all reference cases:
   - [x] `examples/fchmodat-v1`
   - [x] `examples/fchmodat-v2`

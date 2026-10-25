@@ -1719,6 +1719,34 @@ KEXEC_LOAD_FLAGS = {
     0x00000008: "KEXEC_CRASH_HOTPLUG_SUPPORT",
 }
 
+CLOSE_RANGE_FLAGS = {
+    0x2: "CLOSE_RANGE_UNSHARE",
+    0x4: "CLOSE_RANGE_CLOEXEC",
+}
+
+FUTEX2_SIZES = {
+    0: "FUTEX2_SIZE_U8",
+    1: "FUTEX2_SIZE_U16",
+    2: "FUTEX2_SIZE_U32",
+    3: "FUTEX2_SIZE_U64",
+}
+
+FUTEX2_FLAGS = {
+    0x04: "FUTEX2_NUMA",
+    0x08: "FUTEX2_MPOL",
+    0x80: "FUTEX2_PRIVATE",
+}
+
+LSM_ATTRS = {
+    0: "LSM_ATTR_UNDEF",
+    100: "LSM_ATTR_CURRENT",
+    101: "LSM_ATTR_EXEC",
+    102: "LSM_ATTR_FSCREATE",
+    103: "LSM_ATTR_KEYCREATE",
+    104: "LSM_ATTR_PREV",
+    105: "LSM_ATTR_SOCKCREATE",
+}
+
 
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
@@ -2136,6 +2164,20 @@ class SyscallHandler:
             "tuxcall": self.handle_tuxcall,
             "vserver": self.handle_vserver,
             "uretprobe": self.handle_uretprobe,
+
+            # Group 7: Modern unclassed syscalls (syscallent-common.h)
+            "close_range": self.handle_close_range,
+            "futex_waitv": self.handle_futex_waitv,
+            "futex_wake": self.handle_futex_wake,
+            "futex_wait": self.handle_futex_wait,
+            "futex_requeue": self.handle_futex_requeue,
+            "statmount": self.handle_statmount,
+            "listmount": self.handle_listmount,
+            "lsm_get_self_attr": self.handle_lsm_get_self_attr,
+            "lsm_set_self_attr": self.handle_lsm_set_self_attr,
+            "lsm_list_modules": self.handle_lsm_list_modules,
+            "listns": self.handle_listns,
+            "rseq_slice_yield": self.handle_rseq_slice_yield,
         }
 
         # Extended Attributes (xattr)
@@ -2724,6 +2766,18 @@ class SyscallHandler:
         if load_str != "0":
             return f"{arch_str}|{load_str}"
         return arch_str
+
+    def _format_futex2_flags(self, flags_raw):
+        f = self._parse_id(flags_raw)
+        if not isinstance(f, int):
+            return str(flags_raw)
+        size_part = f & 0x3
+        size_str = FUTEX2_SIZES.get(size_part, str(size_part))
+        rem = f & ~0x3
+        flags_str = self._format_bitmask(rem, FUTEX2_FLAGS)
+        if flags_str != "0":
+            return f"{size_str}|{flags_str}"
+        return size_str
 
     def _get_pathname(self, event, default_arg="a0"):
         if event.paths:
@@ -5240,6 +5294,100 @@ class SyscallHandler:
     def handle_uretprobe(self, event):
         return f"uretprobe() = {event.exit_str}"
 
+    def handle_close_range(self, event):
+        first = self._parse_id(event.syscall.get("a0", "0"))
+        last = self._parse_id(event.syscall.get("a1", "0"))
+        flags = self._parse_id(event.syscall.get("a2", "0"))
+        flags_str = self._format_bitmask(flags, CLOSE_RANGE_FLAGS)
+        return f"close_range({first}, {last}, {flags_str}) = {event.exit_str}"
+
+    def handle_futex_waitv(self, event):
+        waiters = self._format_pointer(event.syscall.get("a0", "0"))
+        nr_futexes = self._parse_id(event.syscall.get("a1", "0"))
+        flags = self._parse_id(event.syscall.get("a2", "0"))
+        flags_str = f"0x{flags:x}" if isinstance(flags, int) else str(flags)
+        timeout = self._format_pointer(event.syscall.get("a3", "0"))
+        clockid = self._parse_id(event.syscall.get("a4", "0"))
+        clock_str = CLOCK_IDS.get(clockid, str(clockid))
+        return f"futex_waitv({waiters}, {nr_futexes}, {flags_str}, {timeout}, {clock_str}) = {event.exit_str}"
+
+    def handle_futex_wake(self, event):
+        uaddr = self._format_pointer(event.syscall.get("a0", "0"))
+        mask = self._format_futex_bitset(event.syscall.get("a1", "0"))
+        nr = self._format_int(event.syscall.get("a2", "0"))
+        flags = self._format_futex2_flags(event.syscall.get("a3", "0"))
+        return f"futex_wake({uaddr}, {mask}, {nr}, {flags}) = {event.exit_str}"
+
+    def handle_futex_wait(self, event):
+        uaddr = self._format_pointer(event.syscall.get("a0", "0"))
+        val = self._parse_id(event.syscall.get("a1", "0"))
+        mask = self._format_futex_bitset(event.syscall.get("a2", "0"))
+        flags = self._format_futex2_flags(event.syscall.get("a3", "0"))
+        timeout = self._format_pointer(event.syscall.get("a4", "0"))
+        clockid = self._parse_id(event.syscall.get("a5", "0"))
+        clock_str = CLOCK_IDS.get(clockid, str(clockid))
+        return f"futex_wait({uaddr}, {val}, {mask}, {flags}, {timeout}, {clock_str}) = {event.exit_str}"
+
+    def handle_futex_requeue(self, event):
+        waiters = self._format_pointer(event.syscall.get("a0", "0"))
+        flags = self._parse_id(event.syscall.get("a1", "0"))
+        flags_str = f"0x{flags:x}" if isinstance(flags, int) else str(flags)
+        nr_wake = self._format_int(event.syscall.get("a2", "0"))
+        nr_requeue = self._format_int(event.syscall.get("a3", "0"))
+        return f"futex_requeue({waiters}, {flags_str}, {nr_wake}, {nr_requeue}) = {event.exit_str}"
+
+    def handle_statmount(self, event):
+        req = self._format_pointer(event.syscall.get("a0", "0"))
+        buf = self._format_pointer(event.syscall.get("a1", "0"))
+        bufsize = self._parse_id(event.syscall.get("a2", "0"))
+        flags = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = f"0x{flags:x}" if isinstance(flags, int) else str(flags)
+        return f"statmount({req}, {buf}, {bufsize}, {flags_str}) = {event.exit_str}"
+
+    def handle_listmount(self, event):
+        req = self._format_pointer(event.syscall.get("a0", "0"))
+        mnt_ids = self._format_pointer(event.syscall.get("a1", "0"))
+        nr_mnt_ids = self._parse_id(event.syscall.get("a2", "0"))
+        flags = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = f"0x{flags:x}" if isinstance(flags, int) else str(flags)
+        return f"listmount({req}, {mnt_ids}, {nr_mnt_ids}, {flags_str}) = {event.exit_str}"
+
+    def handle_lsm_get_self_attr(self, event):
+        attr = self._parse_id(event.syscall.get("a0", "0"))
+        attr_str = LSM_ATTRS.get(attr, f"0x{attr:x}" if isinstance(attr, int) else str(attr))
+        ctx = self._format_pointer(event.syscall.get("a1", "0"))
+        size = self._format_pointer(event.syscall.get("a2", "0"))
+        flags = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = f"0x{flags:x}" if isinstance(flags, int) else str(flags)
+        return f"lsm_get_self_attr({attr_str}, {ctx}, {size}, {flags_str}) = {event.exit_str}"
+
+    def handle_lsm_set_self_attr(self, event):
+        attr = self._parse_id(event.syscall.get("a0", "0"))
+        attr_str = LSM_ATTRS.get(attr, f"0x{attr:x}" if isinstance(attr, int) else str(attr))
+        ctx = self._format_pointer(event.syscall.get("a1", "0"))
+        size = self._parse_id(event.syscall.get("a2", "0"))
+        flags = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = f"0x{flags:x}" if isinstance(flags, int) else str(flags)
+        return f"lsm_set_self_attr({attr_str}, {ctx}, {size}, {flags_str}) = {event.exit_str}"
+
+    def handle_lsm_list_modules(self, event):
+        ids = self._format_pointer(event.syscall.get("a0", "0"))
+        size = self._format_pointer(event.syscall.get("a1", "0"))
+        flags = self._parse_id(event.syscall.get("a2", "0"))
+        flags_str = f"0x{flags:x}" if isinstance(flags, int) else str(flags)
+        return f"lsm_list_modules({ids}, {size}, {flags_str}) = {event.exit_str}"
+
+    def handle_listns(self, event):
+        req = self._format_pointer(event.syscall.get("a0", "0"))
+        ns_ids = self._format_pointer(event.syscall.get("a1", "0"))
+        nr_ns_ids = self._parse_id(event.syscall.get("a2", "0"))
+        flags = self._parse_id(event.syscall.get("a3", "0"))
+        flags_str = f"0x{flags:x}" if isinstance(flags, int) else str(flags)
+        return f"listns({req}, {ns_ids}, {nr_ns_ids}, {flags_str}) = {event.exit_str}"
+
+    def handle_rseq_slice_yield(self, event):
+        return f"rseq_slice_yield() = {event.exit_str}"
+
     def format_event(self, event, caller_comm=None):
         scname = event.syscall_name
         if not scname:
@@ -5356,6 +5504,21 @@ class AudispStraceApp:
             if event.exit_code == 0 or event.success == 'yes':
                 fd_raw = event.syscall.get("a0", "0")
                 self.tracker.close_fd(pid, fd_raw)
+
+        elif scname == 'close_range':
+            if event.exit_code == 0 or event.success == 'yes':
+                first = self.handler._parse_id(event.syscall.get("a0", "0"))
+                last = self.handler._parse_id(event.syscall.get("a1", "0"))
+                flags = self.handler._parse_id(event.syscall.get("a2", "0"))
+                proc = self.tracker.get_proc(pid)
+                if proc and isinstance(first, int) and isinstance(last, int):
+                    is_cloexec = bool(isinstance(flags, int) and (flags & 0x4))
+                    for fd in list(proc.get('fds', {}).keys()):
+                        if first <= fd <= last:
+                            if is_cloexec:
+                                proc['fds'][fd]['cloexec'] = True
+                            else:
+                                del proc['fds'][fd]
 
         elif scname == 'dup':
             if event.exit_code is not None and event.exit_code >= 0:

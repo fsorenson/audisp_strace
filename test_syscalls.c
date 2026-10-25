@@ -107,6 +107,78 @@
 #  endif
 #endif
 
+#ifndef SYS_close_range
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_close_range 436
+#  endif
+#endif
+
+#ifndef SYS_futex_waitv
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_futex_waitv 449
+#  endif
+#endif
+
+#ifndef SYS_futex_wake
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_futex_wake 454
+#  endif
+#endif
+
+#ifndef SYS_futex_wait
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_futex_wait 455
+#  endif
+#endif
+
+#ifndef SYS_futex_requeue
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_futex_requeue 456
+#  endif
+#endif
+
+#ifndef SYS_statmount
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_statmount 457
+#  endif
+#endif
+
+#ifndef SYS_listmount
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_listmount 458
+#  endif
+#endif
+
+#ifndef SYS_lsm_get_self_attr
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_lsm_get_self_attr 459
+#  endif
+#endif
+
+#ifndef SYS_lsm_set_self_attr
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_lsm_set_self_attr 460
+#  endif
+#endif
+
+#ifndef SYS_lsm_list_modules
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_lsm_list_modules 461
+#  endif
+#endif
+
+#ifndef SYS_listns
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_listns 470
+#  endif
+#endif
+
+#ifndef SYS_rseq_slice_yield
+#  if defined(__x86_64__) || defined(__aarch64__)
+#    define SYS_rseq_slice_yield 471
+#  endif
+#endif
+
 #ifndef RENAME_NOREPLACE
 #  define RENAME_NOREPLACE (1 << 0)
 #endif
@@ -1564,6 +1636,51 @@ static void run_worker_tests(const char *base_dir) {
     log_op("vserver", "dummy vserver", res);
 
     printf("  [SKIP] %-14s: skipped (internal return trampoline; not userspace invokable)\n", "uretprobe");
+
+    /* -------------------------------------------------------------
+     * 16.13. UNCLASSED GENERIC & RECENT SYSCALLS (Group 7):
+     * close_range, futex_waitv, futex_wake, futex_wait, futex_requeue,
+     * statmount, listmount, lsm_get_self_attr, lsm_set_self_attr,
+     * lsm_list_modules, listns, rseq_slice_yield
+     * ------------------------------------------------------------- */
+    printf("\n--- Unclassed Generic & Recent Syscalls (Group 7) ---\n");
+
+    res = (int)syscall(SYS_close_range, 70, 71, 0);
+    log_op("close_range", "close_range(70, 71, 0)", res);
+
+    res = (int)syscall(SYS_futex_waitv, NULL, 0, 0, NULL, 0);
+    log_op("futex_waitv", "dummy futex_waitv", res);
+
+    uint32_t futex2_val = 0;
+    res = (int)syscall(SYS_futex_wake, &futex2_val, -1, 0, 2 /* FUTEX2_SIZE_U32 */);
+    log_op("futex_wake", "futex_wake(&val, -1, 0, FUTEX2_SIZE_U32)", res);
+
+    res = (int)syscall(SYS_futex_wait, &futex2_val, 1 /* unmatched */, -1, 2 /* FUTEX2_SIZE_U32 */, NULL, 0);
+    log_op("futex_wait", "futex_wait(&val, 1, -1, FUTEX2_SIZE_U32, NULL, 0)", res);
+
+    res = (int)syscall(SYS_futex_requeue, NULL, 0, 0, 0);
+    log_op("futex_requeue", "dummy futex_requeue", res);
+
+    res = (int)syscall(SYS_statmount, NULL, NULL, 0, 0);
+    log_op("statmount", "dummy statmount", res);
+
+    res = (int)syscall(SYS_listmount, NULL, NULL, 0, 0);
+    log_op("listmount", "dummy listmount", res);
+
+    res = (int)syscall(SYS_lsm_get_self_attr, 0, NULL, NULL, 0);
+    log_op("lsm_get_self_attr", "dummy lsm_get_self_attr", res);
+
+    res = (int)syscall(SYS_lsm_set_self_attr, 0, NULL, 0, 0);
+    log_op("lsm_set_self_attr", "dummy lsm_set_self_attr", res);
+
+    res = (int)syscall(SYS_lsm_list_modules, NULL, NULL, 0);
+    log_op("lsm_list_modules", "dummy lsm_list_modules", res);
+
+    res = (int)syscall(SYS_listns, NULL, NULL, 0, 0);
+    log_op("listns", "dummy listns", res);
+
+    res = (int)syscall(SYS_rseq_slice_yield);
+    log_op("rseq_slice_yield", "rseq_slice_yield()", res);
 
     /* -------------------------------------------------------------
      * 17. DELETION & CLEANUP: unlink, unlinkat, rmdir, close

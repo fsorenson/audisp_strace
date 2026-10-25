@@ -122,5 +122,9 @@ auditctl -a always,exit -F arch=b64 -S init_module,delete_module,create_module,g
 auditctl -a always,exit -F arch=b64 -S arch_prctl,modify_ldt,iopl,ioperm,set_thread_area,get_thread_area,lookup_dcookie -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S _sysctl,sysfs,epoll_ctl_old,epoll_wait_old,security,nfsservctl,afs_syscall,tuxcall,vserver -F key="$KEY"
 
+# Modern Unclassed Syscalls (syscallent-common.h)
+auditctl -a always,exit -F arch=b64 -S close_range,futex_waitv,futex_wake,futex_wait,futex_requeue,statmount,listmount -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S lsm_get_self_attr,lsm_set_self_attr,lsm_list_modules,listns,rseq_slice_yield -F key="$KEY"
+
 echo "Current active rules with key $KEY:"
 auditctl -l | grep "$KEY"
