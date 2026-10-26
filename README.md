@@ -55,6 +55,8 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Color-codes PIDs, commands, timestamps, string literals, resolved FD paths, green success codes, and bold red errors.
 - **String Length Limits (`-L` / `--string-limit` / `--strsize`)**:
   - Modeled after `strace -s strsize` (default: 32 characters, use 0 for unlimited) to prevent unwieldy multi-line string or argument dumps while keeping full pathnames intact.
+- **Audit Key & Serial Display (`-k` / `--show-key`, `--show-serial`)**:
+  - Displays audit rule keys (`[key="rule_name"]`) and event serial numbers (`14:19:27.079:1260437`) for immediate cross-correlation with `ausearch -a <serial>`.
 - **Flexible Stream Redirection (`-o` / `--output`, `-A` / `--append`)**:
   - Route traces directly to a file with safe atomic flushing on `Ctrl-C`.
 
@@ -96,7 +98,7 @@ usage: audisp-strace [-h] [-l] [--offline] [-t {time,datetime,epoch}]
                      [-f] [-u USERS] [--exclude-user EXCLUDE_USERS] [--auid AUIDS]
                      [--color [{auto,always,never}]] [-o OUTPUT] [-A]
                      [-c] [--summary] [-S {calls,errors,error%,name}] [--json]
-                     [-L STRING_LIMIT]
+                     [-L STRING_LIMIT] [-k] [--show-serial]
                      [files ...]
 ```
 
@@ -210,6 +212,8 @@ audisp-strace --offline audit.log -c -S error%
 | `--summary` | Print traces and summary table on exit | `--summary` |
 | `-S`, `--sort-by` | Sort summary table (`calls`, `errors`, `error%`, `name`) | `-S errors` |
 | `-L`, `--string-limit`, `--strsize` | Limit maximum string length for arguments (default: 32, 0 for unlimited) | `-L 64`, `-L 0` |
+| `-k`, `--show-key` | Display audit rule key when present | `-k` |
+| `--show-serial`, `--serial` | Display audit event serial number with timestamp | `--show-serial` |
 
 ---
 

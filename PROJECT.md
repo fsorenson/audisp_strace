@@ -79,6 +79,8 @@ Sample 3-line format per monitored event:
    - `-o`, `--output FILE`: Write trace output to `FILE` instead of stdout.
    - `-A`, `--append`, `--output-append-mode`: Open file specified by `-o`/`--output` in append mode instead of overwriting.
    - `-L`, `--string-limit`, `--strsize`, `--string-len`: Maximum string length to display for arguments and string literals (default: 32, use 0 for unlimited), modeled after `strace -s strsize`. File and directory paths are preserved without truncation.
+   - `-k`, `--show-key`: Display audit rule key when present (`[key="rule_name"]`).
+   - `--show-serial`, `--serial`: Display audit event serial number with timestamp (`14:19:27.079:1260437`).
    - `-t`, `--timestamp-format`: Select `time` (default: `HH:MM:SS.mmm`), `datetime` (`YYYY-MM-DD HH:MM:SS.mmm [tz]`), or `epoch`.
 4. **Architecture**:
    - Single executable script [`audisp-strace`](file:///home/sorenson/projects/audisp_strace/audisp-strace) with modular classes:
@@ -320,6 +322,11 @@ Sample 3-line format per monitored event:
   - Truncates string literals and argument strings (e.g., `execve` argv, `prctl`, `sethostname`, `delete_module`) using format `"<str>"...`.
   - Preserves full file and directory paths without truncation, matching `strace` behavior.
   - Integrates seamlessly with ANSI terminal colorizer so truncated strings including quotes and trailing `...` are colored properly.
+- [x] Implemented audit rule key and event serial display (`-k` / `--show-key`, `--show-serial` / `--serial`):
+  - `--show-key` (`-k`): Displays matched audit rule key as `[key="rule_name"]` on the trace line (omitted if no key is assigned).
+  - `--show-serial` (`--serial`): Appends the audit event serial number to the timestamp (`14:19:27.079:1260437`) matching ausearch format to enable immediate correlation with `ausearch -a <serial>`.
+  - Automatically included in JSON Lines (`--json`) output as `"key": ...` and `"serial": ...`.
+  - Full ANSI colorization with dim brackets and green quoted key string.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

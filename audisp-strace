@@ -1086,6 +1086,27 @@ class AuditEvent:
             return f"-1 {interp}" if interp else str(exit_val)
         return str(exit_val)
 
+    @property
+    def key(self):
+        val = self.syscall_interp.get("key") or self.syscall.get("key")
+        if not val:
+            for rectype, fields, interp_fields in self.records:
+                if "key" in interp_fields and interp_fields["key"]:
+                    val = interp_fields["key"]
+                    break
+                if "key" in fields and fields["key"]:
+                    val = fields["key"]
+                    break
+        if not val:
+            return None
+        val_clean = val.strip('"')
+        if not val_clean or val_clean == "(null)":
+            return None
+        decoded = unescape_audit_str(val_clean)
+        if "\x01" in decoded:
+            decoded = decoded.replace("\x01", ",")
+        return decoded
+
 
 class ColorTheme:
     """Manages ANSI terminal colors for audisp-strace output."""
@@ -1184,9 +1205,10 @@ class ColorTheme:
 class TraceFormatter:
     """Formats 3-line strace-like output."""
 
-    def __init__(self, time_format="time", theme=None):
+    def __init__(self, time_format="time", theme=None, show_serial=False):
         self.time_format = time_format
         self.theme = theme if theme is not None else ColorTheme(False)
+        self.show_serial = bool(show_serial)
         self._uid_cache = {}
         self._gid_cache = {}
 
@@ -1214,15 +1236,16 @@ class TraceFormatter:
         self._gid_cache[gid_str] = name
         return name
 
-    def format_timestamp(self, sec, milli):
+    def format_timestamp(self, sec, milli, serial=None):
         dt = datetime.datetime.fromtimestamp(sec).astimezone()
+        serial_suffix = f":{serial}" if (self.show_serial and serial is not None) else ""
         if self.time_format == "time":
-            return f"{dt.strftime('%H:%M:%S')}.{milli:03d}"
+            return f"{dt.strftime('%H:%M:%S')}.{milli:03d}{serial_suffix}"
         elif self.time_format == "datetime":
-            return f"{dt.strftime('%Y-%m-%d %H:%M:%S')}.{milli:03d} {dt.strftime('%z')}"
+            return f"{dt.strftime('%Y-%m-%d %H:%M:%S')}.{milli:03d}{serial_suffix} {dt.strftime('%z')}"
         elif self.time_format == "epoch":
-            return f"{sec}.{milli:03d}"
-        return f"{dt.strftime('%H:%M:%S')}.{milli:03d}"
+            return f"{sec}.{milli:03d}{serial_suffix}"
+        return f"{dt.strftime('%H:%M:%S')}.{milli:03d}{serial_suffix}"
 
     def get_credentials_dict(self, event):
         fields = event.syscall
@@ -2087,11 +2110,12 @@ LSM_ATTRS = {
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
 
-    def __init__(self, tracker, resolver, formatter, string_limit=32):
+    def __init__(self, tracker, resolver, formatter, string_limit=32, show_key=False):
         self.tracker = tracker
         self.resolver = resolver
         self.formatter = formatter
         self.string_limit = string_limit
+        self.show_key = bool(show_key)
 
         self._handlers = {
             # Permissions, Ownership & Credentials
@@ -5933,7 +5957,7 @@ class SyscallHandler:
 
         # Line 1 header: <pid><comm> <timestamp> <call_str>
         comm = caller_comm or event.comm or self.tracker._resolve_name(event.pid)
-        ts_str = self.formatter.format_timestamp(event.sec, event.milli)
+        ts_str = self.formatter.format_timestamp(event.sec, event.milli, event.serial)
         theme = self.formatter.theme
         if theme.enabled:
             pid_colored = theme.pid(event.pid)
@@ -5944,11 +5968,27 @@ class SyscallHandler:
         else:
             line1 = f"{event.pid}<{comm}> {ts_str} {call_str}"
 
+        # Audit rule key tag
+        key_tag = ""
+        if self.show_key and event.key:
+            if theme.enabled:
+                key_tag = f" {theme.dim('[key=')}{theme.string(f'\"{event.key}\"')}{theme.dim(']')}"
+            else:
+                key_tag = f' [key="{event.key}"]'
+
         if compact:
             if compact == "strace":
-                return line1
+                return f"{line1}{key_tag}"
             compact_tags = self.formatter.format_compact_tags(event, self.tracker)
-            return f"{line1} {compact_tags}" if compact_tags else line1
+            parts = [line1]
+            if compact_tags:
+                parts.append(compact_tags)
+            if key_tag:
+                parts.append(key_tag.strip())
+            return " ".join(parts)
+
+        if key_tag:
+            line1 = f"{line1}{key_tag}"
 
         # Line 2: Process credentials
         line2 = self.formatter.format_credentials(event)
@@ -6007,6 +6047,7 @@ class SyscallHandler:
             "timestamp": dt.isoformat(),
             "epoch": round(sec + milli / 1000.0, 3),
             "serial": event.serial,
+            "key": event.key,
             "pid": event.pid,
             "ppid": event.ppid,
             "comm": comm,
@@ -6044,7 +6085,9 @@ class AudispStraceApp:
                  summary_only=False,
                  sort_by="calls",
                  json_format=False,
-                 string_limit=32):
+                 string_limit=32,
+                 show_key=False,
+                 show_serial=False):
         self.out_file = out_file if out_file is not None else sys.stdout
         self.is_live = is_live
         self.all_syscalls = all_syscalls
@@ -6058,6 +6101,8 @@ class AudispStraceApp:
         self.sort_by = sort_by or "calls"
         self.json_format = bool(json_format)
         self.string_limit = string_limit
+        self.show_key = bool(show_key)
+        self.show_serial = bool(show_serial)
         self.stats = collections.defaultdict(lambda: {"calls": 0, "errors": 0})
         self._summary_printed = False
 
@@ -6091,8 +6136,8 @@ class AudispStraceApp:
 
         self.resolver = ProcResolver(is_live=is_live)
         self.tracker = ProcessTracker(self.resolver)
-        self.formatter = TraceFormatter(time_format=time_format, theme=self.theme)
-        self.handler = SyscallHandler(self.tracker, self.resolver, self.formatter, string_limit=self.string_limit)
+        self.formatter = TraceFormatter(time_format=time_format, theme=self.theme, show_serial=self.show_serial)
+        self.handler = SyscallHandler(self.tracker, self.resolver, self.formatter, string_limit=self.string_limit, show_key=self.show_key)
 
         self.au = auparse.AuParser(auparse.AUSOURCE_FEED)
         self.au.add_callback(_auparse_callback, self)
@@ -6744,6 +6789,20 @@ def main():
         help="Maximum string length to print for strings and arguments (default: 32, use 0 for unlimited)"
     )
 
+    # Audit key and serial display
+    parser.add_argument(
+        "-k", "--show-key",
+        dest="show_key",
+        action="store_true",
+        help="Display audit rule key for matching events (e.g. [key=\"rule_name\"])"
+    )
+    parser.add_argument(
+        "--show-serial", "--serial",
+        dest="show_serial",
+        action="store_true",
+        help="Display audit event serial number with timestamp (e.g. 14:19:27.079:1260437)"
+    )
+
     args = parser.parse_args()
 
     # Determine live mode
@@ -6804,7 +6863,9 @@ def main():
         summary_only=summary_only,
         sort_by=args.sort_by,
         json_format=args.json_format,
-        string_limit=args.string_limit
+        string_limit=args.string_limit,
+        show_key=args.show_key,
+        show_serial=args.show_serial
     )
     _ACTIVE_APP = app
 
