@@ -588,6 +588,36 @@ def parse_id_list(spec_list):
     return ids
 
 
+def parse_session_list(spec_list):
+    """Parses a list of session IDs (numeric, or 'unset' / '-1').
+
+    Returns a set of int session IDs. 'unset' is mapped to {4294967295, -1}.
+    """
+    sessions = set()
+    if not spec_list:
+        return sessions
+    for item in spec_list:
+        for part in item.split(','):
+            part = part.strip().strip('"')
+            if not part:
+                continue
+            if part.lower() in ("unset", "none", "-1"):
+                sessions.add(4294967295)
+                sessions.add(-1)
+            else:
+                try:
+                    val = int(part)
+                    sessions.add(val)
+                    if val == -1:
+                        sessions.add(4294967295)
+                    elif val == 4294967295:
+                        sessions.add(-1)
+                except ValueError:
+                    sys.stderr.write(f"audisp-strace: invalid session ID '{part}'\n")
+                    sys.exit(1)
+    return sessions
+
+
 def parse_user_list(spec_list):
     """Parses a list of usernames or numeric UIDs (e.g. ['root,1000', 'pcp']).
 
@@ -1044,6 +1074,20 @@ class AuditEvent:
     def auser(self):
         val = self.syscall.get("AUID") or self.syscall_interp.get("auid")
         return clean_user_name(val) if val else None
+
+    @property
+    def session_id(self):
+        val = self.syscall.get("ses")
+        if val is None:
+            return None
+        try:
+            return int(val)
+        except ValueError:
+            return None
+
+    @property
+    def ses(self):
+        return self.session_id
 
     @property
     def comm(self):
@@ -6079,6 +6123,7 @@ class AudispStraceApp:
                  user_uids=None, user_names=None,
                  exclude_uids=None, exclude_names=None,
                  auid_uids=None, auid_names=None,
+                 session_ids=None, exclude_session_ids=None,
                  color="auto",
                  out_file=None,
                  summary=False,
@@ -6134,6 +6179,11 @@ class AudispStraceApp:
         self.auid_names = set(auid_names) if auid_names else set()
         self.has_auid_filter = bool(self.auid_uids or self.auid_names)
 
+        self.session_filter = set(session_ids) if session_ids else None
+        self.exclude_sessions = set(exclude_session_ids) if exclude_session_ids else set()
+        self.has_session_filter = bool(self.session_filter)
+        self.has_exclude_session = bool(self.exclude_sessions)
+
         self.resolver = ProcResolver(is_live=is_live)
         self.tracker = ProcessTracker(self.resolver)
         self.formatter = TraceFormatter(time_format=time_format, theme=self.theme, show_serial=self.show_serial)
@@ -6180,6 +6230,25 @@ class AudispStraceApp:
         if event.auid is not None:
             resolved = self.formatter.resolve_user(str(event.auid))
             if resolved in self.auid_names:
+                return True
+        return False
+
+    def _matches_session_filter(self, event, session_set):
+        ses = event.session_id
+        if ses is None and self.tracker:
+            proc = self.tracker.get_proc(event.pid)
+            if proc:
+                ses_raw = proc.get("ses")
+                try:
+                    ses = int(ses_raw) if ses_raw is not None else None
+                except ValueError:
+                    ses = None
+        if ses is not None:
+            if ses in session_set:
+                return True
+            if ses == 4294967295 and -1 in session_set:
+                return True
+            if ses == -1 and 4294967295 in session_set:
                 return True
         return False
 
@@ -6258,6 +6327,12 @@ class AudispStraceApp:
 
         if should_display and self.has_auid_filter:
             if not self._matches_auid_filter(event):
+                should_display = False
+
+        if should_display:
+            if self.has_exclude_session and self._matches_session_filter(event, self.exclude_sessions):
+                should_display = False
+            elif self.has_session_filter and not self._matches_session_filter(event, self.session_filter):
                 should_display = False
 
         if should_display:
@@ -6727,6 +6802,20 @@ def main():
         help="Filter by audit login UID or username (comma-separated or specified multiple times)"
     )
 
+    # Session ID filtering
+    parser.add_argument(
+        "--session-id", "--session", "--sid",
+        dest="session_ids",
+        action="append",
+        help="Filter by login session ID (comma-separated or specified multiple times, supports 'unset' or -1)"
+    )
+    parser.add_argument(
+        "--exclude-session-id", "--exclude-session", "--exclude-sid",
+        dest="exclude_session_ids",
+        action="append",
+        help="Exclude specified session ID(s) (comma-separated or specified multiple times)"
+    )
+
     # Colorization
     parser.add_argument(
         "--color", "--colour",
@@ -6825,6 +6914,8 @@ def main():
     user_uids, user_names = parse_user_list(args.users)
     exclude_uids, exclude_names = parse_user_list(args.exclude_users)
     auid_uids, auid_names = parse_user_list(args.auids)
+    session_ids = parse_session_list(args.session_ids)
+    exclude_session_ids = parse_session_list(args.exclude_session_ids)
 
     global _ACTIVE_OUT_FILE, _ACTIVE_APP
     out_file = sys.stdout
@@ -6857,6 +6948,8 @@ def main():
         exclude_names=exclude_names,
         auid_uids=auid_uids,
         auid_names=auid_names,
+        session_ids=session_ids,
+        exclude_session_ids=exclude_session_ids,
         color=args.color,
         out_file=out_file,
         summary=summary,

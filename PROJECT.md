@@ -68,6 +68,8 @@ Sample 3-line format per monitored event:
    - `-u`, `--user`, `--uid`: Comma-separated or repeatable username or numeric UID filter (e.g. `-u root`, `-u 1000`, `-u root,pcp`).
    - `--exclude-user`, `--exclude-uid`: Comma-separated or repeatable username or numeric UID exclusion filter (e.g. `--exclude-user root` or `--exclude-uid 0`).
    - `--auid`: Comma-separated or repeatable audit login UID or username filter.
+   - `--session-id`, `--session`, `--sid`: Comma-separated or repeatable login session ID filter (supports numeric IDs or `'unset'` / `-1`).
+   - `--exclude-session-id`, `--exclude-session`, `--exclude-sid`: Comma-separated or repeatable login session ID exclusion filter.
    - `-Z`, `--failed-only`: Display only syscalls that returned an error code (like `strace -Z`).
    - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
    - `-C`, `-1`, `--compact [{summary,strace}]`: Compact 1-line output per event (`summary` [default] with `[uid]` `[ppid]`, or `strace` for pure syscall line).
@@ -327,6 +329,9 @@ Sample 3-line format per monitored event:
   - `--show-serial` (`--serial`): Appends the audit event serial number to the timestamp (`14:19:27.079:1260437`) matching ausearch format to enable immediate correlation with `ausearch -a <serial>`.
   - Automatically included in JSON Lines (`--json`) output as `"key": ...` and `"serial": ...`.
   - Full ANSI colorization with dim brackets and green quoted key string.
+- [x] Implemented login session ID filtering (`--session-id` / `--session` / `--sid`, `--exclude-session-id` / `--exclude-session` / `--exclude-sid`):
+  - Allows isolating syscalls from specific user console/SSH sessions (e.g. `--sid 64832`) or background system daemons (`--sid unset` or `-1`).
+  - Seamlessly tracks session IDs across `clone`/`fork` and `execve` via `ProcessTracker`.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

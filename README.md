@@ -46,6 +46,7 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Filter by PID (`-p`, `--exclude-pid`) with child process tracking (`-f` / `--follow-fork`).
   - Filter by User or UID (`-u`, `--exclude-user`) matching real and effective identities.
   - Filter by Audit Login UID (`--auid`).
+  - Filter by Login Session ID (`--session-id` / `--sid`, `--exclude-session-id` / `--exclude-sid`) to isolate specific user sessions or exclude unset background daemon sessions.
   - Filter by Exit Status: failed only (`-Z`) or successful only (`-z`).
 - **Syscall Statistics & Summary (`-c` / `--summary-only`, `--summary`, `-S`)**:
   - Aggregates call counts, error counts, and error percentages per syscall.
@@ -96,6 +97,7 @@ usage: audisp-strace [-h] [-l] [--offline] [-t {time,datetime,epoch}]
                      [-s SYSCALLS] [-x EXCLUDE] [-a] [-Z | -z]
                      [-C [{summary,strace}]] [-p PIDS] [--exclude-pid EXCLUDE_PIDS]
                      [-f] [-u USERS] [--exclude-user EXCLUDE_USERS] [--auid AUIDS]
+                     [--session-id SESSION_IDS] [--exclude-session-id EXCLUDE_SESSION_IDS]
                      [--color [{auto,always,never}]] [-o OUTPUT] [-A]
                      [-c] [--summary] [-S {calls,errors,error%,name}] [--json]
                      [-L STRING_LIMIT] [-k] [--show-serial]
@@ -203,6 +205,8 @@ audisp-strace --offline audit.log -c -S error%
 | `-u`, `--user`, `--uid` | Filter by username or numeric UID | `-u apache,1001` |
 | `--exclude-user` | Exclude specific username or numeric UID | `--exclude-user root` |
 | `--auid` | Filter by audit login identity | `--auid 1000` |
+| `--session-id`, `--sid` | Filter by login session ID (supports `unset` or `-1`) | `--sid 64832`, `--sid unset` |
+| `--exclude-session-id`, `--exclude-sid` | Exclude specified session ID(s) | `--exclude-sid unset` |
 | `-C`, `--compact` | Compact 1-line mode (`summary` or `strace`) | `-C summary` |
 | `--json`, `--jsonl` | Output events as JSON Lines (NDJSON) | `--json` |
 | `--color` | ANSI color output (`auto`, `always`, `never`) | `--color=always` |
