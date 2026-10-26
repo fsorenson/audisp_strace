@@ -72,6 +72,8 @@ Sample 3-line format per monitored event:
    - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
    - `-C`, `-1`, `--compact [{summary,strace}]`: Compact 1-line output per event (`summary` [default] with `[uid]` `[ppid]`, or `strace` for pure syscall line).
    - `--color`, `--colour [auto|always|never]`: Colorize terminal output with ANSI colors (`auto` [default, enabled when stdout is a TTY and `NO_COLOR` is not set], `always`, or `never`).
+   - `-o`, `--output FILE`: Write trace output to `FILE` instead of stdout.
+   - `-A`, `--append`, `--output-append-mode`: Open file specified by `-o`/`--output` in append mode instead of overwriting.
    - `-t`, `--timestamp-format`: Select `time` (default: `HH:MM:SS.mmm`), `datetime` (`YYYY-MM-DD HH:MM:SS.mmm [tz]`), or `epoch`.
 4. **Architecture**:
    - Single executable script [`audisp-strace`](file:///home/sorenson/projects/audisp_strace/audisp-strace) with modular classes:
@@ -293,6 +295,10 @@ Sample 3-line format per monitored event:
   - Syscall traces styled with bold cyan PIDs, blue command names, dim gray timestamps, bold syscall names, green string literals, bold yellow resolved paths (`<...>`), bold red error returns, green success return values, and dimmed `?` return values.
   - Formatted process credentials (Line 2) and compact tags with dim labels and cyan usernames.
   - Formatted process ancestry (Line 3) with bold cyan PIDs, blue command names, and dim arrows (`->`).
+- [x] Implemented file output flag (`-o` / `--output FILE`) and append mode (`-A` / `--append` / `--output-append-mode`):
+  - Directs trace output to a specified file instead of stdout.
+  - Automatically suppresses ANSI color escapes unless `--color=always` is explicitly requested.
+  - Ensures atomic flushing on `SIGINT` (Ctrl-C) and `SIGTERM` interrupt signals.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.
