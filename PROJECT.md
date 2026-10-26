@@ -62,6 +62,12 @@ Sample 3-line format per monitored event:
      - `%clock`: Clock and system time syscalls
      - Syscalls in any class not yet implemented in `audisp-strace` are maintained commented out in `SYSCALL_CLASSES` sets for easy activation as handlers are added.
    - `-a`, `--all`: Display all captured syscalls.
+   - `-p`, `--pid`: Comma-separated or repeatable process ID filter (e.g. `-p 1234` or `-p 1234,5678`).
+   - `--exclude-pid`: Comma-separated or repeatable process ID exclusion list.
+   - `-f`, `--follow-fork`: When filtering by PID, automatically trace child processes created by `clone`, `clone3`, `fork`, `vfork`.
+   - `-u`, `--user`, `--uid`: Comma-separated or repeatable username or numeric UID filter (e.g. `-u root`, `-u 1000`, `-u root,pcp`).
+   - `--exclude-user`, `--exclude-uid`: Comma-separated or repeatable username or numeric UID exclusion filter (e.g. `--exclude-user root` or `--exclude-uid 0`).
+   - `--auid`: Comma-separated or repeatable audit login UID or username filter.
    - `-Z`, `--failed-only`: Display only syscalls that returned an error code (like `strace -Z`).
    - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
    - `-C`, `-1`, `--compact [{summary,strace}]`: Compact 1-line output per event (`summary` [default] with `[uid]` `[ppid]`, or `strace` for pure syscall line).
@@ -262,6 +268,13 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log-v15.out` & `examples/audit-log-v15-trace.out` (verified complete run across 286 distinct syscalls and 53,204 events; validated 100% event count parity [212,816 lines] between live and offline replay across Group 6, Group 7, and `syscallent-common.h` classed syscalls including `close_range`, `futex2`, `statmount`, `listmount`, `io_uring_*`, `memfd_secret`, `landlock_*`, `process_madvise`, `process_mrelease`, and `set_mempolicy_home_node`)
 - [x] Implemented strace-compatible exit status filtering (`-Z` / `--failed-only` and `-z` / `--successful-only`). Verified exact mathematical partition (`50,431` successful + `2,773` failed = `53,204` total events) against `examples/audit-log-v15.out`.
 - [x] Implemented compact 1-line output mode (`-C` / `-1` / `--compact` with `summary` [default] and `strace` variants). Enables dense, single-line terminal streaming and easy piping into `grep`/`awk`/`wc`.
+- [x] Implemented PID and User/UID filtering:
+  - `-p` / `--pid` accepting comma-separated lists and repeatable arguments.
+  - `--exclude-pid` to omit specific process IDs.
+  - `-f` / `--follow-fork` to automatically follow and trace child processes spawned by traced PIDs via `clone`, `clone3`, `fork`, `vfork`.
+  - `-u` / `--user` / `--uid` accepting usernames or numeric UIDs (comma-separated or repeatable) matching both real and effective identities.
+  - `--exclude-user` / `--exclude-uid` to filter out background noise (e.g. `--exclude-user root` or `--exclude-uid 0`).
+  - `--auid` to filter by audit login UID or login username.
 - [x] Implemented binary hex `sockaddr` decoding for network syscalls (`connect`, `bind`, `accept`, `accept4`, `getsockname`, `getpeername`, `sendto`, `recvfrom`, `sendmsg`, `recvmsg`):
   - Decodes raw `SOCKADDR` audit records (`saddr=<hex>`) directly matching `strace` output:
     - `AF_UNIX`: Filesystem paths (`sun_path="/path"`), abstract namespace sockets (`sun_path=@"name"`), and unnamed/anonymous sockets (`{sa_family=AF_UNIX}`).
