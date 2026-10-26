@@ -71,6 +71,7 @@ Sample 3-line format per monitored event:
    - `-Z`, `--failed-only`: Display only syscalls that returned an error code (like `strace -Z`).
    - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
    - `-C`, `-1`, `--compact [{summary,strace}]`: Compact 1-line output per event (`summary` [default] with `[uid]` `[ppid]`, or `strace` for pure syscall line).
+   - `--color`, `--colour [auto|always|never]`: Colorize terminal output with ANSI colors (`auto` [default, enabled when stdout is a TTY and `NO_COLOR` is not set], `always`, or `never`).
    - `-t`, `--timestamp-format`: Select `time` (default: `HH:MM:SS.mmm`), `datetime` (`YYYY-MM-DD HH:MM:SS.mmm [tz]`), or `epoch`.
 4. **Architecture**:
    - Single executable script [`audisp-strace`](file:///home/sorenson/projects/audisp_strace/audisp-strace) with modular classes:
@@ -286,6 +287,12 @@ Sample 3-line format per monitored event:
     - Corrected Linux socket family numeric constants in `SOCKET_DOMAINS` (`AF_BLUETOOTH`=31, `AF_VSOCK`=40, `AF_ALG`=38, `AF_XDP`=44, etc.).
     - Updated `handle_sendmsg_recvmsg` to display `{msg_name=<sockaddr>, ...}` when a `SOCKADDR` record accompanies `sendmsg`/`recvmsg`.
     - Handled `sendto` and `recvfrom` with `NULL` addresses and accurate sockaddr lengths.
+- [x] Implemented ANSI terminal colorization (`--color` / `--colour [auto|always|never]`):
+  - Auto-detection via `sys.stdout.isatty()` and support for `NO_COLOR` environment variable (auto disabled if `NO_COLOR` is set or if output is piped/redirected).
+  - Explicit `--color=always` / `--colour=always` overrides `NO_COLOR` and forces colorization even when piped to pagers (`less -R`).
+  - Syscall traces styled with bold cyan PIDs, blue command names, dim gray timestamps, bold syscall names, green string literals, bold yellow resolved paths (`<...>`), bold red error returns, green success return values, and dimmed `?` return values.
+  - Formatted process credentials (Line 2) and compact tags with dim labels and cyan usernames.
+  - Formatted process ancestry (Line 3) with bold cyan PIDs, blue command names, and dim arrows (`->`).
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

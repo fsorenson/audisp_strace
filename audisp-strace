@@ -11,6 +11,7 @@ import datetime
 import grp
 import os
 import pwd
+import re
 import signal
 import socket
 import string
@@ -1084,11 +1085,106 @@ class AuditEvent:
         return str(exit_val)
 
 
+class ColorTheme:
+    """Manages ANSI terminal colors for audisp-strace output."""
+
+    def __init__(self, enabled=False):
+        self.enabled = bool(enabled)
+        self._token_re = re.compile(r'("(?:\\[\s\S]|[^"\\])*")|<([^>]+)>')
+
+    def _c(self, code, s):
+        if not self.enabled or not s:
+            return str(s)
+        return f"\033[{code}m{s}\033[0m"
+
+    def bold(self, s):
+        return self._c("1", s)
+
+    def dim(self, s):
+        return self._c("90", s)
+
+    def pid(self, s):
+        return self._c("1;36", s)
+
+    def comm(self, s):
+        return self._c("34", s)
+
+    def timestamp(self, s):
+        return self._c("90", s)
+
+    def syscall(self, s):
+        return self._c("1", s)
+
+    def string(self, s):
+        return self._c("32", s)
+
+    def path(self, s):
+        return self._c("1;33", s)
+
+    def result_success(self, s):
+        return self._c("32", s)
+
+    def result_failed(self, s):
+        return self._c("1;31", s)
+
+    def username(self, s):
+        return self._c("36", s)
+
+    def colorize_args(self, args_str):
+        if not self.enabled or not args_str:
+            return args_str
+
+        def replace_token(match):
+            s_quoted = match.group(1)
+            path_val = match.group(2)
+            if s_quoted is not None:
+                return self.string(s_quoted)
+            elif path_val is not None:
+                return f"<{self.path(path_val)}>"
+            return match.group(0)
+
+        return self._token_re.sub(replace_token, args_str)
+
+    def colorize_call(self, call_str, is_failed=False):
+        if not self.enabled or not call_str:
+            return call_str
+
+        prefix, eq, exit_part = call_str.rpartition(" = ")
+        if not eq:
+            return self.syscall(call_str)
+
+        sc_name, paren, args = prefix.partition("(")
+        if paren:
+            sc_colored = self.syscall(sc_name)
+            if args.endswith(")"):
+                args_inner = args[:-1]
+                args_colored = self.colorize_args(args_inner) + ")"
+            else:
+                args_colored = self.colorize_args(args)
+            prefix_colored = f"{sc_colored}({args_colored}"
+        else:
+            prefix_colored = self.syscall(prefix)
+
+        if is_failed or exit_part.startswith("-1"):
+            exit_colored = self.result_failed(exit_part)
+        elif exit_part == "?":
+            exit_colored = self.dim(exit_part)
+        else:
+            if "<" in exit_part and exit_part.endswith(">"):
+                fd, _, p = exit_part.partition("<")
+                exit_colored = f"{self.result_success(fd)}<{self.path(p[:-1])}>"
+            else:
+                exit_colored = self.result_success(exit_part)
+
+        return f"{prefix_colored} = {exit_colored}"
+
+
 class TraceFormatter:
     """Formats 3-line strace-like output."""
 
-    def __init__(self, time_format="time"):
+    def __init__(self, time_format="time", theme=None):
         self.time_format = time_format
+        self.theme = theme if theme is not None else ColorTheme(False)
         self._uid_cache = {}
         self._gid_cache = {}
 
@@ -1170,7 +1266,10 @@ class TraceFormatter:
             else:
                 name = hint_name or self.resolve_user(val_id)
             name = clean_name(name)
-            formatted_creds.append(f"{key}={val_id} ({name})")
+            if self.theme.enabled:
+                formatted_creds.append(f"{self.theme.dim(key + '=')}{val_id} ({self.theme.username(name)})")
+            else:
+                formatted_creds.append(f"{key}={val_id} ({name})")
 
         return "    " + ", ".join(formatted_creds)
 
@@ -1191,29 +1290,59 @@ class TraceFormatter:
         raw_auid_name = clean_name(fields.get("AUID") or interp.get("auid"))
         auid_name = raw_auid_name or (self.resolve_user(auid_str) if auid_str else None)
 
-        creds_parts = [f"uid={uid_name}"]
+        if not self.theme.enabled:
+            creds_parts = [f"uid={uid_name}"]
+            if euid_name and euid_str != uid_str:
+                creds_parts.append(f"euid={euid_name}")
+            if auid_name and auid_name not in ("unset", "4294967295", "-1", "") and auid_str != uid_str:
+                creds_parts.append(f"auid={auid_name}")
+
+            ppid = event.ppid
+            pname = tracker._resolve_name(ppid) if ppid else None
+            ppid_str = f"ppid:{ppid} ({pname})" if pname else (f"ppid:{ppid}" if ppid else "")
+
+            tags = []
+            if creds_parts:
+                tags.append(f"[{' '.join(creds_parts)}]")
+            if ppid_str:
+                tags.append(f"[{ppid_str}]")
+
+            return " ".join(tags)
+
+        creds_parts = [f"{self.theme.dim('uid=')}{self.theme.username(uid_name)}"]
         if euid_name and euid_str != uid_str:
-            creds_parts.append(f"euid={euid_name}")
+            creds_parts.append(f"{self.theme.dim('euid=')}{self.theme.username(euid_name)}")
         if auid_name and auid_name not in ("unset", "4294967295", "-1", "") and auid_str != uid_str:
-            creds_parts.append(f"auid={auid_name}")
+            creds_parts.append(f"{self.theme.dim('auid=')}{self.theme.username(auid_name)}")
 
         ppid = event.ppid
         pname = tracker._resolve_name(ppid) if ppid else None
-        ppid_str = f"ppid:{ppid} ({pname})" if pname else (f"ppid:{ppid}" if ppid else "")
+        if pname:
+            ppid_str = f"{self.theme.dim('ppid:')}{self.theme.pid(ppid)} ({self.theme.comm(pname)})"
+        elif ppid:
+            ppid_str = f"{self.theme.dim('ppid:')}{self.theme.pid(ppid)}"
+        else:
+            ppid_str = ""
 
         tags = []
+        b_open = self.theme.dim("[")
+        b_close = self.theme.dim("]")
         if creds_parts:
-            tags.append(f"[{' '.join(creds_parts)}]")
+            tags.append(f"{b_open}{' '.join(creds_parts)}{b_close}")
         if ppid_str:
-            tags.append(f"[{ppid_str}]")
+            tags.append(f"{b_open}{ppid_str}{b_close}")
 
         return " ".join(tags)
 
     def format_ancestry(self, ancestry):
         if not ancestry:
             return "    ???"
-        parts = [f"{pid} ({name})" for pid, name in ancestry]
-        return "    " + "->".join(parts)
+        if not self.theme.enabled:
+            parts = [f"{pid} ({name})" for pid, name in ancestry]
+            return "    " + "->".join(parts)
+        arrow = self.theme.dim("->")
+        parts = [f"{self.theme.pid(pid)} ({self.theme.comm(name)})" for pid, name in ancestry]
+        return "    " + arrow.join(parts)
 
 
 MADVISE_OPS = {
@@ -5781,7 +5910,15 @@ class SyscallHandler:
         # Line 1 header: <pid><comm> <timestamp> <call_str>
         comm = caller_comm or event.comm or self.tracker._resolve_name(event.pid)
         ts_str = self.formatter.format_timestamp(event.sec, event.milli)
-        line1 = f"{event.pid}<{comm}> {ts_str} {call_str}"
+        theme = self.formatter.theme
+        if theme.enabled:
+            pid_colored = theme.pid(event.pid)
+            comm_colored = theme.comm(comm)
+            ts_colored = theme.timestamp(ts_str)
+            call_colored = theme.colorize_call(call_str, is_failed=event.is_failed)
+            line1 = f"{pid_colored}<{comm_colored}> {ts_colored} {call_colored}"
+        else:
+            line1 = f"{event.pid}<{comm}> {ts_str} {call_str}"
 
         if compact:
             if compact == "strace":
@@ -5814,7 +5951,8 @@ class AudispStraceApp:
                  pids=None, exclude_pids=None, follow_fork=False,
                  user_uids=None, user_names=None,
                  exclude_uids=None, exclude_names=None,
-                 auid_uids=None, auid_names=None):
+                 auid_uids=None, auid_names=None,
+                 color="auto"):
         self.is_live = is_live
         self.all_syscalls = all_syscalls
         self.syscall_filter = set(syscalls) if syscalls is not None else None
@@ -5822,6 +5960,17 @@ class AudispStraceApp:
         self.failed_only = failed_only
         self.successful_only = successful_only
         self.compact = compact
+
+        if isinstance(color, bool):
+            self.color_enabled = color
+        elif color == "always":
+            self.color_enabled = True
+        elif color == "never":
+            self.color_enabled = False
+        else:
+            self.color_enabled = bool(sys.stdout.isatty() and not os.environ.get("NO_COLOR"))
+
+        self.theme = ColorTheme(self.color_enabled)
 
         self.pid_filter = set(pids) if pids else None
         self.exclude_pids = set(exclude_pids) if exclude_pids else set()
@@ -5841,7 +5990,7 @@ class AudispStraceApp:
 
         self.resolver = ProcResolver(is_live=is_live)
         self.tracker = ProcessTracker(self.resolver)
-        self.formatter = TraceFormatter(time_format=time_format)
+        self.formatter = TraceFormatter(time_format=time_format, theme=self.theme)
         self.handler = SyscallHandler(self.tracker, self.resolver, self.formatter)
 
         self.au = auparse.AuParser(auparse.AUSOURCE_FEED)
@@ -6151,7 +6300,7 @@ class AudispStraceApp:
                 # Python pipe closed (e.g. piped to head)
                 devnull = os.open(os.devnull, os.O_WRONLY)
                 os.dup2(devnull, sys.stdout.fileno())
-                sys.exit(0)
+                os._exit(0)
 
     def process_stream(self, stream):
         """Feeds audit lines into auparse, handling wrapped/partial lines safely."""
@@ -6220,9 +6369,10 @@ def setup_signals():
     def signal_handler(sig, frame):
         try:
             sys.stdout.flush()
+            sys.stderr.flush()
         except Exception:
             pass
-        sys.exit(0)
+        os._exit(0)
 
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGHUP, signal_handler)
@@ -6340,6 +6490,17 @@ def main():
         help="Filter by audit login UID or username (comma-separated or specified multiple times)"
     )
 
+    # Colorization
+    parser.add_argument(
+        "--color", "--colour",
+        dest="color",
+        nargs="?",
+        const="always",
+        default="auto",
+        choices=["auto", "always", "never"],
+        help="Colorize output: 'auto' (default, if stdout is a TTY and NO_COLOR is not set), 'always', or 'never'"
+    )
+
     args = parser.parse_args()
 
     # Determine live mode
@@ -6375,21 +6536,35 @@ def main():
         exclude_uids=exclude_uids,
         exclude_names=exclude_names,
         auid_uids=auid_uids,
-        auid_names=auid_names
+        auid_names=auid_names,
+        color=args.color
     )
 
-    if args.files:
-        for file_path in args.files:
-            if file_path == "-":
-                app.process_stream(sys.stdin)
-            else:
-                try:
-                    with open(file_path, "r", errors="replace") as f:
-                        app.process_stream(f)
-                except OSError as e:
-                    sys.stderr.write(f"audisp-strace: cannot read {file_path}: {e}\n")
-    else:
-        app.process_stream(sys.stdin)
+    try:
+        if args.files:
+            for file_path in args.files:
+                if file_path == "-":
+                    app.process_stream(sys.stdin)
+                else:
+                    try:
+                        with open(file_path, "r", errors="replace") as f:
+                            app.process_stream(f)
+                    except OSError as e:
+                        sys.stderr.write(f"audisp-strace: cannot read {file_path}: {e}\n")
+        else:
+            app.process_stream(sys.stdin)
+    except (KeyboardInterrupt, SystemExit):
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+        os._exit(0)
+    except SystemError:
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+        os._exit(0)
 
 
 if __name__ == "__main__":
