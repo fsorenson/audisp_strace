@@ -262,6 +262,17 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log-v15.out` & `examples/audit-log-v15-trace.out` (verified complete run across 286 distinct syscalls and 53,204 events; validated 100% event count parity [212,816 lines] between live and offline replay across Group 6, Group 7, and `syscallent-common.h` classed syscalls including `close_range`, `futex2`, `statmount`, `listmount`, `io_uring_*`, `memfd_secret`, `landlock_*`, `process_madvise`, `process_mrelease`, and `set_mempolicy_home_node`)
 - [x] Implemented strace-compatible exit status filtering (`-Z` / `--failed-only` and `-z` / `--successful-only`). Verified exact mathematical partition (`50,431` successful + `2,773` failed = `53,204` total events) against `examples/audit-log-v15.out`.
 - [x] Implemented compact 1-line output mode (`-C` / `-1` / `--compact` with `summary` [default] and `strace` variants). Enables dense, single-line terminal streaming and easy piping into `grep`/`awk`/`wc`.
+- [x] Implemented binary hex `sockaddr` decoding for network syscalls (`connect`, `bind`, `accept`, `accept4`, `getsockname`, `getpeername`, `sendto`, `recvfrom`, `sendmsg`, `recvmsg`):
+  - Decodes raw `SOCKADDR` audit records (`saddr=<hex>`) directly matching `strace` output:
+    - `AF_UNIX`: Filesystem paths (`sun_path="/path"`), abstract namespace sockets (`sun_path=@"name"`), and unnamed/anonymous sockets (`{sa_family=AF_UNIX}`).
+    - `AF_INET`: Port and IPv4 address (`{sa_family=AF_INET, sin_port=htons(port), sin_addr=inet_addr("IP")}`).
+    - `AF_INET6`: Port, flowinfo, IPv6 address, and scope ID (`{sa_family=AF_INET6, sin6_port=htons(port), sin6_flowinfo=htonl(flowinfo), inet_pton(AF_INET6, "IPv6", &sin6_addr), sin6_scope_id=scope_id}`).
+    - `AF_NETLINK`: Port ID and multicast groups (`{sa_family=AF_NETLINK, nl_pid=..., nl_groups=...}`).
+    - `AF_PACKET`: Protocol, interface index, hardware type, packet type, and hardware address (`{sa_family=AF_PACKET, sll_protocol=htons(...), sll_ifindex=..., sll_hatype=..., sll_pkttype=..., sll_halen=...}`).
+    - `AF_VSOCK`: CID, port, and flags (`{sa_family=AF_VSOCK, svm_cid=..., svm_port=...}`).
+    - Corrected Linux socket family numeric constants in `SOCKET_DOMAINS` (`AF_BLUETOOTH`=31, `AF_VSOCK`=40, `AF_ALG`=38, `AF_XDP`=44, etc.).
+    - Updated `handle_sendmsg_recvmsg` to display `{msg_name=<sockaddr>, ...}` when a `SOCKADDR` record accompanies `sendmsg`/`recvmsg`.
+    - Handled `sendto` and `recvfrom` with `NULL` addresses and accurate sockaddr lengths.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

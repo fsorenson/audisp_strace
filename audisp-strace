@@ -12,7 +12,9 @@ import grp
 import os
 import pwd
 import signal
+import socket
 import string
+import struct
 import sys
 from pathlib import Path
 
@@ -1130,8 +1132,53 @@ SOCKET_DOMAINS = {
     0: "AF_UNSPEC", 1: "AF_UNIX", 2: "AF_INET", 3: "AF_AX25", 4: "AF_IPX",
     5: "AF_APPLETALK", 6: "AF_NETROM", 7: "AF_BRIDGE", 8: "AF_ATMPVC",
     9: "AF_X25", 10: "AF_INET6", 11: "AF_ROSE", 12: "AF_DECnet",
-    16: "AF_NETLINK", 17: "AF_PACKET", 27: "AF_BLUETOOTH", 29: "AF_CAN",
-    38: "AF_VSOCK", 41: "AF_XDP"
+    13: "AF_NETBEUI", 14: "AF_SECURITY", 15: "AF_KEY", 16: "AF_NETLINK",
+    17: "AF_PACKET", 18: "AF_ASH", 19: "AF_ECONET", 20: "AF_ATMSVC",
+    21: "AF_RDS", 22: "AF_SNA", 23: "AF_IRDA", 24: "AF_PPPOX",
+    25: "AF_WANPIPE", 26: "AF_LLC", 27: "AF_IB", 28: "AF_MPLS",
+    29: "AF_CAN", 30: "AF_TIPC", 31: "AF_BLUETOOTH", 32: "AF_IUCV",
+    33: "AF_RXRPC", 34: "AF_ISDN", 35: "AF_PHONET", 36: "AF_IEEE802154",
+    37: "AF_CAIF", 38: "AF_ALG", 39: "AF_NFC", 40: "AF_VSOCK",
+    41: "AF_KCM", 42: "AF_QIPCRTR", 43: "AF_SMC", 44: "AF_XDP",
+    45: "AF_MCTP"
+}
+
+ETH_PROTOCOLS = {
+    0x0003: "ETH_P_ALL",
+    0x0800: "ETH_P_IP",
+    0x0806: "ETH_P_ARP",
+    0x86DD: "ETH_P_IPV6",
+    0x88F7: "ETH_P_1588",
+    0x8100: "ETH_P_8021Q",
+}
+
+ARPHRD_TYPES = {
+    0: "ARPHRD_NETROM",
+    1: "ARPHRD_ETHER",
+    772: "ARPHRD_LOOPBACK",
+    65534: "ARPHRD_NONE",
+}
+
+PACKET_TYPES = {
+    0: "PACKET_HOST",
+    1: "PACKET_BROADCAST",
+    2: "PACKET_MULTICAST",
+    3: "PACKET_OTHERHOST",
+    4: "PACKET_OUTGOING",
+    5: "PACKET_LOOPBACK",
+    6: "PACKET_USER",
+    7: "PACKET_KERNEL",
+}
+
+VSOCK_CIDS = {
+    0: "VMADDR_CID_HYPERVISOR",
+    1: "VMADDR_CID_LOCAL",
+    2: "VMADDR_CID_HOST",
+    0xffffffff: "VMADDR_CID_ANY",
+}
+
+VSOCK_PORTS = {
+    0xffffffff: "VMADDR_PORT_ANY",
 }
 
 SOCKET_TYPES = {
@@ -2416,32 +2463,211 @@ class SyscallHandler:
             return "IPPROTO_IP" if dom_val in (2, 10) else "0"
         return SOCKET_PROTO.get(p, str(p))
 
-    def _format_sockaddr(self, event, arg_idx="a1", len_idx="a2"):
-        if event.sockaddr_interp and "saddr" in event.sockaddr_interp:
-            s = event.sockaddr_interp["saddr"].strip()
-            if s.startswith("{") and s.endswith("}"):
-                inner = s[1:-1].strip()
-                kv = dict(part.split("=", 1) for part in inner.split() if "=" in part)
-                fam = kv.get("saddr_fam", "")
-                if fam == "inet":
-                    port = kv.get("lport", "0")
-                    addr = kv.get("laddr", "0.0.0.0")
-                    return f"{{sa_family=AF_INET, sin_port=htons({port}), sin_addr=inet_addr(\"{addr}\")}}"
-                elif fam == "inet6":
-                    port = kv.get("lport", "0")
-                    addr = kv.get("laddr", "::")
-                    return f"{{sa_family=AF_INET6, sin6_port=htons({port}), sin6_addr=inet_pton(\"{addr}\")}}"
-                elif fam == "local":
-                    path = kv.get("path", "")
-                    return f"{{sa_family=AF_UNIX, sun_path=\"{path}\"}}"
-                elif fam == "netlink":
-                    pid = kv.get("nlnk-pid", "0")
-                    return f"{{sa_family=AF_NETLINK, pid={pid}}}"
-                else:
-                    return s
-            return s
-        addr_ptr = self._parse_id(event.syscall.get(arg_idx, "0"))
-        return "{...}" if addr_ptr else "NULL"
+    def _format_bytes_str(self, b: bytes) -> str:
+        res = []
+        for byte in b:
+            if byte == 0x5c:
+                res.append("\\\\")
+            elif byte == 0x22:
+                res.append('\\"')
+            elif byte == 0x0a:
+                res.append("\\n")
+            elif byte == 0x0d:
+                res.append("\\r")
+            elif byte == 0x09:
+                res.append("\\t")
+            elif byte == 0x0b:
+                res.append("\\v")
+            elif byte == 0x0c:
+                res.append("\\f")
+            elif 32 <= byte <= 126:
+                res.append(chr(byte))
+            else:
+                res.append(f"\\{byte:03o}")
+        return "".join(res)
+
+    def _decode_sockaddr_interp(self, interp_str):
+        s = interp_str.strip()
+        if s.startswith("{") and s.endswith("}"):
+            inner = s[1:-1].strip()
+            if "unnamed socket" in inner:
+                return "{sa_family=AF_UNIX}"
+            kv = dict(part.split("=", 1) for part in inner.split() if "=" in part)
+            fam = kv.get("saddr_fam", "")
+            if fam == "inet":
+                port = kv.get("lport", "0")
+                addr = kv.get("laddr", "0.0.0.0")
+                return f'{{sa_family=AF_INET, sin_port=htons({port}), sin_addr=inet_addr("{addr}")}}'
+            elif fam == "inet6":
+                port = kv.get("lport", "0")
+                addr = kv.get("laddr", "::")
+                return f'{{sa_family=AF_INET6, sin6_port=htons({port}), inet_pton(AF_INET6, "{addr}", &sin6_addr)}}'
+            elif fam == "local":
+                path = kv.get("path", "")
+                if not path:
+                    return "{sa_family=AF_UNIX}"
+                if path.startswith("@"):
+                    return f'{{sa_family=AF_UNIX, sun_path=@"{path[1:]}"}}'
+                return f'{{sa_family=AF_UNIX, sun_path="{path}"}}'
+            elif fam == "netlink":
+                pid = kv.get("nlnk-pid", "0")
+                return f"{{sa_family=AF_NETLINK, nl_pid={pid}, nl_groups=00000000}}"
+            else:
+                return s
+        return s
+
+    def _decode_sockaddr(self, raw_hex, interp_str=None):
+        if not raw_hex:
+            if interp_str:
+                return self._decode_sockaddr_interp(interp_str)
+            return "{...}"
+
+        try:
+            raw_bytes = bytes.fromhex(raw_hex)
+        except ValueError:
+            if interp_str:
+                return self._decode_sockaddr_interp(interp_str)
+            return raw_hex
+
+        addrlen = len(raw_bytes)
+        if addrlen < 2:
+            return "{...}"
+
+        family = struct.unpack("=H", raw_bytes[:2])[0]
+        fam_name = SOCKET_DOMAINS.get(family, f"AF_{family}")
+
+        if addrlen <= 2:
+            return f"{{sa_family={fam_name}}}"
+
+        if family == 1:  # AF_UNIX
+            path_bytes = raw_bytes[2:]
+            if len(path_bytes) == 0:
+                return "{sa_family=AF_UNIX}"
+            if path_bytes[0] == 0:
+                # Abstract socket
+                name_bytes = path_bytes[1:]
+                s = self._format_bytes_str(name_bytes)
+                return f'{{sa_family=AF_UNIX, sun_path=@"{s}"}}'
+            else:
+                # Filesystem socket (null-terminated)
+                null_pos = path_bytes.find(b"\x00")
+                fs_bytes = path_bytes[:null_pos] if null_pos != -1 else path_bytes
+                s = self._format_bytes_str(fs_bytes)
+                return f'{{sa_family=AF_UNIX, sun_path="{s}"}}'
+
+        elif family == 2:  # AF_INET
+            if addrlen >= 8:
+                port = struct.unpack(">H", raw_bytes[2:4])[0]
+                try:
+                    ip_str = socket.inet_ntop(socket.AF_INET, raw_bytes[4:8])
+                except Exception:
+                    ip_str = socket.inet_ntoa(raw_bytes[4:8])
+                return f'{{sa_family=AF_INET, sin_port=htons({port}), sin_addr=inet_addr("{ip_str}")}}'
+            return f"{{sa_family=AF_INET, ...}}"
+
+        elif family == 10:  # AF_INET6
+            if addrlen >= 24:
+                port = struct.unpack(">H", raw_bytes[2:4])[0]
+                flowinfo = struct.unpack(">I", raw_bytes[4:8])[0]
+                ip_str = socket.inet_ntop(socket.AF_INET6, raw_bytes[8:24])
+                fields = [
+                    f"sin6_port=htons({port})",
+                    f"sin6_flowinfo=htonl({flowinfo})",
+                    f'inet_pton(AF_INET6, "{ip_str}", &sin6_addr)'
+                ]
+                if addrlen >= 28:
+                    scope_id = struct.unpack("=I", raw_bytes[24:28])[0]
+                    fields.append(f"sin6_scope_id={scope_id}")
+                joined = ", ".join(fields)
+                return f"{{sa_family=AF_INET6, {joined}}}"
+            return f"{{sa_family=AF_INET6, ...}}"
+
+        elif family == 16:  # AF_NETLINK
+            if addrlen >= 12:
+                pad, pid, groups = struct.unpack("=HII", raw_bytes[2:12])
+                fields = []
+                if pad:
+                    fields.append(f"nl_pad={hex(pad)}")
+                fields.append(f"nl_pid={pid}")
+                grp_str = f"{groups:#08x}" if groups != 0 else "00000000"
+                fields.append(f"nl_groups={grp_str}")
+                joined = ", ".join(fields)
+                return f"{{sa_family=AF_NETLINK, {joined}}}"
+            return f"{{sa_family=AF_NETLINK, ...}}"
+
+        elif family == 17:  # AF_PACKET
+            if addrlen >= 12:
+                proto = struct.unpack(">H", raw_bytes[2:4])[0]
+                ifindex, hatype, pkttype, halen = struct.unpack("=iHBB", raw_bytes[4:12])
+                proto_str = ETH_PROTOCOLS.get(proto, hex(proto) if proto else "0")
+                ha_str = ARPHRD_TYPES.get(hatype, str(hatype))
+                pkt_str = PACKET_TYPES.get(pkttype, str(pkttype))
+                fields = [
+                    f"sll_protocol=htons({proto_str})",
+                    f"sll_ifindex={ifindex}",
+                    f"sll_hatype={ha_str}",
+                    f"sll_pkttype={pkt_str}",
+                    f"sll_halen={halen}"
+                ]
+                if halen > 0 and addrlen >= 12 + halen:
+                    sll_addr_bytes = raw_bytes[12:12 + min(halen, 8)]
+                    addr_hex_list = [f"{b:#02x}" if b != 0 else "00" for b in sll_addr_bytes]
+                    if halen > 8:
+                        addr_hex_list.append("...")
+                    fields.append(f"sll_addr=[{', '.join(addr_hex_list)}]")
+                joined = ", ".join(fields)
+                return f"{{sa_family=AF_PACKET, {joined}}}"
+            return f"{{sa_family=AF_PACKET, ...}}"
+
+        elif family == 40:  # AF_VSOCK
+            if addrlen >= 12:
+                reserved, port, cid = struct.unpack("=HII", raw_bytes[2:12])
+                fields = []
+                if reserved:
+                    fields.append(f"svm_reserved1={hex(reserved)}")
+                cid_str = VSOCK_CIDS.get(cid, hex(cid))
+                fields.append(f"svm_cid={cid_str}")
+                port_str = VSOCK_PORTS.get(port, hex(port))
+                fields.append(f"svm_port={port_str}")
+                if addrlen >= 16:
+                    flags = struct.unpack("=I", raw_bytes[12:16])[0]
+                    fields.append(f"svm_flags={flags}")
+                joined = ", ".join(fields)
+                return f"{{sa_family=AF_VSOCK, {joined}}}"
+            return f"{{sa_family=AF_VSOCK, ...}}"
+
+        if interp_str:
+            decoded = self._decode_sockaddr_interp(interp_str)
+            if decoded != interp_str:
+                return decoded
+
+        return f"{{sa_family={fam_name}}}"
+
+    def _format_sockaddr(self, event, arg_idx="a1", len_idx="a2", return_len=False):
+        sa_len = None
+        sa_str = None
+        if event.sockaddr:
+            raw_hex = event.sockaddr.get("saddr", "").strip()
+            interp_str = (event.sockaddr_interp.get("saddr", "") if event.sockaddr_interp else "").strip()
+            if raw_hex:
+                try:
+                    sa_len = len(bytes.fromhex(raw_hex))
+                except ValueError:
+                    sa_len = None
+            sa_str = self._decode_sockaddr(raw_hex, interp_str)
+
+        if sa_str is None:
+            if event.sockaddr_interp and "saddr" in event.sockaddr_interp:
+                sa_str = self._decode_sockaddr_interp(event.sockaddr_interp["saddr"])
+            else:
+                addr_ptr = self._parse_id(event.syscall.get(arg_idx, "0"))
+                sa_str = "{...}" if addr_ptr else "NULL"
+
+        if return_len:
+            parsed_len = self._parse_id(event.syscall.get(len_idx, "0"))
+            chosen_len = parsed_len if parsed_len != 0 else (sa_len if sa_len is not None else 16)
+            return sa_str, chosen_len
+        return sa_str
 
     def _format_sig(self, sig_raw):
         s = self._parse_id(sig_raw)
@@ -4071,8 +4297,10 @@ class SyscallHandler:
         flags_val = self._parse_id(event.syscall.get("a3", "0"))
         dest_str = ""
         if event.sockaddr:
-            sa_str = self._format_sockaddr(event, "a4", "a5")
-            dest_str = f", {sa_str}, {self._parse_id(event.syscall.get('a5', '16'))}"
+            sa_str, sa_len = self._format_sockaddr(event, "a4", "a5", return_len=True)
+            dest_str = f", {sa_str}, {sa_len}"
+        elif "a4" in event.syscall and self._parse_id(event.syscall["a4"]) == 0:
+            dest_str = ", NULL, 0"
         return f"sendto({fd_str}, \"...\", {len_val}, {flags_val}{dest_str}) = {event.exit_str}"
 
     def handle_recvfrom(self, event):
@@ -4083,13 +4311,20 @@ class SyscallHandler:
         if event.sockaddr:
             sa_str = self._format_sockaddr(event, "a4", "a5")
             src_str = f", {sa_str}, [...]"
+        elif "a4" in event.syscall and self._parse_id(event.syscall["a4"]) == 0:
+            src_str = ", NULL, NULL"
         return f"recvfrom({fd_str}, \"...\", {len_val}, {flags_val}{src_str}) = {event.exit_str}"
 
     def handle_sendmsg_recvmsg(self, event, scname=None):
         scname = scname or event.syscall_name
         fd_str = self._resolve_fd(event, "a0")
         flags_val = self._parse_id(event.syscall.get("a2", "0"))
-        return f"{scname}({fd_str}, {{...}}, {flags_val}) = {event.exit_str}"
+        if event.sockaddr:
+            sa_str = self._format_sockaddr(event)
+            msg_str = f"{{msg_name={sa_str}, ...}}"
+        else:
+            msg_str = "{...}"
+        return f"{scname}({fd_str}, {msg_str}, {flags_val}) = {event.exit_str}"
 
     def handle_shutdown(self, event):
         fd_str = self._resolve_fd(event, "a0")
