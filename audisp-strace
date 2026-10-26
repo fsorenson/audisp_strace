@@ -950,8 +950,16 @@ class AuditEvent:
         return self.syscall.get("success")
 
     @property
+    def is_failed(self):
+        if self.success == "no":
+            return True
+        if self.exit_code is not None and self.exit_code < 0:
+            return True
+        return False
+
+    @property
     def is_success(self):
-        return self.success == "yes"
+        return not self.is_failed
 
     @property
     def exit_str(self):
@@ -3583,9 +3591,7 @@ class SyscallHandler:
         return f"msgctl({msqid}, {cmd_str}, [...]) = {event.exit_str}"
 
     def handle_clone(self, event):
-        child_pid = event.syscall.get("exit")
-        call_str = f"clone(...) = {child_pid}"
-        return call_str
+        return f"clone(...) = {event.exit_str}"
 
     def handle_execve(self, event):
         name = event.paths[0].get("name") if event.paths else event.exe or "unknown"
@@ -5423,11 +5429,14 @@ class AudispStraceApp:
     """Coordinates parsing, state tracking, and output generation."""
 
     def __init__(self, is_live=False, time_format="time", all_syscalls=False,
-                 syscalls=None, exclude_syscalls=None):
+                 syscalls=None, exclude_syscalls=None,
+                 failed_only=False, successful_only=False):
         self.is_live = is_live
         self.all_syscalls = all_syscalls
         self.syscall_filter = set(syscalls) if syscalls is not None else None
         self.exclude_filter = set(exclude_syscalls) if exclude_syscalls is not None else set()
+        self.failed_only = failed_only
+        self.successful_only = successful_only
         self.resolver = ProcResolver(is_live=is_live)
         self.tracker = ProcessTracker(self.resolver)
         self.formatter = TraceFormatter(time_format=time_format)
@@ -5488,6 +5497,12 @@ class AudispStraceApp:
                 should_display = True
             else:
                 should_display = scname in DEFAULT_MONITORED_SYSCALLS
+
+        if should_display:
+            if self.failed_only and not event.is_failed:
+                should_display = False
+            elif self.successful_only and event.is_failed:
+                should_display = False
 
         if should_display:
             formatted = self.handler.format_event(event, caller_comm=caller_comm)
@@ -5800,6 +5815,20 @@ def main():
         help="Display all captured syscalls, not just permissions and process lifecycle"
     )
 
+    status_group = parser.add_mutually_exclusive_group()
+    status_group.add_argument(
+        "-Z", "--failed-only",
+        dest="failed_only",
+        action="store_true",
+        help="Print only syscalls that returned an error code"
+    )
+    status_group.add_argument(
+        "-z", "--successful-only",
+        dest="successful_only",
+        action="store_true",
+        help="Print only syscalls that returned without an error code"
+    )
+
     args = parser.parse_args()
 
     # Determine live mode
@@ -5818,7 +5847,9 @@ def main():
         time_format=args.timestamp_format,
         all_syscalls=args.all_syscalls,
         syscalls=syscalls_filter,
-        exclude_syscalls=exclude_filter
+        exclude_syscalls=exclude_filter,
+        failed_only=args.failed_only,
+        successful_only=args.successful_only
     )
 
     if args.files:

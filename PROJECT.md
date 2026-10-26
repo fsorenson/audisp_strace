@@ -62,6 +62,8 @@ Sample 3-line format per monitored event:
      - `%clock`: Clock and system time syscalls
      - Syscalls in any class not yet implemented in `audisp-strace` are maintained commented out in `SYSCALL_CLASSES` sets for easy activation as handlers are added.
    - `-a`, `--all`: Display all captured syscalls.
+   - `-Z`, `--failed-only`: Display only syscalls that returned an error code (like `strace -Z`).
+   - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
    - `-t`, `--timestamp-format`: Select `time` (default: `HH:MM:SS.mmm`), `datetime` (`YYYY-MM-DD HH:MM:SS.mmm [tz]`), or `epoch`.
 4. **Architecture**:
    - Single executable script [`audisp-strace`](file:///home/sorenson/projects/audisp_strace/audisp-strace) with modular classes:
@@ -255,6 +257,9 @@ Sample 3-line format per monitored event:
   - [x] `examples/audit-log-v11.out` & `examples/audit-log-v11-trace.out` (verified 17 additional %file syscalls across test_syscalls and system daemons: chdir, getcwd, inotify_add_watch, name_to_handle_at, chroot, mount, umount2, pivot_root, swapon, swapoff, acct, quotactl, open_tree, move_mount, fspick, fsconfig, mount_setattr)
   - [x] `examples/audit-log-v12.out` & `examples/audit-log-v12-trace.out` (verified %pure, ustat, %signal, %process, and %memory syscalls: getpid, getppid, getpgrp, gettid, ustat, sigaltstack, signalfd4, pause, mseal, rt_sigprocmask, rt_sigpending; confirmed 150+ distinct syscalls properly formatted)
   - [x] `examples/audit-log-v13.out` & `examples/audit-log-v13-trace.out` (verified complete run across 176 distinct syscalls including all %desc syscalls: epoll_create1, epoll_ctl, epoll_wait, epoll_pwait2, eventfd2, inotify_init1, inotify_rm_watch, timerfd_create, timerfd_settime, timerfd_gettime, memfd_create, pidfd_open, copy_file_range, fadvise64, readahead, poll, ppoll, select, pselect6, pipe2, dup3, syncfs, msync; validated live vs. offline parity across 112,504 trace lines)
+  - [x] `examples/audit-log-v14.out` & `examples/audit-log-v14-trace.out` (verified unclassed batches 1-5 syscalls across scheduling, time/clocks, system info, keys, futexes, and async I/O)
+  - [x] `examples/audit-log-v15.out` & `examples/audit-log-v15-trace.out` (verified complete run across 286 distinct syscalls and 53,204 events; validated 100% event count parity [212,816 lines] between live and offline replay across Group 6, Group 7, and `syscallent-common.h` classed syscalls including `close_range`, `futex2`, `statmount`, `listmount`, `io_uring_*`, `memfd_secret`, `landlock_*`, `process_madvise`, `process_mrelease`, and `set_mempolicy_home_node`)
+- [x] Implemented strace-compatible exit status filtering (`-Z` / `--failed-only` and `-z` / `--successful-only`). Verified exact mathematical partition (`50,431` successful + `2,773` failed = `53,204` total events) against `examples/audit-log-v15.out`.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.
