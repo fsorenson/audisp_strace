@@ -71,6 +71,9 @@ Sample 3-line format per monitored event:
    - `-Z`, `--failed-only`: Display only syscalls that returned an error code (like `strace -Z`).
    - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
    - `-C`, `-1`, `--compact [{summary,strace}]`: Compact 1-line output per event (`summary` [default] with `[uid]` `[ppid]`, or `strace` for pure syscall line).
+   - `-c`, `--summary-only`: Count syscalls and errors, printing only the summary table on exit (EOF or Ctrl-C).
+   - `--summary`: Print regular syscall traces and also print the summary table on exit.
+   - `-S`, `--sort-by={calls,errors,error%,name}`: Sort summary table by calls (default), errors, error rate, or syscall name.
    - `--color`, `--colour [auto|always|never]`: Colorize terminal output with ANSI colors (`auto` [default, enabled when stdout is a TTY and `NO_COLOR` is not set], `always`, or `never`).
    - `-o`, `--output FILE`: Write trace output to `FILE` instead of stdout.
    - `-A`, `--append`, `--output-append-mode`: Open file specified by `-o`/`--output` in append mode instead of overwriting.
@@ -299,6 +302,11 @@ Sample 3-line format per monitored event:
   - Directs trace output to a specified file instead of stdout.
   - Automatically suppresses ANSI color escapes unless `--color=always` is explicitly requested.
   - Ensures atomic flushing on `SIGINT` (Ctrl-C) and `SIGTERM` interrupt signals.
+- [x] Implemented syscall summary and statistics mode (`-c` / `--summary-only`, `--summary`, and `-S` / `--sort-by`):
+  - Modeled after `strace -c` with columns `% calls`, `calls`, `errors`, `error%`, and `syscall`.
+  - Supports sorting by `calls` (default), `errors`, `error%`, or `name`.
+  - Seamlessly integrates with all existing filters (`-u`, `-p`, `-s`, etc.) and color themes.
+  - Outputs summary on EOF or upon interrupt (`Ctrl-C`), exiting cleanly.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

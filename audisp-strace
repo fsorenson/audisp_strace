@@ -7,6 +7,7 @@ traces with enriched process ancestry and process credentials.
 """
 
 import argparse
+import collections
 import datetime
 import grp
 import os
@@ -5953,7 +5954,10 @@ class AudispStraceApp:
                  exclude_uids=None, exclude_names=None,
                  auid_uids=None, auid_names=None,
                  color="auto",
-                 out_file=None):
+                 out_file=None,
+                 summary=False,
+                 summary_only=False,
+                 sort_by="calls"):
         self.out_file = out_file if out_file is not None else sys.stdout
         self.is_live = is_live
         self.all_syscalls = all_syscalls
@@ -5962,6 +5966,11 @@ class AudispStraceApp:
         self.failed_only = failed_only
         self.successful_only = successful_only
         self.compact = compact
+        self.summary = summary
+        self.summary_only = summary_only
+        self.sort_by = sort_by or "calls"
+        self.stats = collections.defaultdict(lambda: {"calls": 0, "errors": 0})
+        self._summary_printed = False
 
         if isinstance(color, bool):
             self.color_enabled = color
@@ -6118,7 +6127,13 @@ class AudispStraceApp:
                 should_display = False
 
         if should_display:
-            formatted = self.handler.format_event(event, caller_comm=caller_comm, compact=self.compact)
+            if self.summary or self.summary_only:
+                self.stats[scname]["calls"] += 1
+                if event.is_failed:
+                    self.stats[scname]["errors"] += 1
+
+            if not self.summary_only:
+                formatted = self.handler.format_event(event, caller_comm=caller_comm, compact=self.compact)
 
         # Update FD table based on syscall
         if scname in ('open', 'openat', 'openat2', 'creat'):
@@ -6351,6 +6366,77 @@ class AudispStraceApp:
         except OSError:
             pass
 
+    def format_summary_table(self):
+        total_calls = sum(s["calls"] for s in self.stats.values())
+        total_errors = sum(s["errors"] for s in self.stats.values())
+
+        rows = []
+        for scname, data in self.stats.items():
+            calls = data["calls"]
+            errors = data["errors"]
+            pct_calls = (calls / total_calls * 100.0) if total_calls > 0 else 0.0
+            err_pct = (errors / calls * 100.0) if calls > 0 else 0.0
+            rows.append({
+                "name": scname,
+                "calls": calls,
+                "errors": errors,
+                "pct_calls": pct_calls,
+                "err_pct": err_pct,
+            })
+
+        if self.sort_by == "errors":
+            rows.sort(key=lambda r: (r["errors"], r["calls"], r["name"]), reverse=True)
+        elif self.sort_by in ("error%", "error_rate"):
+            rows.sort(key=lambda r: (r["err_pct"], r["errors"], r["calls"]), reverse=True)
+        elif self.sort_by in ("name", "syscall"):
+            rows.sort(key=lambda r: r["name"])
+        else:  # "calls"
+            rows.sort(key=lambda r: (r["calls"], r["errors"], r["name"]), reverse=True)
+
+        header_text = "% calls      calls     errors   error%  syscall"
+        sep_text    = "-------  ---------  ---------  -------  ----------------"
+        theme = self.theme
+
+        lines = [theme.bold(header_text), theme.dim(sep_text)]
+
+        for r in rows:
+            pct_str = "%7.2f" % r["pct_calls"]
+            calls_str = "%9d" % r["calls"]
+            if r["errors"] > 0:
+                errs_str = theme.result_failed("%9d" % r["errors"])
+                err_pct_str = theme.result_failed("%6.1f%%" % r["err_pct"])
+            else:
+                errs_str = " " * 9
+                err_pct_str = " " * 7
+            sc = theme.bold(r["name"]) if theme.enabled else r["name"]
+            lines.append(f"{pct_str}  {calls_str}  {errs_str}  {err_pct_str}  {sc}")
+
+        lines.append(theme.dim(sep_text))
+        tot_pct_str = " 100.00" if total_calls > 0 else "   0.00"
+        tot_calls_str = "%9d" % total_calls
+        if total_errors > 0:
+            tot_errs_str = theme.result_failed("%9d" % total_errors)
+            tot_err_pct_str = theme.result_failed("%6.1f%%" % (total_errors / total_calls * 100.0))
+        else:
+            tot_errs_str = " " * 9
+            tot_err_pct_str = " " * 7
+
+        tot_label = theme.bold("total") if theme.enabled else "total"
+        lines.append(f"{tot_pct_str}  {tot_calls_str}  {tot_errs_str}  {tot_err_pct_str}  {tot_label}")
+        return "\n".join(lines)
+
+    def print_summary(self):
+        if self._summary_printed or not (self.summary or self.summary_only):
+            return
+        self._summary_printed = True
+        tbl = self.format_summary_table()
+        prefix = "\n" if (self.summary and not self.summary_only) else ""
+        try:
+            self.out_file.write(f"{prefix}{tbl}\n")
+            self.out_file.flush()
+        except (BrokenPipeError, OSError):
+            pass
+
 
 def detect_live():
     """Detect if running under auditd or audispd."""
@@ -6372,11 +6458,14 @@ def detect_live():
 
 
 _ACTIVE_OUT_FILE = None
+_ACTIVE_APP = None
 
 
 def setup_signals():
     def signal_handler(sig, frame):
         try:
+            if _ACTIVE_APP:
+                _ACTIVE_APP.print_summary()
             if _ACTIVE_OUT_FILE and not _ACTIVE_OUT_FILE.closed:
                 _ACTIVE_OUT_FILE.flush()
             sys.stdout.flush()
@@ -6525,6 +6614,27 @@ def main():
         help="Open the file specified with -o/--output in append mode instead of overwriting"
     )
 
+    # Summary & Statistics
+    parser.add_argument(
+        "-c", "--summary-only",
+        dest="summary_only",
+        action="store_true",
+        help="Count syscalls and errors, printing only the summary table on exit"
+    )
+    parser.add_argument(
+        "--summary",
+        dest="summary",
+        action="store_true",
+        help="Print syscall traces and also print the summary table on exit"
+    )
+    parser.add_argument(
+        "-S", "--sort-by",
+        dest="sort_by",
+        choices=["calls", "errors", "error%", "name"],
+        default="calls",
+        help="Sort summary table by: 'calls' (default), 'errors', 'error%%', or 'name'"
+    )
+
     args = parser.parse_args()
 
     # Determine live mode
@@ -6535,6 +6645,11 @@ def main():
     else:
         is_live = detect_live()
 
+    summary_only = args.summary_only
+    summary = args.summary
+    if any(arg.startswith(("-S", "--sort-by")) for arg in sys.argv) and not (summary_only or summary):
+        summary_only = True
+
     syscalls_filter = expand_syscall_spec(args.syscalls)
     exclude_filter = expand_syscall_spec(args.exclude)
     pids_filter = parse_id_list(args.pids)
@@ -6543,7 +6658,7 @@ def main():
     exclude_uids, exclude_names = parse_user_list(args.exclude_users)
     auid_uids, auid_names = parse_user_list(args.auids)
 
-    global _ACTIVE_OUT_FILE
+    global _ACTIVE_OUT_FILE, _ACTIVE_APP
     out_file = sys.stdout
     close_out_file = False
     if args.output and args.output != "-":
@@ -6575,8 +6690,12 @@ def main():
         auid_uids=auid_uids,
         auid_names=auid_names,
         color=args.color,
-        out_file=out_file
+        out_file=out_file,
+        summary=summary,
+        summary_only=summary_only,
+        sort_by=args.sort_by
     )
+    _ACTIVE_APP = app
 
     try:
         if args.files:
@@ -6593,6 +6712,7 @@ def main():
             app.process_stream(sys.stdin)
     except (KeyboardInterrupt, SystemExit):
         try:
+            app.print_summary()
             if close_out_file and not out_file.closed:
                 out_file.flush()
             sys.stdout.flush()
@@ -6601,6 +6721,7 @@ def main():
         os._exit(0)
     except SystemError:
         try:
+            app.print_summary()
             if close_out_file and not out_file.closed:
                 out_file.flush()
             sys.stdout.flush()
@@ -6608,6 +6729,7 @@ def main():
             pass
         os._exit(0)
     finally:
+        app.print_summary()
         if close_out_file:
             try:
                 out_file.flush()
