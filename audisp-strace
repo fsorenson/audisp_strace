@@ -1069,6 +1069,48 @@ class TraceFormatter:
 
         return "    " + ", ".join(formatted_creds)
 
+    def format_compact_tags(self, event, tracker):
+        fields = event.syscall
+        interp = event.syscall_interp
+
+        def clean_name(val):
+            if not val:
+                return ""
+            val = val.strip('"')
+            if val.startswith("unknown(") and val.endswith(")"):
+                return val[8:-1]
+            return val
+
+        uid_str = fields.get("uid", "0")
+        raw_uid_name = clean_name(fields.get("UID") or interp.get("uid"))
+        uid_name = raw_uid_name or self.resolve_user(uid_str)
+
+        euid_str = fields.get("euid")
+        raw_euid_name = clean_name(fields.get("EUID") or interp.get("euid"))
+        euid_name = raw_euid_name or (self.resolve_user(euid_str) if euid_str else None)
+
+        auid_str = fields.get("auid")
+        raw_auid_name = clean_name(fields.get("AUID") or interp.get("auid"))
+        auid_name = raw_auid_name or (self.resolve_user(auid_str) if auid_str else None)
+
+        creds_parts = [f"uid={uid_name}"]
+        if euid_name and euid_str != uid_str:
+            creds_parts.append(f"euid={euid_name}")
+        if auid_name and auid_name not in ("unset", "4294967295", "-1", "") and auid_str != uid_str:
+            creds_parts.append(f"auid={auid_name}")
+
+        ppid = event.ppid
+        pname = tracker._resolve_name(ppid) if ppid else None
+        ppid_str = f"ppid:{ppid} ({pname})" if pname else (f"ppid:{ppid}" if ppid else "")
+
+        tags = []
+        if creds_parts:
+            tags.append(f"[{' '.join(creds_parts)}]")
+        if ppid_str:
+            tags.append(f"[{ppid_str}]")
+
+        return " ".join(tags)
+
     def format_ancestry(self, ancestry):
         if not ancestry:
             return "    ???"
@@ -5394,7 +5436,7 @@ class SyscallHandler:
     def handle_rseq_slice_yield(self, event):
         return f"rseq_slice_yield() = {event.exit_str}"
 
-    def format_event(self, event, caller_comm=None):
+    def format_event(self, event, caller_comm=None, compact=None):
         scname = event.syscall_name
         if not scname:
             return None
@@ -5409,6 +5451,12 @@ class SyscallHandler:
         comm = caller_comm or event.comm or self.tracker._resolve_name(event.pid)
         ts_str = self.formatter.format_timestamp(event.sec, event.milli)
         line1 = f"{event.pid}<{comm}> {ts_str} {call_str}"
+
+        if compact:
+            if compact == "strace":
+                return line1
+            compact_tags = self.formatter.format_compact_tags(event, self.tracker)
+            return f"{line1} {compact_tags}" if compact_tags else line1
 
         # Line 2: Process credentials
         line2 = self.formatter.format_credentials(event)
@@ -5430,13 +5478,15 @@ class AudispStraceApp:
 
     def __init__(self, is_live=False, time_format="time", all_syscalls=False,
                  syscalls=None, exclude_syscalls=None,
-                 failed_only=False, successful_only=False):
+                 failed_only=False, successful_only=False,
+                 compact=None):
         self.is_live = is_live
         self.all_syscalls = all_syscalls
         self.syscall_filter = set(syscalls) if syscalls is not None else None
         self.exclude_filter = set(exclude_syscalls) if exclude_syscalls is not None else set()
         self.failed_only = failed_only
         self.successful_only = successful_only
+        self.compact = compact
         self.resolver = ProcResolver(is_live=is_live)
         self.tracker = ProcessTracker(self.resolver)
         self.formatter = TraceFormatter(time_format=time_format)
@@ -5505,7 +5555,7 @@ class AudispStraceApp:
                 should_display = False
 
         if should_display:
-            formatted = self.handler.format_event(event, caller_comm=caller_comm)
+            formatted = self.handler.format_event(event, caller_comm=caller_comm, compact=self.compact)
 
         # Update FD table based on syscall
         if scname in ('open', 'openat', 'openat2', 'creat'):
@@ -5683,7 +5733,8 @@ class AudispStraceApp:
 
         if formatted:
             try:
-                sys.stdout.write(formatted + "\n\n")
+                sep = "\n" if self.compact else "\n\n"
+                sys.stdout.write(formatted + sep)
                 sys.stdout.flush()
             except BrokenPipeError:
                 # Python pipe closed (e.g. piped to head)
@@ -5829,6 +5880,16 @@ def main():
         help="Print only syscalls that returned without an error code"
     )
 
+    parser.add_argument(
+        "-C", "-1", "--compact",
+        dest="compact",
+        nargs="?",
+        const="summary",
+        default=None,
+        choices=["summary", "strace"],
+        help="Compact 1-line output per event (choices: 'summary' [default] with [uid] [ppid], or 'strace' for pure syscall line)"
+    )
+
     args = parser.parse_args()
 
     # Determine live mode
@@ -5849,7 +5910,8 @@ def main():
         syscalls=syscalls_filter,
         exclude_syscalls=exclude_filter,
         failed_only=args.failed_only,
-        successful_only=args.successful_only
+        successful_only=args.successful_only,
+        compact=args.compact
     )
 
     if args.files:
