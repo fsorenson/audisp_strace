@@ -10,6 +10,7 @@ import argparse
 import collections
 import datetime
 import grp
+import json
 import os
 import pwd
 import re
@@ -1223,17 +1224,15 @@ class TraceFormatter:
             return f"{sec}.{milli:03d}"
         return f"{dt.strftime('%H:%M:%S')}.{milli:03d}"
 
-    def format_credentials(self, event):
+    def get_credentials_dict(self, event):
         fields = event.syscall
         interp = event.syscall_interp
         clean_name = clean_user_name
 
-        # Expected credentials: uid, gid, auid, agid, euid, egid, suid, sgid, fsuid, fsgid
         auid_str = fields.get("auid", "0")
         raw_auid_name = clean_name(fields.get("AUID") or interp.get("auid"))
         auid_name = self.resolve_user(auid_str, raw_auid_name or "root")
 
-        # Derive agid from auid primary group if possible
         agid_str = fields.get("agid")
         raw_agid_name = clean_name(fields.get("AGID"))
         if agid_str is None:
@@ -1260,13 +1259,27 @@ class TraceFormatter:
             ("fsgid", fields.get("fsgid", "0"), clean_name(fields.get("FSGID") or interp.get("fsgid"))),
         ]
 
-        formatted_creds = []
+        creds = {}
         for key, val_id, hint_name in items:
             if "gid" in key:
                 name = hint_name or self.resolve_group(val_id)
             else:
                 name = hint_name or self.resolve_user(val_id)
             name = clean_name(name)
+            try:
+                numeric_id = int(val_id)
+            except (ValueError, TypeError):
+                numeric_id = val_id
+            creds[key] = {"id": numeric_id, "name": name}
+        return creds
+
+    def format_credentials(self, event):
+        creds = self.get_credentials_dict(event)
+        formatted_creds = []
+        for key in ("uid", "gid", "auid", "agid", "euid", "egid", "suid", "sgid", "fsuid", "fsgid"):
+            info = creds[key]
+            val_id = info["id"]
+            name = info["name"]
             if self.theme.enabled:
                 formatted_creds.append(f"{self.theme.dim(key + '=')}{val_id} ({self.theme.username(name)})")
             else:
@@ -5936,6 +5949,68 @@ class SyscallHandler:
 
         return f"{line1}\n{line2}\n{line3}"
 
+    def format_json_event(self, event, caller_comm=None):
+        scname = event.syscall_name
+        if not scname:
+            return None
+
+        handler = self._handlers.get(scname)
+        if handler:
+            call_str = handler(event)
+        else:
+            call_str = f"{scname}(...) = {event.exit_str}"
+
+        comm = caller_comm or event.comm or self.tracker._resolve_name(event.pid)
+        proc_info = self.tracker.get_proc(event.pid) if self.tracker else None
+        exe = event.exe or (proc_info.get("exe") if proc_info else None)
+        ses_raw = event.syscall.get("ses")
+        try:
+            ses = int(ses_raw) if ses_raw is not None else None
+        except ValueError:
+            ses = ses_raw
+
+        sec = event.sec
+        milli = event.milli
+        dt = datetime.datetime.fromtimestamp(sec + milli / 1000.0).astimezone()
+
+        sc_obj = {
+            "name": scname,
+            "call": call_str,
+            "exit": event.exit_code,
+            "exit_str": event.exit_str,
+            "success": not event.is_failed,
+        }
+
+        if event.is_failed:
+            interp = event.syscall_interp.get("exit", "")
+            if interp and "(" in interp and interp.endswith(")"):
+                err_name, _, err_desc = interp.partition("(")
+                sc_obj["errno"] = err_name.strip()
+                sc_obj["error_desc"] = err_desc.rstrip(")")
+            elif interp:
+                sc_obj["errno"] = interp
+
+        ancestry = self.tracker.get_ancestry(event.pid)
+        anc_list = [{"pid": p, "comm": c} for p, c in ancestry] if ancestry else []
+
+        record = {
+            "timestamp": dt.isoformat(),
+            "epoch": round(sec + milli / 1000.0, 3),
+            "serial": event.serial,
+            "pid": event.pid,
+            "ppid": event.ppid,
+            "comm": comm,
+            "exe": exe,
+            "session": ses,
+            "syscall": sc_obj,
+            "credentials": self.formatter.get_credentials_dict(event),
+            "ancestry": anc_list,
+        }
+        if event.cwd:
+            record["cwd"] = event.cwd
+
+        return json.dumps(record, separators=(",", ":"))
+
 
 def _auparse_callback(au, event_type, user_data):
     if user_data:
@@ -5957,7 +6032,8 @@ class AudispStraceApp:
                  out_file=None,
                  summary=False,
                  summary_only=False,
-                 sort_by="calls"):
+                 sort_by="calls",
+                 json_format=False):
         self.out_file = out_file if out_file is not None else sys.stdout
         self.is_live = is_live
         self.all_syscalls = all_syscalls
@@ -5969,6 +6045,7 @@ class AudispStraceApp:
         self.summary = summary
         self.summary_only = summary_only
         self.sort_by = sort_by or "calls"
+        self.json_format = bool(json_format)
         self.stats = collections.defaultdict(lambda: {"calls": 0, "errors": 0})
         self._summary_printed = False
 
@@ -6133,7 +6210,10 @@ class AudispStraceApp:
                     self.stats[scname]["errors"] += 1
 
             if not self.summary_only:
-                formatted = self.handler.format_event(event, caller_comm=caller_comm, compact=self.compact)
+                if self.json_format:
+                    formatted = self.handler.format_json_event(event, caller_comm=caller_comm)
+                else:
+                    formatted = self.handler.format_event(event, caller_comm=caller_comm, compact=self.compact)
 
         # Update FD table based on syscall
         if scname in ('open', 'openat', 'openat2', 'creat'):
@@ -6311,7 +6391,7 @@ class AudispStraceApp:
 
         if formatted:
             try:
-                sep = "\n" if self.compact else "\n\n"
+                sep = "\n" if (self.compact or self.json_format) else "\n\n"
                 self.out_file.write(formatted + sep)
                 self.out_file.flush()
             except BrokenPipeError:
@@ -6635,6 +6715,14 @@ def main():
         help="Sort summary table by: 'calls' (default), 'errors', 'error%%', or 'name'"
     )
 
+    # JSON output
+    parser.add_argument(
+        "--json", "--jsonl", "--json-lines",
+        dest="json_format",
+        action="store_true",
+        help="Output events as JSON Lines (one JSON object per line)"
+    )
+
     args = parser.parse_args()
 
     # Determine live mode
@@ -6693,7 +6781,8 @@ def main():
         out_file=out_file,
         summary=summary,
         summary_only=summary_only,
-        sort_by=args.sort_by
+        sort_by=args.sort_by,
+        json_format=args.json_format
     )
     _ACTIVE_APP = app
 

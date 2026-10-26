@@ -34,6 +34,8 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - **Line 3 (Ancestry)**: Full process hierarchy walk (`1 (systemd) -> ... -> parent (comm) -> child (comm)`).
 - **Compact 1-Line Mode (`-C` / `--compact`)**:
   - Single-line format per event with inline `[uid=...]` and `[ppid:...]` tags for high-throughput terminal monitoring or piping to `grep`/`awk`.
+- **Structured JSON Lines Output (`--json` / `--jsonl`)**:
+  - Output each audit event as a machine-readable JSON object containing full syscall details, errno, resolved paths, credential dictionary, and process ancestry array for SIEM and log ingestion (`jq`, Vector, Loki, Elasticsearch).
 - **Extensive Syscall Coverage (285+ syscalls)**:
   - File I/O, lifecycle, descriptors, permissions, attributes, and ownership.
   - Sockets & networking with binary hex `SOCKADDR` decoding (IPv4, IPv6, UNIX sockets [filesystem, abstract `@`, unnamed], Netlink, Packet, VSOCK).
@@ -197,6 +199,7 @@ audisp-strace --offline audit.log -c -S error%
 | `--exclude-user` | Exclude specific username or numeric UID | `--exclude-user root` |
 | `--auid` | Filter by audit login identity | `--auid 1000` |
 | `-C`, `--compact` | Compact 1-line mode (`summary` or `strace`) | `-C summary` |
+| `--json`, `--jsonl` | Output events as JSON Lines (NDJSON) | `--json` |
 | `--color` | ANSI color output (`auto`, `always`, `never`) | `--color=always` |
 | `-o`, `--output` | Write trace output to file | `-o /var/log/trace.log` |
 | `-A`, `--append` | Append to output file instead of overwriting | `-o trace.log -A` |

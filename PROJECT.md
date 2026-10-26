@@ -71,6 +71,7 @@ Sample 3-line format per monitored event:
    - `-Z`, `--failed-only`: Display only syscalls that returned an error code (like `strace -Z`).
    - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
    - `-C`, `-1`, `--compact [{summary,strace}]`: Compact 1-line output per event (`summary` [default] with `[uid]` `[ppid]`, or `strace` for pure syscall line).
+   - `--json`, `--jsonl`, `--json-lines`: Output structured JSON Lines (NDJSON), one complete JSON event object per line.
    - `-c`, `--summary-only`: Count syscalls and errors, printing only the summary table on exit (EOF or Ctrl-C).
    - `--summary`: Print regular syscall traces and also print the summary table on exit.
    - `-S`, `--sort-by={calls,errors,error%,name}`: Sort summary table by calls (default), errors, error rate, or syscall name.
@@ -307,6 +308,12 @@ Sample 3-line format per monitored event:
   - Supports sorting by `calls` (default), `errors`, `error%`, or `name`.
   - Seamlessly integrates with all existing filters (`-u`, `-p`, `-s`, etc.) and color themes.
   - Outputs summary on EOF or upon interrupt (`Ctrl-C`), exiting cleanly.
+- [x] Implemented structured JSON Lines output (`--json` / `--jsonl` / `--json-lines`):
+  - Emits each matched audit event as a self-contained, valid JSON object on a single line.
+  - Includes ISO-8601 timestamp, float epoch timestamp, audit serial number, pid, ppid, comm, exe, session ID, cwd.
+  - Includes structured syscall block (name, formatted call string, exit code, exit string, success boolean, errno, and error description).
+  - Includes full credentials dictionary (`uid`, `gid`, `auid`, `euid`, etc. with numeric IDs and resolved names).
+  - Includes full process ancestry array `[{"pid": ..., "comm": ...}]`.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.
