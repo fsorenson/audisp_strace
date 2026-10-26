@@ -1092,7 +1092,7 @@ class ColorTheme:
 
     def __init__(self, enabled=False):
         self.enabled = bool(enabled)
-        self._token_re = re.compile(r'("(?:\\[\s\S]|[^"\\])*")|<([^>]+)>')
+        self._token_re = re.compile(r'("(?:\\[\s\S]|[^"\\])*"(?:\.\.\.)?)|<([^>]+)>')
 
     def _c(self, code, s):
         if not self.enabled or not s:
@@ -2087,10 +2087,11 @@ LSM_ATTRS = {
 class SyscallHandler:
     """Dispatches and formats specific syscall events."""
 
-    def __init__(self, tracker, resolver, formatter):
+    def __init__(self, tracker, resolver, formatter, string_limit=32):
         self.tracker = tracker
         self.resolver = resolver
         self.formatter = formatter
+        self.string_limit = string_limit
 
         self._handlers = {
             # Permissions, Ownership & Credentials
@@ -2524,6 +2525,15 @@ class SyscallHandler:
             "removexattr", "lremovexattr", "fremovexattr", "removexattrat"
         ):
             self._handlers[sc] = self.handle_xattr
+
+    def _format_string(self, s):
+        if not s:
+            return '""'
+        s_str = str(s)
+        limit = self.string_limit
+        if limit is not None and limit > 0 and len(s_str) > limit:
+            return f'"{s_str[:limit]}"...'
+        return f'"{s_str}"'
 
     def _resolve_dirfd(self, event, a0_val):
         try:
@@ -3511,7 +3521,7 @@ class SyscallHandler:
             interp_name = event.syscall_interp.get("a1")
             if interp_name and not interp_name.startswith("0x"):
                 clean_name = interp_name.strip('"')
-                arg_tail = f'"{clean_name}"'
+                arg_tail = self._format_string(clean_name)
             else:
                 arg_tail = f"0x{a1:x}" if a1 else "NULL"
         elif opt_str in ("PR_GET_NAME", "PR_GET_DUMPABLE", "PR_GET_KEEPCAPS", "PR_GET_NO_NEW_PRIVS", "PR_GET_SECCOMP"):
@@ -4105,7 +4115,7 @@ class SyscallHandler:
         name = name.strip('"')
         args = event.execve_args
         if args:
-            args_str = "[" + ", ".join(f'"{a}"' for a in args) + "], ..."
+            args_str = "[" + ", ".join(self._format_string(a) for a in args) + "], ..."
         else:
             args_str = "..."
         call_str = f"execve(\"{name}\", {args_str}) = {event.exit_str}"
@@ -5371,12 +5381,12 @@ class SyscallHandler:
     def handle_sethostname(self, event):
         name = self._get_pathname(event, "a0")
         len_val = self._parse_id(event.syscall.get("a1", "0"))
-        return f'sethostname("{name}", {len_val}) = {event.exit_str}'
+        return f'sethostname({self._format_string(name)}, {len_val}) = {event.exit_str}'
 
     def handle_setdomainname(self, event):
         name = self._get_pathname(event, "a0")
         len_val = self._parse_id(event.syscall.get("a1", "0"))
-        return f'setdomainname("{name}", {len_val}) = {event.exit_str}'
+        return f'setdomainname({self._format_string(name)}, {len_val}) = {event.exit_str}'
 
     def handle_sync(self, event):
         return f"sync() = {event.exit_str}"
@@ -5681,7 +5691,7 @@ class SyscallHandler:
 
     def handle_delete_module(self, event):
         name = self._get_pathname(event, "a0")
-        name_str = f'"{name}"' if name else self._format_pointer(event.syscall.get("a0", "0"))
+        name_str = self._format_string(name) if name else self._format_pointer(event.syscall.get("a0", "0"))
         flags = self._parse_id(event.syscall.get("a1", "0"))
         flags_str = self._format_bitmask(flags, DELETE_MODULE_FLAGS)
         return f"delete_module({name_str}, {flags_str}) = {event.exit_str}"
@@ -6033,7 +6043,8 @@ class AudispStraceApp:
                  summary=False,
                  summary_only=False,
                  sort_by="calls",
-                 json_format=False):
+                 json_format=False,
+                 string_limit=32):
         self.out_file = out_file if out_file is not None else sys.stdout
         self.is_live = is_live
         self.all_syscalls = all_syscalls
@@ -6046,6 +6057,7 @@ class AudispStraceApp:
         self.summary_only = summary_only
         self.sort_by = sort_by or "calls"
         self.json_format = bool(json_format)
+        self.string_limit = string_limit
         self.stats = collections.defaultdict(lambda: {"calls": 0, "errors": 0})
         self._summary_printed = False
 
@@ -6080,7 +6092,7 @@ class AudispStraceApp:
         self.resolver = ProcResolver(is_live=is_live)
         self.tracker = ProcessTracker(self.resolver)
         self.formatter = TraceFormatter(time_format=time_format, theme=self.theme)
-        self.handler = SyscallHandler(self.tracker, self.resolver, self.formatter)
+        self.handler = SyscallHandler(self.tracker, self.resolver, self.formatter, string_limit=self.string_limit)
 
         self.au = auparse.AuParser(auparse.AUSOURCE_FEED)
         self.au.add_callback(_auparse_callback, self)
@@ -6723,6 +6735,15 @@ def main():
         help="Output events as JSON Lines (one JSON object per line)"
     )
 
+    # String limit
+    parser.add_argument(
+        "-L", "--string-limit", "--strsize", "--string-len",
+        dest="string_limit",
+        type=int,
+        default=32,
+        help="Maximum string length to print for strings and arguments (default: 32, use 0 for unlimited)"
+    )
+
     args = parser.parse_args()
 
     # Determine live mode
@@ -6782,7 +6803,8 @@ def main():
         summary=summary,
         summary_only=summary_only,
         sort_by=args.sort_by,
-        json_format=args.json_format
+        json_format=args.json_format,
+        string_limit=args.string_limit
     )
     _ACTIVE_APP = app
 
@@ -6808,15 +6830,17 @@ def main():
         except Exception:
             pass
         os._exit(0)
-    except SystemError:
-        try:
-            app.print_summary()
-            if close_out_file and not out_file.closed:
-                out_file.flush()
-            sys.stdout.flush()
-        except Exception:
-            pass
-        os._exit(0)
+    except SystemError as e:
+        if isinstance(e.__cause__, (KeyboardInterrupt, SystemExit)):
+            try:
+                app.print_summary()
+                if close_out_file and not out_file.closed:
+                    out_file.flush()
+                sys.stdout.flush()
+            except Exception:
+                pass
+            os._exit(0)
+        raise
     finally:
         app.print_summary()
         if close_out_file:

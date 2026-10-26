@@ -78,6 +78,7 @@ Sample 3-line format per monitored event:
    - `--color`, `--colour [auto|always|never]`: Colorize terminal output with ANSI colors (`auto` [default, enabled when stdout is a TTY and `NO_COLOR` is not set], `always`, or `never`).
    - `-o`, `--output FILE`: Write trace output to `FILE` instead of stdout.
    - `-A`, `--append`, `--output-append-mode`: Open file specified by `-o`/`--output` in append mode instead of overwriting.
+   - `-L`, `--string-limit`, `--strsize`, `--string-len`: Maximum string length to display for arguments and string literals (default: 32, use 0 for unlimited), modeled after `strace -s strsize`. File and directory paths are preserved without truncation.
    - `-t`, `--timestamp-format`: Select `time` (default: `HH:MM:SS.mmm`), `datetime` (`YYYY-MM-DD HH:MM:SS.mmm [tz]`), or `epoch`.
 4. **Architecture**:
    - Single executable script [`audisp-strace`](file:///home/sorenson/projects/audisp_strace/audisp-strace) with modular classes:
@@ -314,6 +315,11 @@ Sample 3-line format per monitored event:
   - Includes structured syscall block (name, formatted call string, exit code, exit string, success boolean, errno, and error description).
   - Includes full credentials dictionary (`uid`, `gid`, `auid`, `euid`, etc. with numeric IDs and resolved names).
   - Includes full process ancestry array `[{"pid": ..., "comm": ...}]`.
+- [x] Implemented string length limiting (`-L` / `--string-limit` / `--strsize` / `--string-len`):
+  - Modeled after `strace -s strsize` with a default of 32 characters, and `0` for unlimited string lengths.
+  - Truncates string literals and argument strings (e.g., `execve` argv, `prctl`, `sethostname`, `delete_module`) using format `"<str>"...`.
+  - Preserves full file and directory paths without truncation, matching `strace` behavior.
+  - Integrates seamlessly with ANSI terminal colorizer so truncated strings including quotes and trailing `...` are colored properly.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

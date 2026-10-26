@@ -53,6 +53,8 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
 - **ANSI Terminal Colorization (`--color=auto|always|never`)**:
   - Auto-detects TTY and respects `NO_COLOR`.
   - Color-codes PIDs, commands, timestamps, string literals, resolved FD paths, green success codes, and bold red errors.
+- **String Length Limits (`-L` / `--string-limit` / `--strsize`)**:
+  - Modeled after `strace -s strsize` (default: 32 characters, use 0 for unlimited) to prevent unwieldy multi-line string or argument dumps while keeping full pathnames intact.
 - **Flexible Stream Redirection (`-o` / `--output`, `-A` / `--append`)**:
   - Route traces directly to a file with safe atomic flushing on `Ctrl-C`.
 
@@ -93,7 +95,8 @@ usage: audisp-strace [-h] [-l] [--offline] [-t {time,datetime,epoch}]
                      [-C [{summary,strace}]] [-p PIDS] [--exclude-pid EXCLUDE_PIDS]
                      [-f] [-u USERS] [--exclude-user EXCLUDE_USERS] [--auid AUIDS]
                      [--color [{auto,always,never}]] [-o OUTPUT] [-A]
-                     [-c] [--summary] [-S {calls,errors,error%,name}]
+                     [-c] [--summary] [-S {calls,errors,error%,name}] [--json]
+                     [-L STRING_LIMIT]
                      [files ...]
 ```
 
@@ -206,6 +209,7 @@ audisp-strace --offline audit.log -c -S error%
 | `-c`, `--summary-only` | Print counts and error table on exit | `-c` |
 | `--summary` | Print traces and summary table on exit | `--summary` |
 | `-S`, `--sort-by` | Sort summary table (`calls`, `errors`, `error%`, `name`) | `-S errors` |
+| `-L`, `--string-limit`, `--strsize` | Limit maximum string length for arguments (default: 32, 0 for unlimited) | `-L 64`, `-L 0` |
 
 ---
 
