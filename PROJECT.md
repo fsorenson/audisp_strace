@@ -371,9 +371,15 @@ Sample 3-line format per monitored event:
   - Handles partial / in-progress line writes at EOF and file truncations.
   - Supports `--from-start` to read historical logs first before following, and `-n K` to read the last K lines before following.
   - Automatically enables live `/proc` resolution and self-PID quashing during follow mode.
+- [x] Implemented unlinked-while-open / 'ghost file' tracking (`(deleted)`):
+  - Automatically detects and annotates open file descriptors whose target file has been unlinked/deleted while remaining open, formatting as `fd</path/to/file (deleted)>` across subsequent I/O syscalls (`write`, `read`, `fstat`, `close`, etc.).
+  - In live mode (`-F` / `--follow` / pipe / plugin), checks `/proc/<pid>/fd/<fd>` to detect live kernel VFS unhashed dentry status (`d_path` returning `(deleted)`).
+  - In offline mode, uses best-effort cross-process state correlation linking `open`/`openat`/`creat` with subsequent `unlink`/`unlinkat`/`rmdir` events matching by normalized path and `(device, inode)` pairs across forks and descriptor duplicates (`dup`, `dup2`, `dup3`, `fcntl`).
+  - Path prefix filtering (`-P` / `--path-prefix`) transparently strips `(deleted)` suffix during path matching to ensure unlinked file events remain matched under target directory filters.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.
+  - Added dedicated Section 18 exercising and verifying unlinked-while-open ("ghost file") descriptors across `open`, `write`, `unlink`, post-unlink `write`, `fstat` (`st_nlink == 0`), `lseek`, `read`, `/proc/self/fd` validation (`(deleted)`), descriptor duplication (`dup`), and `close`.
 - [x] Created `setup_audit_rules.sh` to configure `auditctl` rules for all tested syscalls.
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
 

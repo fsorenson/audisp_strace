@@ -706,7 +706,8 @@ def matches_path_prefix(path, prefixes):
     """Returns True if path matches any prefix in prefixes."""
     if not path or not prefixes:
         return False
-    norm_path = os.path.normpath(path)
+    clean_path = path[:-10] if path.endswith(" (deleted)") else path
+    norm_path = os.path.normpath(clean_path)
     for pfx in prefixes:
         norm_pfx = os.path.normpath(pfx)
         if norm_pfx == "/":
@@ -899,24 +900,28 @@ class ProcessTracker:
         if fd_num is None:
             return None
 
-        proc = self.procs.get(pid)
-        if proc and 'fds' in proc and fd_num in proc['fds']:
-            return proc['fds'][fd_num]['path']
-
-        # Fall back to live /proc resolver if available
+        # In live mode, query /proc/<pid>/fd/<fd> to get live authoritative path and (deleted) status
         if self.resolver and self.resolver.is_live:
-            path = self.resolver.get_fd_path(pid, fd_num)
-            if path:
+            live_path = self.resolver.get_fd_path(pid, fd_num)
+            if live_path:
+                proc = self.procs.get(pid)
                 if proc is None:
                     self.update(pid)
                     proc = self.procs[pid]
                 if 'fds' not in proc:
                     proc['fds'] = {}
-                proc['fds'][fd_num] = {'path': path, 'cloexec': False}
-                return path
+                old_info = proc['fds'].get(fd_num, {})
+                old_info['path'] = live_path
+                proc['fds'][fd_num] = old_info
+                return live_path
+
+        proc = self.procs.get(pid)
+        if proc and 'fds' in proc and fd_num in proc['fds']:
+            return proc['fds'][fd_num]['path']
+
         return None
 
-    def set_fd(self, pid, fd, path, cloexec=False):
+    def set_fd(self, pid, fd, path, cloexec=False, inode=None, dev=None):
         if pid is None or not path:
             return
         try:
@@ -931,7 +936,12 @@ class ProcessTracker:
         proc = self.procs[pid]
         if 'fds' not in proc:
             proc['fds'] = {}
-        proc['fds'][fd_num] = {'path': path, 'cloexec': cloexec}
+        proc['fds'][fd_num] = {
+            'path': path,
+            'cloexec': cloexec,
+            'inode': str(inode) if inode is not None else None,
+            'dev': str(dev) if dev is not None else None,
+        }
 
     def close_fd(self, pid, fd):
         if pid is None:
@@ -958,9 +968,46 @@ class ProcessTracker:
         new_num = self._parse_fd(newfd)
         if old_num is None or new_num is None:
             return
+        proc = self.procs.get(pid)
+        old_info = proc['fds'].get(old_num) if proc and 'fds' in proc else None
         path = self.get_fd_path(pid, old_num)
         if path:
-            self.set_fd(pid, new_num, path, cloexec=cloexec)
+            inode = old_info.get('inode') if old_info else None
+            dev = old_info.get('dev') if old_info else None
+            self.set_fd(pid, new_num, path, cloexec=cloexec, inode=inode, dev=dev)
+
+    def mark_unlinked(self, path=None, inode=None, dev=None):
+        """Marks matching open file descriptors across processes as deleted/unlinked."""
+        if not path and not (inode and dev):
+            return 0
+        norm_target = os.path.normpath(path) if path else None
+        inode_str = str(inode) if inode is not None else None
+        dev_str = str(dev) if dev is not None else None
+
+        count = 0
+        for proc in self.procs.values():
+            fds = proc.get('fds')
+            if not fds:
+                continue
+            for fd_info in fds.values():
+                fd_path = fd_info.get('path')
+                if not fd_path or fd_path.startswith(("socket:", "pipe:", "anon_inode:")):
+                    continue
+                clean_path = fd_path[:-10] if fd_path.endswith(" (deleted)") else fd_path
+                matched = False
+                if inode_str and dev_str and fd_info.get('inode') == inode_str and fd_info.get('dev') == dev_str:
+                    matched = True
+                elif norm_target:
+                    norm_clean = os.path.normpath(clean_path)
+                    if norm_clean == norm_target:
+                        matched = True
+                    elif not os.path.isabs(clean_path) and (norm_target.endswith("/" + clean_path) or norm_target.endswith("/" + norm_clean)):
+                        matched = True
+
+                if matched and not fd_path.endswith(" (deleted)"):
+                    fd_info['path'] = clean_path + " (deleted)"
+                    count += 1
+        return count
 
     def copy_fds(self, parent_pid, child_pid):
         try:
@@ -2934,6 +2981,42 @@ class SyscallHandler:
             flags = event.syscall_interp.get("a2") or str(event.syscall.get("a2", ""))
             return "O_CLOEXEC" in flags or (self._parse_id(event.syscall.get("a2", "0")) & 0x80000 != 0)
         return False
+
+    def get_unlinked_path(self, event):
+        scname = event.syscall_name
+        name = ""
+        if scname in ('unlink', 'unlinkat'):
+            name = self._get_path_by_nametype(event, ("DELETE", "NORMAL"), default_idx=len(event.paths) - 1)
+            if not name and event.paths:
+                name = event.paths[0].get("name", "")
+            if not name:
+                name = event.syscall.get("a1" if scname == "unlinkat" else "a0", "")
+        elif scname == 'rmdir':
+            name = self._get_pathname(event, "a0")
+
+        name = name.strip('"')
+        if not name:
+            return None
+
+        if name.startswith('/'):
+            return os.path.normpath(name)
+
+        if scname == 'unlinkat':
+            dirfd_val = event.syscall.get("a0")
+            try:
+                dfd_int = int(str(dirfd_val), 16) if not str(dirfd_val).startswith("-") else int(dirfd_val)
+            except (ValueError, TypeError):
+                dfd_int = 0
+            if dfd_int not in (-100, 0xffffff9c, 4294967196):
+                dirfd_path = self.tracker.get_fd_path(event.pid, dfd_int)
+                if dirfd_path:
+                    clean_dir = dirfd_path[:-10] if dirfd_path.endswith(" (deleted)") else dirfd_path
+                    return os.path.normpath(os.path.join(clean_dir, name))
+
+        if event.cwd:
+            return os.path.normpath(os.path.join(event.cwd, name))
+
+        return os.path.normpath(name)
 
     def _format_access_mode(self, mode_val):
         try:
@@ -6585,6 +6668,8 @@ class AudispStraceApp:
                             fd_path = self.tracker.get_fd_path(pid, v_int)
                             if fd_path:
                                 paths.add(os.path.normpath(fd_path))
+                                if fd_path.endswith(" (deleted)"):
+                                    paths.add(os.path.normpath(fd_path[:-10]))
                     except (ValueError, TypeError):
                         pass
 
@@ -6595,11 +6680,13 @@ class AudispStraceApp:
                     if dfd_int not in (-100, 0xffffff9c, 4294967196) and 0 <= dfd_int < 65536:
                         dirfd_path = self.tracker.get_fd_path(pid, dfd_int)
                         if dirfd_path:
+                            clean_dir = dirfd_path[:-10] if dirfd_path.endswith(" (deleted)") else dirfd_path
                             paths.add(os.path.normpath(dirfd_path))
+                            paths.add(os.path.normpath(clean_dir))
                             for p in event.paths:
                                 p_name = p.get("name", "").strip('"')
                                 if p_name and not p_name.startswith("/") and p_name != "(null)":
-                                    paths.add(os.path.normpath(os.path.join(dirfd_path, p_name)))
+                                    paths.add(os.path.normpath(os.path.join(clean_dir, p_name)))
                 except (ValueError, TypeError):
                     pass
 
@@ -6769,8 +6856,16 @@ class AudispStraceApp:
             if event.exit_code is not None and event.exit_code >= 0:
                 opened_path = self.handler.get_opened_path(event)
                 is_cloexec = self.handler.is_cloexec_opened(event)
+                inode = None
+                dev = None
+                for p in event.paths:
+                    if p.get("nametype") != "PARENT":
+                        inode = p.get("inode")
+                        dev = p.get("dev")
+                        if inode and dev:
+                            break
                 if opened_path:
-                    self.tracker.set_fd(pid, event.exit_code, opened_path, cloexec=is_cloexec)
+                    self.tracker.set_fd(pid, event.exit_code, opened_path, cloexec=is_cloexec, inode=inode, dev=dev)
 
         elif scname == 'close':
             if event.exit_code == 0 or event.success == 'yes':
@@ -6930,6 +7025,20 @@ class AudispStraceApp:
                 path = self.tracker.get_fd_path(pid, fd_int)
                 if path and path.startswith("/"):
                     self.tracker.update_cwd(pid, path)
+
+        elif scname in ('unlink', 'unlinkat', 'rmdir'):
+            if event.exit_code == 0 or event.success == 'yes':
+                unlinked_path = self.handler.get_unlinked_path(event)
+                inode = None
+                dev = None
+                for p in event.paths:
+                    if p.get("nametype") in ("DELETE", "NORMAL") or (len(event.paths) == 1 and p.get("nametype") != "PARENT"):
+                        inode = p.get("inode")
+                        dev = p.get("dev")
+                        if inode and dev:
+                            break
+                if unlinked_path or (inode and dev):
+                    self.tracker.mark_unlinked(unlinked_path, inode=inode, dev=dev)
 
         elif scname in ('execve', 'execveat'):
             if event.exit_code == 0 or event.success == 'yes':

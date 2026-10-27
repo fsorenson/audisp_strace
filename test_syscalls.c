@@ -1992,6 +1992,73 @@ static void run_worker_tests(const char *base_dir) {
         close(dir_fd);
     }
 
+    /* -------------------------------------------------------------
+     * 18. UNLINKED-WHILE-OPEN / GHOST FILE VERIFICATION
+     * ------------------------------------------------------------- */
+    printf("\n--- Unlinked-While-Open / Ghost File Verification ---\n");
+    int ghost_fd = open("unlinked_while_open.txt", O_RDWR | O_CREAT | O_TRUNC, 0644);
+    log_op("open", "unlinked_while_open.txt created", ghost_fd);
+
+    if (ghost_fd >= 0) {
+        /* Write data before unlink */
+        res = (int)write(ghost_fd, "initial data before unlink\n", 27);
+        log_op("write", "write to unlinked_while_open.txt before unlink", res);
+
+        /* Unlink file while descriptor remains open */
+        res = unlink("unlinked_while_open.txt");
+        log_op("unlink", "unlink unlinked_while_open.txt while open", res);
+
+        /* Write data to unlinked descriptor (ghost file) */
+        res = (int)write(ghost_fd, "post-unlink data write\n", 23);
+        log_op("write", "write to unlinked-while-open fd (ghost file)", res);
+
+        /* fstat on unlinked descriptor (should show st_nlink == 0) */
+        struct stat ghost_st;
+        memset(&ghost_st, 0, sizeof(ghost_st));
+        res = fstat(ghost_fd, &ghost_st);
+        log_op("fstat", "fstat on unlinked-while-open fd", res);
+
+        /* lseek and read back data */
+        res = (int)lseek(ghost_fd, 0, SEEK_SET);
+        log_op("lseek", "lseek to beginning on unlinked fd", res);
+        char read_buf[64] = {0};
+        res = (int)read(ghost_fd, read_buf, sizeof(read_buf) - 1);
+        log_op("read", "read back from unlinked fd", res);
+
+        /* Verify live /proc status and link count */
+        char proc_link[512] = {0};
+        char proc_path[64];
+        snprintf(proc_path, sizeof(proc_path), "/proc/self/fd/%d", ghost_fd);
+        ssize_t link_len = readlink(proc_path, proc_link, sizeof(proc_link) - 1);
+        if (link_len > 0) {
+            proc_link[link_len] = '\0';
+            int has_deleted = (strstr(proc_link, "(deleted)") != NULL);
+            if (has_deleted && ghost_st.st_nlink == 0) {
+                printf("  [OK] %-14s: Verified %s -> '%s' (st_nlink=0)\n",
+                       "ghost_verify", proc_path, proc_link);
+            } else {
+                printf("  [FAIL] %-12s: Link '%s' has_deleted=%d, st_nlink=%ld\n",
+                       "ghost_verify", proc_link, has_deleted, (long)ghost_st.st_nlink);
+            }
+        } else {
+            log_op("readlink", proc_path, (int)link_len);
+        }
+
+        /* Dup the unlinked descriptor to verify dup inheritance of unlinked status */
+        int ghost_dup = dup(ghost_fd);
+        log_op("dup", "dup of unlinked-while-open fd", ghost_dup);
+        if (ghost_dup >= 0) {
+            res = (int)write(ghost_dup, "write via ghost dup\n", 20);
+            log_op("write", "write via dup of unlinked fd", res);
+            res = close(ghost_dup);
+            log_op("close", "close dup of unlinked fd", res);
+        }
+
+        /* Close original unlinked descriptor */
+        res = close(ghost_fd);
+        log_op("close", "close unlinked-while-open fd", res);
+    }
+
     rmdir("subdir_rel/nested_in_dirfd");
     unlinkat(AT_FDCWD, "sub_at_fdcwd_rel", AT_REMOVEDIR);
     rmdir("subdir_rel");

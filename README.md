@@ -72,6 +72,10 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Live continuous monitoring directly from `/var/log/audit/audit.log` (or any custom log file) without requiring `audispd` plugin daemon setup.
   - Built-in rotation tracking across inodes (e.g. `audit.log` rotated to `audit.log.1`), partial writes at EOF, and file truncations.
   - Supports `--from-start` (read whole file first) and `-n K` / `--lines K` (output last K lines before following).
+- **Unlinked-While-Open / 'Ghost File' Tracking**:
+  - Automatically identifies and annotates open file descriptors whose target file has been deleted/unlinked (`3</path/to/file (deleted)>`), mirroring `strace` behavior.
+  - **In Live Mode**: Authoritative real-time detection via `/proc/<pid>/fd/<fd>` resolution and VFS unhashed dentry status.
+  - **In Offline Mode**: Best-effort cross-process state correlation linking `open` and `unlink`/`unlinkat`/`rmdir` events by normalized path and `(device, inode)` pairs across forks and descriptor duplicates (`dup`, `dup2`, `dup3`, `fcntl`).
 - **Flexible Stream Redirection (`-o` / `--output`, `-A` / `--append`)**:
   - Route traces directly to a file with safe atomic flushing on `Ctrl-C`.
 
