@@ -403,5 +403,19 @@ Sample 3-line format per monitored event:
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
 
 ### Next Steps / Ideas
+- [ ] **Targeted Error Code Filtering (`-e errno` / `--errno EACCES,ENOENT,EBUSY` / `--exclude-errno`)**:
+  - Filter by specific error codes/names to isolate fatal permission or unmount errors without benign search path noise.
+- [ ] **Octal Mode to Symbolic Permission Conversion (`0755 <rwxr-xr-x>`)**:
+  - Automatically decode mode bits in `chmod`, `open`, `creat`, `mkdir`, `umask` to readable `<rwxr-xr-x>` annotations.
+- [ ] **Relative Timestamps (`-r` / `--relative-time`)**:
+  - Display elapsed delta since previous event (`+0.000412`) to identify latency hangs or bursts.
+- [ ] **Audit Rule Generator (`--generate-rules` / `--auditctl`)**:
+  - Generate exact copy-pasteable `auditctl` command lines matching current CLI filters and session exclusions.
+- [ ] **Multi-File Rotated Log Chronological Merging (`--merge` / `--sort-time`)**:
+  - K-way chronological event merge across multiple rotated audit files (`audit.log.4` ... `audit.log`).
+- [ ] **Security & Anomaly Badges / Heuristic Alerts**:
+  - Visual badges for SUID/SGID creation, executions from `/tmp` or `/dev/shm`, and sensitive file edits.
+- [ ] **`make install` / Packaging Target**:
+  - Makefile target to install binary to `/usr/local/bin` and plugin config to `/etc/audit/plugins.d/`.
 - [ ] Potential to-do: Add direct `syscall(SYS_open, ...)` and `syscall(SYS_stat, ...)` to `test_syscalls.c` if explicit audit verification of legacy syscall numbers is desired on x86_64.
 - [ ] Live integration test on test VM with auditd daemon active.
