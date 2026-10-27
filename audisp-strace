@@ -703,22 +703,32 @@ class ProcResolver:
             pass
         return None, None
 
+    def is_alive(self, pid):
+        if not self.is_live:
+            return None
+        return os.path.exists(f"/proc/{pid}")
+
 
 class ProcessTracker:
     """Maintains known process tree, credentials, and ancestry."""
 
-    def __init__(self, proc_resolver):
+    def __init__(self, proc_resolver, max_procs=10000):
         self.resolver = proc_resolver
-        self.procs = {}  # pid -> dict(ppid, comm, exe, cmdline, ses)
+        self.max_procs = int(max_procs) if max_procs is not None else 10000
+        self.procs = {}  # pid -> dict(ppid, comm, exe, cmdline, ses, fds, exited, last_active)
+        self.children = collections.defaultdict(set)  # ppid -> set of child pids
+        self._op_seq = 0
+        self.stats = {"pruned": 0, "evicted": 0}
 
     def update(self, pid, ppid=None, comm=None, exe=None, cmdline=None, ses=None):
         if pid is None:
             return
         try:
             pid = int(pid)
-        except ValueError:
+        except (ValueError, TypeError):
             return
 
+        self._op_seq += 1
         if pid not in self.procs:
             self.procs[pid] = {
                 'ppid': None,
@@ -726,16 +736,27 @@ class ProcessTracker:
                 'exe': None,
                 'cmdline': None,
                 'ses': None,
-                'fds': {}
+                'fds': {},
+                'exited': False,
+                'last_active': self._op_seq,
             }
+        else:
+            self.procs[pid]['last_active'] = self._op_seq
 
         proc = self.procs[pid]
         if 'fds' not in proc:
             proc['fds'] = {}
         if ppid is not None:
             try:
-                proc['ppid'] = int(ppid)
-            except ValueError:
+                ppid_int = int(ppid)
+                old_ppid = proc.get('ppid')
+                if old_ppid != ppid_int:
+                    if old_ppid is not None and old_ppid in self.children:
+                        self.children[old_ppid].discard(pid)
+                    proc['ppid'] = ppid_int
+                    if ppid_int != pid and ppid_int > 0:
+                        self.children[ppid_int].add(pid)
+            except (ValueError, TypeError):
                 pass
         if comm:
             proc['comm'] = comm.strip('"')
@@ -745,6 +766,10 @@ class ProcessTracker:
             proc['cmdline'] = cmdline
         if ses is not None:
             proc['ses'] = ses
+
+        # Evict if over capacity
+        if self.max_procs > 0 and len(self.procs) > self.max_procs:
+            self._evict_lru()
 
     def _parse_fd(self, val):
         if val is None:
@@ -859,16 +884,116 @@ class ProcessTracker:
         if proc and 'fds' in proc:
             proc['fds'] = {fd: info for fd, info in proc['fds'].items() if not info.get('cloexec')}
 
-    def exit_process(self, pid):
-        # We retain information for ancestry lookups of already-finished parents,
-        # but clear open file descriptors.
+    def update_cwd(self, pid, cwd):
         try:
             pid = int(pid)
-            proc = self.procs.get(pid)
-            if proc and 'fds' in proc:
-                proc['fds'].clear()
         except (ValueError, TypeError):
-            pass
+            return
+        if pid not in self.procs:
+            self.update(pid)
+        self.procs[pid]['cwd'] = cwd
+
+    def exit_process(self, pid):
+        # We retain information for ancestry lookups of already-finished parents,
+        # but clear open file descriptors. Once child processes exit, the tree is pruned.
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            return
+        proc = self.procs.get(pid)
+        if not proc:
+            return
+        self._op_seq += 1
+        proc['exited'] = True
+        proc['last_active'] = self._op_seq
+        if 'fds' in proc:
+            proc['fds'].clear()
+        self._maybe_prune(pid)
+
+    def _maybe_prune(self, pid):
+        if pid == 1:
+            return  # Never prune init/systemd
+        proc = self.procs.get(pid)
+        if not proc or not proc.get('exited'):
+            return
+        # If any children are still in self.procs, retain this process for ancestry
+        children_set = self.children.get(pid)
+        if children_set:
+            children_set.intersection_update(self.procs.keys())
+            if children_set:
+                return
+
+        # Prune this PID from state
+        ppid = proc.get('ppid')
+        self.procs.pop(pid, None)
+        self.children.pop(pid, None)
+        self.stats["pruned"] += 1
+
+        # Notify parent that this child is gone
+        if ppid is not None and ppid in self.children:
+            self.children[ppid].discard(pid)
+            # Recursively check if the parent was already exited and can now be pruned
+            self._maybe_prune(ppid)
+
+    def _evict_lru(self):
+        if not self.max_procs or len(self.procs) <= self.max_procs:
+            return
+        target_size = max(1, int(self.max_procs * 0.9))
+
+        # Priority 1: Exited processes (oldest last_active first)
+        exited_candidates = [
+            (proc.get('last_active', 0), pid)
+            for pid, proc in self.procs.items()
+            if pid != 1 and proc.get('exited')
+        ]
+        exited_candidates.sort()
+
+        for _, pid in exited_candidates:
+            if len(self.procs) <= target_size:
+                return
+            proc = self.procs.pop(pid, None)
+            self.children.pop(pid, None)
+            self.stats["evicted"] += 1
+            if proc:
+                ppid = proc.get('ppid')
+                if ppid is not None and ppid in self.children:
+                    self.children[ppid].discard(pid)
+
+        if len(self.procs) <= target_size:
+            return
+
+        # Priority 2: Other processes (excluding PID 1, oldest last_active first)
+        active_candidates = [
+            (proc.get('last_active', 0), pid)
+            for pid, proc in self.procs.items()
+            if pid != 1
+        ]
+        active_candidates.sort()
+
+        for _, pid in active_candidates:
+            if len(self.procs) <= target_size:
+                return
+            proc = self.procs.pop(pid, None)
+            self.children.pop(pid, None)
+            self.stats["evicted"] += 1
+            if proc:
+                ppid = proc.get('ppid')
+                if ppid is not None and ppid in self.children:
+                    self.children[ppid].discard(pid)
+
+    def prune_dead_processes(self):
+        """In live mode, sweeps procs and marks any non-existent PIDs as exited."""
+        if not self.resolver or not self.resolver.is_live:
+            return 0
+        dead = []
+        for pid in list(self.procs.keys()):
+            if pid == 1:
+                continue
+            if not self.resolver.is_alive(pid):
+                dead.append(pid)
+        for pid in dead:
+            self.exit_process(pid)
+        return len(dead)
 
     def get_proc(self, pid):
         return self.procs.get(pid)
@@ -929,6 +1054,10 @@ class ProcessTracker:
             if curr == 1 or ppid == 0 or ppid == curr or ppid is None:
                 break
             curr = ppid
+
+        for ancestor_pid, _ in chain:
+            if ancestor_pid in self.procs:
+                self.procs[ancestor_pid]['last_active'] = self._op_seq
 
         chain.reverse()
         return chain
@@ -6132,7 +6261,8 @@ class AudispStraceApp:
                  json_format=False,
                  string_limit=32,
                  show_key=False,
-                 show_serial=False):
+                 show_serial=False,
+                 max_procs=10000):
         self.out_file = out_file if out_file is not None else sys.stdout
         self.is_live = is_live
         self.all_syscalls = all_syscalls
@@ -6148,6 +6278,8 @@ class AudispStraceApp:
         self.string_limit = string_limit
         self.show_key = bool(show_key)
         self.show_serial = bool(show_serial)
+        self.max_procs = max_procs
+        self._event_count = 0
         self.stats = collections.defaultdict(lambda: {"calls": 0, "errors": 0})
         self._summary_printed = False
 
@@ -6185,7 +6317,7 @@ class AudispStraceApp:
         self.has_exclude_session = bool(self.exclude_sessions)
 
         self.resolver = ProcResolver(is_live=is_live)
-        self.tracker = ProcessTracker(self.resolver)
+        self.tracker = ProcessTracker(self.resolver, max_procs=self.max_procs)
         self.formatter = TraceFormatter(time_format=time_format, theme=self.theme, show_serial=self.show_serial)
         self.handler = SyscallHandler(self.tracker, self.resolver, self.formatter, string_limit=self.string_limit, show_key=self.show_key)
 
@@ -6265,6 +6397,10 @@ class AudispStraceApp:
         scname = event.syscall_name
         if not scname:
             return
+
+        self._event_count += 1
+        if self.is_live and (self._event_count % 5000 == 0):
+            self.tracker.prune_dead_processes()
 
         pid = event.pid
         ppid = event.ppid
@@ -6892,6 +7028,15 @@ def main():
         help="Display audit event serial number with timestamp (e.g. 14:19:27.079:1260437)"
     )
 
+    # Process tracking capacity
+    parser.add_argument(
+        "--max-procs",
+        dest="max_procs",
+        type=int,
+        default=10000,
+        help="Maximum number of processes to track in memory (default: 10000, use 0 for unlimited)"
+    )
+
     args = parser.parse_args()
 
     # Determine live mode
@@ -6958,7 +7103,8 @@ def main():
         json_format=args.json_format,
         string_limit=args.string_limit,
         show_key=args.show_key,
-        show_serial=args.show_serial
+        show_serial=args.show_serial,
+        max_procs=args.max_procs
     )
     _ACTIVE_APP = app
 

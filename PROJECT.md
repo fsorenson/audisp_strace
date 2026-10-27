@@ -83,6 +83,7 @@ Sample 3-line format per monitored event:
    - `-L`, `--string-limit`, `--strsize`, `--string-len`: Maximum string length to display for arguments and string literals (default: 32, use 0 for unlimited), modeled after `strace -s strsize`. File and directory paths are preserved without truncation.
    - `-k`, `--show-key`: Display audit rule key when present (`[key="rule_name"]`).
    - `--show-serial`, `--serial`: Display audit event serial number with timestamp (`14:19:27.079:1260437`).
+   - `--max-procs MAX_PROCS`: Maximum process capacity for `ProcessTracker` (default: 10000, 0 for unlimited) with automatic tree-based exit cleanup and LRU eviction.
    - `-t`, `--timestamp-format`: Select `time` (default: `HH:MM:SS.mmm`), `datetime` (`YYYY-MM-DD HH:MM:SS.mmm [tz]`), or `epoch`.
 4. **Architecture**:
    - Single executable script [`audisp-strace`](file:///home/sorenson/projects/audisp_strace/audisp-strace) with modular classes:
@@ -332,6 +333,10 @@ Sample 3-line format per monitored event:
 - [x] Implemented login session ID filtering (`--session-id` / `--session` / `--sid`, `--exclude-session-id` / `--exclude-session` / `--exclude-sid`):
   - Allows isolating syscalls from specific user console/SSH sessions (e.g. `--sid 64832`) or background system daemons (`--sid unset` or `-1`).
   - Seamlessly tracks session IDs across `clone`/`fork` and `execve` via `ProcessTracker`.
+- [x] Implemented ProcessTracker state garbage collection & memory bounding (`--max-procs`):
+  - Tree-aware cascade pruning: when a process exits, it is pruned immediately if it has no active child processes; otherwise it is retained for ancestry lookups until its descendants terminate, at which point the finished tree cascades up and prunes parent nodes.
+  - LRU eviction: when `len(self.procs)` exceeds `max_procs` (default 10,000), oldest exited processes are pruned first, followed by oldest inactive processes (protecting PID 1 `systemd` and active ancestry trees).
+  - Periodic dead process sweeping via `/proc` in live mode to detect processes that exited via unmonitored signals or crashed.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

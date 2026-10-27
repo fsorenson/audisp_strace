@@ -58,6 +58,10 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Modeled after `strace -s strsize` (default: 32 characters, use 0 for unlimited) to prevent unwieldy multi-line string or argument dumps while keeping full pathnames intact.
 - **Audit Key & Serial Display (`-k` / `--show-key`, `--show-serial`)**:
   - Displays audit rule keys (`[key="rule_name"]`) and event serial numbers (`14:19:27.079:1260437`) for immediate cross-correlation with `ausearch -a <serial>`.
+- **Automatic State Garbage Collection & Bounded Memory (`--max-procs`)**:
+  - Automatically reclaims finished process trees on process exit while retaining ancestors for active children.
+  - Periodic background dead process sweep in live mode.
+  - LRU capacity eviction (default: 10,000 processes, configurable via `--max-procs`) ensures strict memory bounds for indefinite production daemon operation.
 - **Flexible Stream Redirection (`-o` / `--output`, `-A` / `--append`)**:
   - Route traces directly to a file with safe atomic flushing on `Ctrl-C`.
 
@@ -101,6 +105,7 @@ usage: audisp-strace [-h] [-l] [--offline] [-t {time,datetime,epoch}]
                      [--color [{auto,always,never}]] [-o OUTPUT] [-A]
                      [-c] [--summary] [-S {calls,errors,error%,name}] [--json]
                      [-L STRING_LIMIT] [-k] [--show-serial]
+                     [--max-procs MAX_PROCS]
                      [files ...]
 ```
 
@@ -218,6 +223,7 @@ audisp-strace --offline audit.log -c -S error%
 | `-L`, `--string-limit`, `--strsize` | Limit maximum string length for arguments (default: 32, 0 for unlimited) | `-L 64`, `-L 0` |
 | `-k`, `--show-key` | Display audit rule key when present | `-k` |
 | `--show-serial`, `--serial` | Display audit event serial number with timestamp | `--show-serial` |
+| `--max-procs` | Maximum processes tracked in memory (default: 10000, 0 for unlimited) | `--max-procs 50000`, `--max-procs 0` |
 
 ---
 
