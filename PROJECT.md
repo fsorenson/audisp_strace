@@ -60,6 +60,9 @@ Sample 3-line format per monitored event:
      - `%%statfs`: All statfs-like syscalls (`statfs`, `fstatfs`, `ustat`)
      - `%pure`: Zero-argument getter syscalls (`getuid`, `getgid`, `geteuid`, `getegid`, etc.)
      - `%clock`: Clock and system time syscalls
+     - Filesystem investigation custom classes:
+       - `%perm` (aliases `%perms`, `%permission`, `%permissions`): Permission, ownership, attribute & ACL changes (`chmod`, `fchmod`, `fchmodat`, `fchmodat2`, `chown`, `lchown`, `fchown`, `fchownat`, `setxattr`, `lsetxattr`, `fsetxattr`, `setxattrat`, `removexattr`, `lremovexattr`, `fremovexattr`, `removexattrat`, `file_setattr`).
+       - `%remove` (aliases `%delete`, `%rm`): File and directory deletion & removal operations (`unlink`, `unlinkat`, `rmdir`, `rename`, `renameat`, `renameat2`).
      - Syscalls in any class not yet implemented in `audisp-strace` are maintained commented out in `SYSCALL_CLASSES` sets for easy activation as handlers are added.
    - `-a`, `--all`: Display all captured syscalls.
    - `-p`, `--pid`: Comma-separated or repeatable process ID filter (e.g. `-p 1234` or `-p 1234,5678`).
@@ -344,6 +347,9 @@ Sample 3-line format per monitored event:
 - [x] Implemented process command name and executable filtering (`--comm` / `--command`, `--exclude-comm`, `--exe` / `--executable`, `--exclude-exe`):
   - Filters syscall events by process command name (`comm`), caller process name, or executable binary path (`exe`).
   - Supports wildcard / glob matching (e.g. `--comm "python*"`, `--exe "*/nginx"`), exact path matching, and basename matching (`--exe ls` matches `/usr/bin/ls`).
+- [x] Implemented custom filesystem support syscall classes (`%perm` / `%perms`, `%remove` / `%delete`):
+  - Added `%perm` (with aliases `%perms`, `%permission`, `%permissions`): targets `chmod`, `fchmod`, `fchmodat`, `fchmodat2`, `chown`, `lchown`, `fchown`, `fchownat`, `setxattr`, `lsetxattr`, `fsetxattr`, `setxattrat`, `removexattr`, `lremovexattr`, `fremovexattr`, `removexattrat`, and `file_setattr` to isolate permission, ownership, attribute, and ACL (`setfacl`) modifications.
+  - Added `%remove` (with aliases `%delete`, `%rm`): targets `unlink`, `unlinkat`, `rmdir`, `rename`, `renameat`, and `renameat2` to isolate file and directory deletions and renames.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

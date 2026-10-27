@@ -515,10 +515,46 @@ SYSCALL_CLASSES = {
         "settimeofday",
         "time",
     },
+    # %perm / %perms: permission, ownership, attribute & ACL modifications
+    "%perm": {
+        "chmod",
+        "chown",
+        "fchmod",
+        "fchmodat",
+        "fchmodat2",
+        "fchown",
+        "fchownat",
+        "file_setattr",
+        "fremovexattr",
+        "fsetxattr",
+        "lchown",
+        "lremovexattr",
+        "lsetxattr",
+        "removexattr",
+        "removexattrat",
+        "setxattr",
+        "setxattrat",
+    },
+    # %remove: file and directory deletion / removal (including rename*)
+    "%remove": {
+        "rename",
+        "renameat",
+        "renameat2",
+        "rmdir",
+        "unlink",
+        "unlinkat",
+    },
 }
 
 # Alias %network -> %net
 SYSCALL_CLASSES["%network"] = SYSCALL_CLASSES["%net"]
+
+# Aliases for %perm and %remove
+SYSCALL_CLASSES["%perms"] = SYSCALL_CLASSES["%perm"]
+SYSCALL_CLASSES["%permission"] = SYSCALL_CLASSES["%perm"]
+SYSCALL_CLASSES["%permissions"] = SYSCALL_CLASSES["%perm"]
+SYSCALL_CLASSES["%delete"] = SYSCALL_CLASSES["%remove"]
+SYSCALL_CLASSES["%rm"] = SYSCALL_CLASSES["%remove"]
 
 
 def expand_syscall_spec(spec_str):
@@ -6950,12 +6986,12 @@ def main():
     )
     parser.add_argument(
         "-s", "--syscalls",
-        help="Comma-separated list of syscalls or %%CLASS shorthands to monitor (e.g. %%creds,%%net,openat)"
+        help="Comma-separated list of syscalls or %%CLASS shorthands to monitor (e.g. %%perm,%%remove,%%net,openat)"
     )
     parser.add_argument(
         "-x", "-X", "--exclude",
         dest="exclude",
-        help="Comma-separated list of syscalls or %%CLASS shorthands to exclude (e.g. %%desc,openat)"
+        help="Comma-separated list of syscalls or %%CLASS shorthands to exclude (e.g. %%desc,%%perm,openat)"
     )
     parser.add_argument(
         "-a", "--all",

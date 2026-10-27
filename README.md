@@ -40,8 +40,11 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - File I/O, lifecycle, descriptors, permissions, attributes, and ownership.
   - Sockets & networking with binary hex `SOCKADDR` decoding (IPv4, IPv6, UNIX sockets [filesystem, abstract `@`, unnamed], Netlink, Packet, VSOCK).
   - Modern Linux syscalls: `openat2`, `close_range`, `statx`, `statmount`, `listmount`, `futex_waitv`, `pidfd_*`, `io_uring_*`, `landlock_*`, `process_madvise`, and more.
-- **`strace`-Compatible `%CLASS` Selectors**:
-  - Filter using 18 standard syscall categories: `%desc`, `%file`, `%net`, `%creds`, `%process`, `%memory`, `%signal`, `%ipc`, `%clock`, `%stat`, `%fstat`, `%%stat`, `%statfs`, `%fstatfs`, `%%statfs`, `%pure`.
+- **`strace`-Compatible & Custom `%CLASS` Selectors**:
+  - **Filesystem Investigation Classes**:
+    - `%perm` (or `%perms`): Permission, ownership, attribute, and ACL modifications (`chmod`, `chown`, `setfacl`/`*xattr`, `file_setattr`).
+    - `%remove` (or `%delete`): File and directory deletions and renames (`unlink`, `unlinkat`, `rmdir`, `rename`, `renameat`, `renameat2`).
+  - **Standard Categories**: `%desc`, `%file`, `%net`, `%creds`, `%process`, `%memory`, `%signal`, `%ipc`, `%clock`, `%stat`, `%fstat`, `%%stat`, `%statfs`, `%fstatfs`, `%%statfs`, `%pure`.
 - **Granular Filtering**:
   - Filter by PID (`-p`, `--exclude-pid`) with child process tracking (`-f` / `--follow-fork`).
   - Filter by User or UID (`-u`, `--exclude-user`) matching real and effective identities.
@@ -119,9 +122,14 @@ Analyze an existing audit log file:
 audisp-strace --offline /var/log/audit/audit.log
 ```
 
-Trace only permission, credential, and ownership changes:
+Trace only file permission, ownership, and ACL modifications:
 ```bash
-audisp-strace --offline audit.log -s %creds
+audisp-strace --offline audit.log -s %perm
+```
+
+Trace file and directory deletions or renames:
+```bash
+audisp-strace --offline audit.log -s %remove
 ```
 
 Display only failed system calls (`-Z`):
@@ -202,7 +210,7 @@ audisp-strace --offline audit.log -c -S error%
 
 | Flag | Description | Example |
 | :--- | :--- | :--- |
-| `-s`, `--syscalls` | Comma-separated syscalls or `%CLASS` selectors to monitor | `-s %net,openat` |
+| `-s`, `--syscalls` | Comma-separated syscalls or `%CLASS` selectors to monitor | `-s %perm,openat` |
 | `-x`, `-X`, `--exclude` | Syscalls or `%CLASS` selectors to omit | `-X %desc,close` |
 | `-a`, `--all` | Display all captured syscalls (overrides default filter) | `-a` |
 | `-Z`, `--failed-only` | Display only syscalls returning an error | `-Z` |
