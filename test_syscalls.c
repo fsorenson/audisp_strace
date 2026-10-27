@@ -1121,6 +1121,44 @@ static void run_worker_tests(const char *base_dir) {
         log_op("fcntl", "F_DUPFD_CLOEXEC min 61", dup_fd2);
         if (dup_fd2 >= 0) close(dup_fd2);
 
+        /* POSIX record locking (F_SETLK, F_GETLK) */
+        struct flock fl;
+        memset(&fl, 0, sizeof(fl));
+        fl.l_type = F_WRLCK;
+        fl.l_whence = SEEK_SET;
+        fl.l_start = 0;
+        fl.l_len = 0;
+        res = fcntl(file_fd, F_SETLK, &fl);
+        log_op("fcntl", "F_SETLK F_WRLCK", res);
+
+        res = fcntl(file_fd, F_GETLK, &fl);
+        log_op("fcntl", "F_GETLK", res);
+
+        fl.l_type = F_UNLCK;
+        res = fcntl(file_fd, F_SETLK, &fl);
+        log_op("fcntl", "F_SETLK F_UNLCK", res);
+
+#ifdef F_OFD_SETLK
+        /* Open File Description (OFD) locking */
+        struct flock ofd_fl;
+        memset(&ofd_fl, 0, sizeof(ofd_fl));
+        ofd_fl.l_type = F_WRLCK;
+        ofd_fl.l_whence = SEEK_SET;
+        ofd_fl.l_start = 0;
+        ofd_fl.l_len = 0;
+        res = fcntl(file_fd, F_OFD_SETLK, &ofd_fl);
+        log_op("fcntl", "F_OFD_SETLK F_WRLCK", res);
+
+#ifdef F_OFD_GETLK
+        res = fcntl(file_fd, F_OFD_GETLK, &ofd_fl);
+        log_op("fcntl", "F_OFD_GETLK", res);
+#endif
+
+        ofd_fl.l_type = F_UNLCK;
+        res = fcntl(file_fd, F_OFD_SETLK, &ofd_fl);
+        log_op("fcntl", "F_OFD_SETLK F_UNLCK", res);
+#endif
+
         struct termios t;
         res = ioctl(0, TCGETS, &t);
         log_op("ioctl", "TCGETS on stdin", res);

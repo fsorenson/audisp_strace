@@ -388,6 +388,12 @@ Sample 3-line format per monitored event:
   - Added `MOUNT_SYSCALLS` to `DEFAULT_MONITORED_SYSCALLS` so mount and namespace operations are included by default when audit rules capture them.
   - Implemented `handle_umount` formatting for legacy 1-argument `umount` across architectures.
   - Added `setns` and `SYS_umount` tests to `test_syscalls.c` and audit rules to `setup_audit_rules.sh`.
+- [x] Implemented file and record locking syscall class (`%locks` / `%lock`):
+  - Targets `flock` and `fcntl` with locking commands: `F_SETLK`, `F_SETLKW`, `F_GETLK`, 64-bit variants (`F_SETLK64`, `F_SETLKW64`, `F_GETLK64`), and Open File Description (OFD) locks (`F_OFD_SETLK`, `F_OFD_SETLKW`, `F_OFD_GETLK`), as well as lease locks (`F_SETLEASE`, `F_GETLEASE`).
+  - Added sub-syscall command filtering for `fcntl`: selecting `-s %locks` selectively displays only `fcntl` lock calls while filtering out non-lock calls (`F_GETFL`, `F_SETFL`, `F_SETFD`, `F_DUPFD`), and `-x %locks` excludes lock calls while preserving non-lock calls.
+  - Formats pointer to `struct flock` arguments in `handle_fcntl` as `{...}` (or `NULL` if 0) matching standard `strace` conventions.
+  - Added `'flock'` to `DESC_CTRL_SYSCALLS` and default monitoring.
+  - Extended `test_syscalls.c` Section 15 to exercise `F_SETLK`, `F_GETLK`, and OFD locks (`F_OFD_SETLK`, `F_OFD_GETLK`).
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

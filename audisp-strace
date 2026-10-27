@@ -98,7 +98,7 @@ IO_SYSCALLS = {
 
 # Descriptor control syscalls
 DESC_CTRL_SYSCALLS = {
-    'fcntl', 'ioctl'
+    'fcntl', 'ioctl', 'flock'
 }
 
 # Mount & filesystem namespace syscalls
@@ -575,6 +575,11 @@ SYSCALL_CLASSES = {
         "umount2",
         "unshare",
     },
+    # %locks / %lock: file and record locking syscalls (flock and fcntl lock operations)
+    "%locks": {
+        "fcntl",
+        "flock",
+    },
 }
 
 # Alias %network -> %net
@@ -590,6 +595,9 @@ SYSCALL_CLASSES["%rm"] = SYSCALL_CLASSES["%remove"]
 # Aliases for %mount
 SYSCALL_CLASSES["%mounts"] = SYSCALL_CLASSES["%mount"]
 SYSCALL_CLASSES["%mnt"] = SYSCALL_CLASSES["%mount"]
+
+# Aliases for %locks
+SYSCALL_CLASSES["%lock"] = SYSCALL_CLASSES["%locks"]
 
 
 def expand_syscall_spec(spec_str):
@@ -612,6 +620,16 @@ def expand_syscall_spec(spec_str):
         else:
             selected.add(item)
     return selected
+
+
+def parse_locks_spec(spec_str):
+    """Checks if %locks or %lock was requested without broad fcntl inclusion."""
+    if not spec_str:
+        return False
+    items = [x.strip() for x in spec_str.split(",") if x.strip()]
+    has_locks = any(x in ("%locks", "%lock") for x in items)
+    has_all_fcntl = any(x in ("fcntl", "%desc", "%file") for x in items)
+    return has_locks and not has_all_fcntl
 
 
 def unescape_audit_str(val):
@@ -1936,10 +1954,37 @@ FCNTL_CMDS = {
     0: "F_DUPFD", 1: "F_GETFD", 2: "F_SETFD", 3: "F_GETFL", 4: "F_SETFL",
     5: "F_GETLK", 6: "F_SETLK", 7: "F_SETLKW", 8: "F_SETOWN", 9: "F_GETOWN",
     10: "F_SETSIG", 11: "F_GETSIG",
+    12: "F_GETLK64", 13: "F_SETLK64", 14: "F_SETLKW64",
+    36: "F_OFD_GETLK", 37: "F_OFD_SETLK", 38: "F_OFD_SETLKW",
     1024: "F_SETLEASE", 1025: "F_GETLEASE", 1026: "F_NOTIFY",
     1030: "F_DUPFD_CLOEXEC", 1031: "F_SETPIPE_SZ", 1032: "F_GETPIPE_SZ",
     1033: "F_ADD_SEALS", 1034: "F_GET_SEALS"
 }
+
+FCNTL_LOCK_CMDS = {
+    "F_GETLK", "F_SETLK", "F_SETLKW",
+    "F_GETLK64", "F_SETLK64", "F_SETLKW64",
+    "F_OFD_GETLK", "F_OFD_SETLK", "F_OFD_SETLKW",
+    "F_SETLEASE", "F_GETLEASE"
+}
+FCNTL_LOCK_CMD_NUMS = {5, 6, 7, 12, 13, 14, 36, 37, 38, 1024, 1025}
+
+
+def is_fcntl_lock_event(event):
+    cmd_raw = event.syscall.get("a1", "0")
+    try:
+        cmd_val = int(str(cmd_raw), 16) if not str(cmd_raw).startswith("-") else int(cmd_raw)
+    except (ValueError, TypeError):
+        cmd_val = None
+    if cmd_val in FCNTL_LOCK_CMD_NUMS:
+        return True
+    interp = event.syscall_interp.get("a1", "")
+    if interp in FCNTL_LOCK_CMDS:
+        return True
+    cmd_name = FCNTL_CMDS.get(cmd_val, "")
+    if cmd_name in FCNTL_LOCK_CMDS:
+        return True
+    return False
 
 COMMON_IOCTLS = {
     0x5401: "TCGETS", 0x5402: "TCSETS", 0x5403: "TCSETSW", 0x5404: "TCSETSF",
@@ -5207,6 +5252,9 @@ class SyscallHandler:
             return f"fcntl({fd_str}, {cmd_str}) = {event.exit_str}"
         elif cmd_str == "F_SETFL":
             arg_str = event.syscall_interp.get("a2") or str(arg_val)
+        elif cmd_str in ("F_SETLK", "F_SETLKW", "F_GETLK", "F_SETLK64", "F_SETLKW64", "F_GETLK64",
+                         "F_OFD_SETLK", "F_OFD_SETLKW", "F_OFD_GETLK"):
+            arg_str = "NULL" if arg_val == 0 else "{...}"
         else:
             arg_str = str(arg_val)
         return f"fcntl({fd_str}, {cmd_str}, {arg_str}) = {event.exit_str}"
@@ -6613,12 +6661,16 @@ class AudispStraceApp:
                  max_procs=10000,
                  detect_drops=False,
                  drop_threshold=1,
-                 drop_window=256):
+                 drop_window=256,
+                 locks_only_include=False,
+                 locks_only_exclude=False):
         self.out_file = out_file if out_file is not None else sys.stdout
         self.is_live = is_live
         self.all_syscalls = all_syscalls
         self.syscall_filter = set(syscalls) if syscalls is not None else None
         self.exclude_filter = set(exclude_syscalls) if exclude_syscalls is not None else set()
+        self.locks_only_include = bool(locks_only_include)
+        self.locks_only_exclude = bool(locks_only_exclude)
         self.failed_only = failed_only
         self.successful_only = successful_only
         self.compact = compact
@@ -7000,8 +7052,13 @@ class AudispStraceApp:
         formatted = None
         should_display = False
         if scname not in self.exclude_filter:
-            if self.syscall_filter is not None:
-                should_display = scname in self.syscall_filter
+            if scname == 'fcntl' and self.locks_only_exclude and is_fcntl_lock_event(event):
+                should_display = False
+            elif self.syscall_filter is not None:
+                if scname == 'fcntl' and self.locks_only_include:
+                    should_display = is_fcntl_lock_event(event)
+                else:
+                    should_display = scname in self.syscall_filter
             elif self.all_syscalls:
                 should_display = True
             else:
@@ -7936,8 +7993,12 @@ def main():
     if any(arg.startswith(("-S", "--sort-by")) for arg in sys.argv) and not (summary_only or summary):
         summary_only = True
 
+    locks_only_include = parse_locks_spec(args.syscalls)
+    locks_only_exclude = parse_locks_spec(args.exclude)
     syscalls_filter = expand_syscall_spec(args.syscalls)
     exclude_filter = expand_syscall_spec(args.exclude)
+    if locks_only_exclude and exclude_filter:
+        exclude_filter.discard("fcntl")
     pids_filter = parse_id_list(args.pids)
     exclude_pids = parse_id_list(args.exclude_pids)
     user_uids, user_names = parse_user_list(args.users)
@@ -8004,7 +8065,9 @@ def main():
         max_procs=args.max_procs,
         detect_drops=args.detect_drops,
         drop_threshold=args.drop_threshold,
-        drop_window=args.drop_window
+        drop_window=args.drop_window,
+        locks_only_include=locks_only_include,
+        locks_only_exclude=locks_only_exclude
     )
     _ACTIVE_APP = app
 

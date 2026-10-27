@@ -45,6 +45,7 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
     - `%perm` (or `%perms`): Permission, ownership, attribute, and ACL modifications (`chmod`, `chown`, `setfacl`/`*xattr`, `file_setattr`).
     - `%remove` (or `%delete`): File and directory deletions and renames (`unlink`, `unlinkat`, `rmdir`, `rename`, `renameat`, `renameat2`).
     - `%mount` (or `%mounts`, `%mnt`): Mounts, unmounts, mount API operations, filesystem namespaces, and chroot (`mount`, `umount`, `umount2`, `pivot_root`, `chroot`, `fsopen`, `fspick`, `fsconfig`, `fsmount`, `move_mount`, `open_tree`, `open_tree_attr`, `mount_setattr`, `statmount`, `listmount`, `unshare`, `setns`, `swapon`, `swapoff`).
+    - `%locks` (or `%lock`): File and record locking operations (`flock`, and `fcntl` with `F_SETLK`, `F_SETLKW`, `F_GETLK`, 64-bit variants, and Open File Description `F_OFD_*` locks).
   - **Standard Categories**: `%desc`, `%file`, `%net`, `%creds`, `%process`, `%memory`, `%signal`, `%ipc`, `%clock`, `%stat`, `%fstat`, `%%stat`, `%statfs`, `%fstatfs`, `%%statfs`, `%pure`.
 - **Granular Filtering**:
   - Filter by PID (`-p`, `--exclude-pid`) with child process tracking (`-f` / `--follow-fork`).
@@ -149,6 +150,11 @@ audisp-strace --offline audit.log -s %remove
 Trace mount, unmount, and filesystem namespace activity:
 ```bash
 audisp-strace --offline audit.log -s %mount
+```
+
+Trace file locking activity (flock and fcntl record/OFD locks):
+```bash
+audisp-strace --offline audit.log -s %locks
 ```
 
 Trace system calls accessing files under `/etc` or `/var/www`:
