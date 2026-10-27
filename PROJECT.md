@@ -376,6 +376,13 @@ Sample 3-line format per monitored event:
   - In live mode (`-F` / `--follow` / pipe / plugin), checks `/proc/<pid>/fd/<fd>` to detect live kernel VFS unhashed dentry status (`d_path` returning `(deleted)`).
   - In offline mode, uses best-effort cross-process state correlation linking `open`/`openat`/`creat` with subsequent `unlink`/`unlinkat`/`rmdir` events matching by normalized path and `(device, inode)` pairs across forks and descriptor duplicates (`dup`, `dup2`, `dup3`, `fcntl`).
   - Path prefix filtering (`-P` / `--path-prefix`) transparently strips `(deleted)` suffix during path matching to ensure unlinked file events remain matched under target directory filters.
+- [x] Implemented Audit Sequence Gap & Drop Detection (`-g` / `--detect-drops` / `--detect-gaps`, `--drop-threshold`, `--drop-window`):
+  - Monotonically tracks audit event serial numbers (`msg=audit(timestamp:serial)`) across all records to detect dropped or missing audit events (e.g. from kernel backlog exhaustion or auditd rate limits).
+  - Implements `AuditDropDetector` using a sliding window (default 256) to absorb multi-core CPU delivery jitter / out-of-order writes across SMP cores, guaranteeing zero false positives on complete audit logs.
+  - Handles 32-bit counter wrap-around (`4294967295 -> 0`) and large gap jumps (>100,000) without excessive memory consumption.
+  - Supports idle timeout checks (`check_idle(2.0)`) in live follow mode (`-F`) to flush pending gap alerts during traffic pauses without waiting for window fill.
+  - Configurable minimum drop threshold (`--drop-threshold`, default 1) to silence tiny micro-gaps if desired.
+  - Emits colored warning banners (`*** AUDIT DROP DETECTED: K events lost (serials X..Y) ***`), structured JSON records (`{"event": "audit_drop", ...}`), and appends audit drop totals to the `-c` / `--summary` statistics table.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

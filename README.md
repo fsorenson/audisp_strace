@@ -256,6 +256,50 @@ audisp-strace --offline audit.log -c -S error%
 
 ---
 
+## Audit Sequence Gap & Drop Detection (`-g`, `--detect-drops`)
+
+Linux audit events contain a monotonically increasing sequence counter (`msg=audit(timestamp:serial)`). When kernel audit buffers overflow or `auditd` rate-limits traffic, audit records are dropped.
+
+`audisp-strace` can track event sequence continuity to detect and alert on lost audit records:
+
+```bash
+# Detect drops when following live audit logs
+sudo audisp-strace -F --detect-drops
+
+# Offline audit log verification with gap detection
+audisp-strace --offline audit.log -g
+```
+
+When missing events are detected during tracing, a warning alert banner is displayed:
+```text
+*** AUDIT DROP DETECTED: 50 events lost (serials 8142572..8142621) ***
+```
+
+In JSON output mode (`--json`), structured drop events are emitted:
+```json
+{"event": "audit_drop", "timestamp": "2026-10-27T17:30:43.527560-05:00", "epoch": 1793140243.528, "dropped": 50, "start_serial": 8142572, "end_serial": 8142621}
+```
+
+In summary mode (`-c` / `--summary`), drop counts and gap instances are reported in the footer:
+```text
+-------  ---------  ---------  -------  ----------------
+ 100.00       3982         16     0.4%  total
+-------  ---------  ---------  -------  ----------------
+Audit drops: 0 events lost (stream continuous)
+```
+
+### Jitter Window & Threshold Tuning
+
+On multi-core SMP systems under heavy load, Linux kernel netlink queues deliver events across CPUs with microsecond interleaving, causing minor out-of-order writes (typically within 10–130 serials). `audisp-strace` uses a sliding grace window (`--drop-window`, default `256`) to absorb out-of-order arrivals and ensure **zero false positives** on healthy logs.
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `-g`, `--detect-drops` | Disabled | Enable audit sequence gap and drop detection |
+| `--drop-threshold K` | `1` | Minimum number of lost events in a gap required to trigger an alert banner |
+| `--drop-window N` | `256` | Sliding window size to absorb multi-core out-of-order delivery jitter |
+
+---
+
 ## Filtering Reference
 
 | Flag | Description | Example |
@@ -295,6 +339,9 @@ audisp-strace --offline audit.log -c -S error%
 | `-k`, `--show-key` | Display audit rule key when present | `-k` |
 | `--show-serial`, `--serial` | Display audit event serial number with timestamp | `--show-serial` |
 | `--max-procs` | Maximum processes tracked in memory (default: 10000, 0 for unlimited) | `--max-procs 50000`, `--max-procs 0` |
+| `-g`, `--detect-drops` | Detect dropped or missing audit events by sequence serials | `-g`, `--detect-drops` |
+| `--drop-threshold` | Minimum missing events to trigger alert banner (default: 1) | `--drop-threshold 5` |
+| `--drop-window` | Sliding window size to absorb multi-core jitter (default: 256) | `--drop-window 512` |
 
 ---
 
@@ -326,6 +373,7 @@ sudo auditctl -a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F key=
 `audisp-strace` is implemented as a single, self-contained Python executable structured into modular components:
 
 - **`AuditEvent`**: Normalizes multi-record audit events (`SYSCALL`, `CWD`, `PATH`, `EXECVE`, `PROCTITLE`, `SOCKADDR`), cleans strings, and extracts exit codes.
+- **`AuditDropDetector`**: Sequence analyzer tracking event serial numbers with sliding-window out-of-order jitter fulfillment and idle flush timers.
 - **`ProcessTracker`**: In-memory state engine tracking parent/child relationships, command lines, current working directories, and file descriptors across fork/exec/close.
 - **`ProcResolver`**: Fallback inspector resolving file descriptors and process info from `/proc` during live mode.
 - **`SyscallHandler`**: Decodes arguments and formats syscall calls for over 285 distinct Linux syscalls.
