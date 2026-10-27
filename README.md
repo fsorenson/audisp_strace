@@ -68,6 +68,10 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Automatically reclaims finished process trees on process exit while retaining ancestors for active children.
   - Periodic background dead process sweep in live mode.
   - LRU capacity eviction (default: 10,000 processes, configurable via `--max-procs`) ensures strict memory bounds for indefinite production daemon operation.
+- **Audit Log Follow Mode (`-F` / `--follow`)**:
+  - Live continuous monitoring directly from `/var/log/audit/audit.log` (or any custom log file) without requiring `audispd` plugin daemon setup.
+  - Built-in rotation tracking across inodes (e.g. `audit.log` rotated to `audit.log.1`), partial writes at EOF, and file truncations.
+  - Supports `--from-start` (read whole file first) and `-n K` / `--lines K` (output last K lines before following).
 - **Flexible Stream Redirection (`-o` / `--output`, `-A` / `--append`)**:
   - Route traces directly to a file with safe atomic flushing on `Ctrl-C`.
 
@@ -103,11 +107,12 @@ sudo cp audisp-strace /usr/local/bin/
 ## Usage
 
 ```text
-usage: audisp-strace [-h] [-l] [--offline] [-t {time,datetime,epoch}]
-                     [-s SYSCALLS] [-x EXCLUDE] [-a] [-Z | -z]
-                     [-C [{summary,strace}]] [-p PIDS] [--exclude-pid EXCLUDE_PIDS]
-                     [-f] [--trace-self] [-u USERS] [--exclude-user EXCLUDE_USERS]
-                     [--auid AUIDS] [--session-id SESSION_IDS]
+usage: audisp-strace [-h] [-l] [--offline] [-F] [--from-start] [-n K]
+                     [-t {time,datetime,epoch}] [-s SYSCALLS] [-x EXCLUDE]
+                     [-a] [-Z | -z] [-C [{summary,strace}]] [-p PIDS]
+                     [--exclude-pid EXCLUDE_PIDS] [-f] [--trace-self]
+                     [-u USERS] [--exclude-user EXCLUDE_USERS] [--auid AUIDS]
+                     [--session-id SESSION_IDS]
                      [--exclude-session-id EXCLUDE_SESSION_IDS]
                      [--comm COMMS] [--exclude-comm EXCLUDE_COMMS]
                      [--exe EXES] [--exclude-exe EXCLUDE_EXES]
@@ -151,9 +156,36 @@ Display only failed system calls (`-Z`):
 audisp-strace --offline audit.log -Z
 ```
 
-### 2. Live Monitoring via Pipe
+### 2. Live Log Following (`-F` / `--follow`)
 
-Monitor audit events as they occur in real time using `tail`:
+Follow the system audit log in real time (automatically tracks log file rotations across inodes):
+```bash
+sudo audisp-strace -F
+```
+
+Follow audit log and trace only permission or removal syscalls:
+```bash
+sudo audisp-strace -F -s %perm,%remove
+```
+
+Follow audit log and filter by accessed path prefix:
+```bash
+sudo audisp-strace -F -P /etc,/var/www
+```
+
+Follow audit log starting from the beginning of the file (rather than from the end):
+```bash
+sudo audisp-strace -F --from-start
+```
+
+Output the last 50 lines before following:
+```bash
+sudo audisp-strace -F -n 50
+```
+
+### 3. Live Monitoring via Pipe / audispd Plugin
+
+Monitor audit events piped directly from `tail` or `audispd`:
 ```bash
 sudo unbuffer tail -n0 -F /var/log/audit/audit.log | audisp-strace --live
 ```
@@ -224,6 +256,9 @@ audisp-strace --offline audit.log -c -S error%
 
 | Flag | Description | Example |
 | :--- | :--- | :--- |
+| `-F`, `--follow` | Follow audit log in real time (tracks rotations across inodes) | `sudo audisp-strace -F` |
+| `--from-start` | Read entire file from start before following (used with `-F`) | `sudo audisp-strace -F --from-start` |
+| `-n`, `--lines` | Output last K lines before following (used with `-F`, or `all`) | `sudo audisp-strace -F -n 50` |
 | `-s`, `--syscalls` | Comma-separated syscalls or `%CLASS` selectors to monitor | `-s %perm,openat` |
 | `-x`, `-X`, `--exclude` | Syscalls or `%CLASS` selectors to omit | `-X %desc,close` |
 | `-a`, `--all` | Display all captured syscalls (overrides default filter) | `-a` |

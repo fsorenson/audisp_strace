@@ -20,6 +20,7 @@ import socket
 import string
 import struct
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -6994,6 +6995,186 @@ class AudispStraceApp:
         except OSError:
             pass
 
+    def _seek_back_lines(self, f, count):
+        """Seeks backwards from end of file to include approximately count lines."""
+        if count <= 0:
+            f.seek(0, os.SEEK_END)
+            return
+        f.seek(0, os.SEEK_END)
+        end_pos = f.tell()
+        block_size = 8192
+        pos = end_pos
+        lines_found = 0
+        while pos > 0 and lines_found <= count:
+            step = min(block_size, pos)
+            pos -= step
+            f.seek(pos)
+            data = f.read(step)
+            lines_found += data.count('\n')
+        f.seek(pos)
+        if pos > 0:
+            while lines_found > count:
+                f.readline()
+                lines_found -= 1
+
+    def follow_file(self, filepath, from_start=False, lines_count=None):
+        """Continuously follows an audit log file, tracking log rotations across inodes."""
+        try:
+            f = open(filepath, "r", errors="replace")
+        except OSError as e:
+            sys.stderr.write(f"audisp-strace: cannot open '{filepath}': {e}\n")
+            if "Permission denied" in str(e):
+                sys.stderr.write("audisp-strace: try running with sudo to access audit logs\n")
+            sys.exit(1)
+
+        try:
+            st = os.fstat(f.fileno())
+            cur_dev = st.st_dev
+            cur_ino = st.st_ino
+        except OSError:
+            cur_dev = 0
+            cur_ino = 0
+
+        if from_start:
+            f.seek(0, os.SEEK_SET)
+        elif lines_count is not None and lines_count > 0:
+            self._seek_back_lines(f, lines_count)
+        else:
+            f.seek(0, os.SEEK_END)
+
+        buffer = ""
+        last_sweep = time.time()
+
+        while True:
+            cur_pos = f.tell()
+            line = f.readline()
+            if line:
+                if not line.endswith("\n"):
+                    # Partial line written by auditd, rewind and wait
+                    f.seek(cur_pos)
+                    time.sleep(0.05)
+                    continue
+
+                line = line.strip("\r\n")
+                if not line:
+                    continue
+
+                line = line.replace('\x1d', ' ')
+
+                if line.startswith(("    ", "strace:", "audit event:", "audisp-strace entry:")):
+                    continue
+
+                if line.startswith(("type=", "node=")):
+                    if buffer:
+                        try:
+                            self.au.feed(buffer + "\n")
+                        except OSError:
+                            pass
+                        buffer = ""
+                    buffer = line
+                else:
+                    if buffer:
+                        if not buffer.endswith(" ") and not line.startswith(" "):
+                            buffer += " " + line
+                        else:
+                            buffer += line
+                    else:
+                        try:
+                            self.au.feed(line + "\n")
+                        except OSError:
+                            pass
+            else:
+                # EOF reached on current file for now
+                if buffer:
+                    try:
+                        self.au.feed(buffer + "\n")
+                    except OSError:
+                        pass
+                    buffer = ""
+                try:
+                    self.au.flush_feed()
+                except OSError:
+                    pass
+                if hasattr(self.out_file, "flush"):
+                    try:
+                        self.out_file.flush()
+                    except Exception:
+                        pass
+
+                if self.is_live and time.time() - last_sweep > 60:
+                    self.tracker.prune_dead_processes()
+                    last_sweep = time.time()
+
+                time.sleep(0.05)
+
+                # Check for file rotation or truncation
+                try:
+                    cur_stat = os.stat(filepath)
+                except OSError:
+                    # File temporarily missing during rotation
+                    continue
+
+                # Case 1: Inode changed (log rotation occurred)
+                if cur_stat.st_ino != cur_ino or cur_stat.st_dev != cur_dev:
+                    # Drain any remaining lines in old file handle
+                    while True:
+                        cur_pos = f.tell()
+                        old_line = f.readline()
+                        if not old_line or not old_line.endswith("\n"):
+                            break
+                        old_line = old_line.strip("\r\n").replace('\x1d', ' ')
+                        if not old_line or old_line.startswith(("    ", "strace:", "audit event:", "audisp-strace entry:")):
+                            continue
+                        if old_line.startswith(("type=", "node=")):
+                            if buffer:
+                                try:
+                                    self.au.feed(buffer + "\n")
+                                except OSError:
+                                    pass
+                                buffer = ""
+                            buffer = old_line
+                        else:
+                            if buffer:
+                                if not buffer.endswith(" ") and not old_line.startswith(" "):
+                                    buffer += " " + old_line
+                                else:
+                                    buffer += old_line
+                            else:
+                                try:
+                                    self.au.feed(old_line + "\n")
+                                except OSError:
+                                    pass
+                    if buffer:
+                        try:
+                            self.au.feed(buffer + "\n")
+                        except OSError:
+                            pass
+                        buffer = ""
+                    try:
+                        self.au.flush_feed()
+                    except OSError:
+                        pass
+                    if hasattr(self.out_file, "flush"):
+                        try:
+                            self.out_file.flush()
+                        except Exception:
+                            pass
+
+                    # Switch to the new rotated file
+                    try:
+                        new_f = open(filepath, "r", errors="replace")
+                        new_st = os.fstat(new_f.fileno())
+                        f.close()
+                        f = new_f
+                        cur_dev = new_st.st_dev
+                        cur_ino = new_st.st_ino
+                    except OSError:
+                        continue
+
+                # Case 2: File truncated (same inode, size shrunk)
+                elif cur_stat.st_size < f.tell():
+                    f.seek(0, os.SEEK_SET)
+
     def format_summary_table(self):
         total_calls = sum(s["calls"] for s in self.stats.values())
         total_errors = sum(s["errors"] for s in self.stats.values())
@@ -7132,6 +7313,22 @@ def main():
         "--offline",
         action="store_true",
         help="Force offline mode (/proc lookups disabled)"
+    )
+    parser.add_argument(
+        "-F", "--follow",
+        action="store_true",
+        help="Follow audit log file in real time (like 'tail -F'), tracking file rotations across inodes (default: /var/log/audit/audit.log)"
+    )
+    parser.add_argument(
+        "--from-start",
+        action="store_true",
+        help="When following (-F/--follow), read the file from the beginning before following (default starts at end of file)"
+    )
+    parser.add_argument(
+        "-n", "--lines",
+        dest="tail_lines",
+        metavar="K",
+        help="When following (-F/--follow), output the last K lines before following (default: 0 to follow only new events, or 'all')"
     )
     parser.add_argument(
         "-t", "--timestamp-format",
@@ -7368,7 +7565,7 @@ def main():
     # Determine live mode
     if args.offline:
         is_live = False
-    elif args.live is True:
+    elif args.live is True or args.follow:
         is_live = True
     else:
         is_live = detect_live()
@@ -7448,7 +7645,35 @@ def main():
     _ACTIVE_APP = app
 
     try:
-        if args.files:
+        if args.follow:
+            target_files = args.files if args.files else ["/var/log/audit/audit.log"]
+            for fp in target_files[:-1]:
+                if fp == "-":
+                    app.process_stream(sys.stdin)
+                else:
+                    try:
+                        with open(fp, "r", errors="replace") as f:
+                            app.process_stream(f)
+                    except OSError as e:
+                        sys.stderr.write(f"audisp-strace: cannot read {fp}: {e}\n")
+
+            follow_target = target_files[-1]
+            if len(target_files) > 1:
+                app.follow_file(follow_target, from_start=True)
+            else:
+                from_start = args.from_start
+                lines_count = None
+                if args.tail_lines is not None:
+                    if args.tail_lines.lower() in ("all", "full"):
+                        from_start = True
+                    else:
+                        try:
+                            lines_count = int(args.tail_lines)
+                        except ValueError:
+                            sys.stderr.write(f"audisp-strace: invalid lines count '{args.tail_lines}'\n")
+                            sys.exit(1)
+                app.follow_file(follow_target, from_start=from_start, lines_count=lines_count)
+        elif args.files:
             for file_path in args.files:
                 if file_path == "-":
                     app.process_stream(sys.stdin)
