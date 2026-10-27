@@ -100,7 +100,7 @@ auditctl -a always,exit -F arch=b64 -S pause,rt_sigaction,rt_sigpending,rt_sigpr
 auditctl -a always,exit -F arch=b64 -S sched_yield,sched_setparam,sched_getparam,sched_setscheduler,sched_getscheduler -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S sched_get_priority_max,sched_get_priority_min,sched_rr_get_interval,sched_setaffinity,sched_getaffinity -F key="$KEY"
 auditctl -a always,exit -F arch=b64 -S sched_setattr,sched_getattr,getcpu,setpgid,getpgid,setsid,getsid,getpriority,setpriority -F key="$KEY"
-auditctl -a always,exit -F arch=b64 -S umask,personality,getrlimit,setrlimit,prlimit64,getrusage,unshare,set_tid_address,rseq,vhangup,restart_syscall -F key="$KEY"
+auditctl -a always,exit -F arch=b64 -S umask,personality,getrlimit,setrlimit,prlimit64,getrusage,unshare,setns,set_tid_address,rseq,vhangup,restart_syscall -F key="$KEY"
 
 # Time, Timers & Clocks (non-%clock)
 auditctl -a always,exit -F arch=b64 -S nanosleep,clock_nanosleep,alarm,getitimer,setitimer,times -F key="$KEY"

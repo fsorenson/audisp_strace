@@ -101,8 +101,16 @@ DESC_CTRL_SYSCALLS = {
     'fcntl', 'ioctl'
 }
 
+# Mount & filesystem namespace syscalls
+MOUNT_SYSCALLS = {
+    'chroot', 'fsconfig', 'fsmount', 'fsopen', 'fspick', 'listmount',
+    'mount', 'mount_setattr', 'move_mount', 'open_tree', 'open_tree_attr',
+    'pivot_root', 'setns', 'statmount', 'swapoff', 'swapon', 'umount',
+    'umount2', 'unshare'
+}
+
 DEFAULT_MONITORED_SYSCALLS = (
-    PERMISSION_SYSCALLS | FILE_MGMT_SYSCALLS |
+    PERMISSION_SYSCALLS | FILE_MGMT_SYSCALLS | MOUNT_SYSCALLS |
     MEMORY_SYSCALLS | SOCKET_SYSCALLS | IO_SYSCALLS | DESC_CTRL_SYSCALLS |
     {
         'clone', 'clone3', 'fork', 'vfork', 'execve', 'execveat'
@@ -545,6 +553,28 @@ SYSCALL_CLASSES = {
         "unlink",
         "unlinkat",
     },
+    # %mount / %mounts / %mnt: mount, filesystem namespace & chroot activity
+    "%mount": {
+        "chroot",
+        "fsconfig",
+        "fsmount",
+        "fsopen",
+        "fspick",
+        "listmount",
+        "mount",
+        "mount_setattr",
+        "move_mount",
+        "open_tree",
+        "open_tree_attr",
+        "pivot_root",
+        "setns",
+        "statmount",
+        "swapoff",
+        "swapon",
+        "umount",
+        "umount2",
+        "unshare",
+    },
 }
 
 # Alias %network -> %net
@@ -556,6 +586,10 @@ SYSCALL_CLASSES["%permission"] = SYSCALL_CLASSES["%perm"]
 SYSCALL_CLASSES["%permissions"] = SYSCALL_CLASSES["%perm"]
 SYSCALL_CLASSES["%delete"] = SYSCALL_CLASSES["%remove"]
 SYSCALL_CLASSES["%rm"] = SYSCALL_CLASSES["%remove"]
+
+# Aliases for %mount
+SYSCALL_CLASSES["%mounts"] = SYSCALL_CLASSES["%mount"]
+SYSCALL_CLASSES["%mnt"] = SYSCALL_CLASSES["%mount"]
 
 
 def expand_syscall_spec(spec_str):
@@ -2774,6 +2808,7 @@ class SyscallHandler:
             "inotify_add_watch": self.handle_inotify_add_watch,
             "quotactl": self.handle_quotactl,
             "mount": self.handle_mount,
+            "umount": self.handle_umount,
             "umount2": self.handle_umount2,
             "pivot_root": self.handle_pivot_root,
             "swapon": self.handle_swapon,
@@ -4399,6 +4434,10 @@ class SyscallHandler:
         flags_val = self._parse_id(event.syscall.get("a3", "0"))
         flags_str = self._format_mount_flags(flags_val)
         return f'mount("{source}", "{target}", {fstype_str}, {flags_str}, ...) = {event.exit_str}'
+
+    def handle_umount(self, event):
+        target = self._get_pathname(event, "a0")
+        return f'umount("{target}") = {event.exit_str}'
 
     def handle_umount2(self, event):
         target = self._get_pathname(event, "a0")

@@ -1259,6 +1259,16 @@ static void run_worker_tests(const char *base_dir) {
     res = umount2("/invalid_mount_target", 0);
     log_op("umount2", "dummy umount", res);
 
+#ifdef SYS_umount
+    res = syscall(SYS_umount, "/invalid_mount_target");
+    log_op("umount", "dummy umount", res);
+#endif
+
+#ifdef SYS_setns
+    res = syscall(SYS_setns, -1, 0);
+    log_op("setns", "dummy setns", res);
+#endif
+
 #ifdef SYS_pivot_root
     res = syscall(SYS_pivot_root, "/invalid_pivot", "/invalid_pivot");
     log_op("pivot_root", "dummy pivot_root", res);

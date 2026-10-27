@@ -383,6 +383,11 @@ Sample 3-line format per monitored event:
   - Supports idle timeout checks (`check_idle(2.0)`) in live follow mode (`-F`) to flush pending gap alerts during traffic pauses without waiting for window fill.
   - Configurable minimum drop threshold (`--drop-threshold`, default 1) to silence tiny micro-gaps if desired.
   - Emits colored warning banners (`*** AUDIT DROP DETECTED: K events lost (serials X..Y) ***`), structured JSON records (`{"event": "audit_drop", ...}`), and appends audit drop totals to the `-c` / `--summary` statistics table.
+- [x] Implemented mount & filesystem namespace syscall class (`%mount` / `%mounts` / `%mnt`):
+  - Captures 19 mount, filesystem namespace, and container isolation system calls: `mount`, `umount`, `umount2`, `pivot_root`, `chroot`, `fsopen`, `fspick`, `fsconfig`, `fsmount`, `move_mount`, `open_tree`, `open_tree_attr`, `mount_setattr`, `statmount`, `listmount`, `unshare`, `setns`, `swapon`, and `swapoff`.
+  - Added `MOUNT_SYSCALLS` to `DEFAULT_MONITORED_SYSCALLS` so mount and namespace operations are included by default when audit rules capture them.
+  - Implemented `handle_umount` formatting for legacy 1-argument `umount` across architectures.
+  - Added `setns` and `SYS_umount` tests to `test_syscalls.c` and audit rules to `setup_audit_rules.sh`.
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.
