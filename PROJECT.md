@@ -70,6 +70,10 @@ Sample 3-line format per monitored event:
    - `--auid`: Comma-separated or repeatable audit login UID or username filter.
    - `--session-id`, `--session`, `--sid`: Comma-separated or repeatable login session ID filter (supports numeric IDs or `'unset'` / `-1`).
    - `--exclude-session-id`, `--exclude-session`, `--exclude-sid`: Comma-separated or repeatable login session ID exclusion filter.
+   - `--comm`, `--command`: Comma-separated or repeatable command name filter with glob wildcard support (e.g. `--comm nginx,"python*"`).
+   - `--exclude-comm`, `--exclude-command`: Comma-separated or repeatable command name exclusion filter.
+   - `--exe`, `--executable`: Comma-separated or repeatable executable path or name filter with glob wildcard support (e.g. `--exe /usr/bin/ls`, `--exe ls`).
+   - `--exclude-exe`, `--exclude-executable`: Comma-separated or repeatable executable exclusion filter.
    - `-Z`, `--failed-only`: Display only syscalls that returned an error code (like `strace -Z`).
    - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
    - `-C`, `-1`, `--compact [{summary,strace}]`: Compact 1-line output per event (`summary` [default] with `[uid]` `[ppid]`, or `strace` for pure syscall line).
@@ -337,6 +341,9 @@ Sample 3-line format per monitored event:
   - Tree-aware cascade pruning: when a process exits, it is pruned immediately if it has no active child processes; otherwise it is retained for ancestry lookups until its descendants terminate, at which point the finished tree cascades up and prunes parent nodes.
   - LRU eviction: when `len(self.procs)` exceeds `max_procs` (default 10,000), oldest exited processes are pruned first, followed by oldest inactive processes (protecting PID 1 `systemd` and active ancestry trees).
   - Periodic dead process sweeping via `/proc` in live mode to detect processes that exited via unmonitored signals or crashed.
+- [x] Implemented process command name and executable filtering (`--comm` / `--command`, `--exclude-comm`, `--exe` / `--executable`, `--exclude-exe`):
+  - Filters syscall events by process command name (`comm`), caller process name, or executable binary path (`exe`).
+  - Supports wildcard / glob matching (e.g. `--comm "python*"`, `--exe "*/nginx"`), exact path matching, and basename matching (`--exe ls` matches `/usr/bin/ls`).
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

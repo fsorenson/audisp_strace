@@ -47,6 +47,7 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Filter by User or UID (`-u`, `--exclude-user`) matching real and effective identities.
   - Filter by Audit Login UID (`--auid`).
   - Filter by Login Session ID (`--session-id` / `--sid`, `--exclude-session-id` / `--exclude-sid`) to isolate specific user sessions or exclude unset background daemon sessions.
+  - Filter by Process Command Name (`--comm`, `--exclude-comm`) and Executable Binary (`--exe`, `--exclude-exe`) with wildcard/glob matching.
   - Filter by Exit Status: failed only (`-Z`) or successful only (`-z`).
 - **Syscall Statistics & Summary (`-c` / `--summary-only`, `--summary`, `-S`)**:
   - Aggregates call counts, error counts, and error percentages per syscall.
@@ -102,6 +103,8 @@ usage: audisp-strace [-h] [-l] [--offline] [-t {time,datetime,epoch}]
                      [-C [{summary,strace}]] [-p PIDS] [--exclude-pid EXCLUDE_PIDS]
                      [-f] [-u USERS] [--exclude-user EXCLUDE_USERS] [--auid AUIDS]
                      [--session-id SESSION_IDS] [--exclude-session-id EXCLUDE_SESSION_IDS]
+                     [--comm COMMS] [--exclude-comm EXCLUDE_COMMS]
+                     [--exe EXES] [--exclude-exe EXCLUDE_EXES]
                      [--color [{auto,always,never}]] [-o OUTPUT] [-A]
                      [-c] [--summary] [-S {calls,errors,error%,name}] [--json]
                      [-L STRING_LIMIT] [-k] [--show-serial]
@@ -212,6 +215,10 @@ audisp-strace --offline audit.log -c -S error%
 | `--auid` | Filter by audit login identity | `--auid 1000` |
 | `--session-id`, `--sid` | Filter by login session ID (supports `unset` or `-1`) | `--sid 64832`, `--sid unset` |
 | `--exclude-session-id`, `--exclude-sid` | Exclude specified session ID(s) | `--exclude-sid unset` |
+| `--comm`, `--command` | Filter by process command name (supports wildcards) | `--comm nginx,"python*"` |
+| `--exclude-comm`, `--exclude-command` | Exclude specified command name(s) | `--exclude-comm auditd` |
+| `--exe`, `--executable` | Filter by executable path or name (supports wildcards) | `--exe /usr/bin/ls`, `--exe ls` |
+| `--exclude-exe`, `--exclude-executable` | Exclude specified executable path(s) | `--exclude-exe /usr/sbin/*` |
 | `-C`, `--compact` | Compact 1-line mode (`summary` or `strace`) | `-C summary` |
 | `--json`, `--jsonl` | Output events as JSON Lines (NDJSON) | `--json` |
 | `--color` | ANSI color output (`auto`, `always`, `never`) | `--color=always` |

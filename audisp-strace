@@ -9,6 +9,7 @@ traces with enriched process ancestry and process credentials.
 import argparse
 import collections
 import datetime
+import fnmatch
 import grp
 import json
 import os
@@ -616,6 +617,32 @@ def parse_session_list(spec_list):
                     sys.stderr.write(f"audisp-strace: invalid session ID '{part}'\n")
                     sys.exit(1)
     return sessions
+
+
+def parse_pattern_list(spec_list):
+    """Parses a list of comma-separated string patterns/names (e.g. ['nginx,python*', 'bash'])."""
+    patterns = []
+    if not spec_list:
+        return patterns
+    for item in spec_list:
+        for part in item.split(','):
+            part = part.strip().strip('"').strip("'")
+            if part:
+                patterns.append(part)
+    return patterns
+
+
+def matches_pattern_list(value, patterns):
+    """Returns True if value or its basename matches any pattern in patterns."""
+    if not value or not patterns:
+        return False
+    val_base = os.path.basename(value)
+    for pat in patterns:
+        if value == pat or val_base == pat:
+            return True
+        if fnmatch.fnmatch(value, pat) or fnmatch.fnmatch(val_base, pat):
+            return True
+    return False
 
 
 def parse_user_list(spec_list):
@@ -6253,6 +6280,8 @@ class AudispStraceApp:
                  exclude_uids=None, exclude_names=None,
                  auid_uids=None, auid_names=None,
                  session_ids=None, exclude_session_ids=None,
+                 comms=None, exclude_comms=None,
+                 exes=None, exclude_exes=None,
                  color="auto",
                  out_file=None,
                  summary=False,
@@ -6315,6 +6344,16 @@ class AudispStraceApp:
         self.exclude_sessions = set(exclude_session_ids) if exclude_session_ids else set()
         self.has_session_filter = bool(self.session_filter)
         self.has_exclude_session = bool(self.exclude_sessions)
+
+        self.comm_filter = comms if comms else None
+        self.exclude_comms = exclude_comms if exclude_comms else None
+        self.has_comm_filter = bool(self.comm_filter)
+        self.has_exclude_comm = bool(self.exclude_comms)
+
+        self.exe_filter = exes if exes else None
+        self.exclude_exes = exclude_exes if exclude_exes else None
+        self.has_exe_filter = bool(self.exe_filter)
+        self.has_exclude_exe = bool(self.exclude_exes)
 
         self.resolver = ProcResolver(is_live=is_live)
         self.tracker = ProcessTracker(self.resolver, max_procs=self.max_procs)
@@ -6381,6 +6420,44 @@ class AudispStraceApp:
             if ses == 4294967295 and -1 in session_set:
                 return True
             if ses == -1 and 4294967295 in session_set:
+                return True
+        return False
+
+    def _matches_comm_filter(self, event, caller_comm, patterns):
+        if not patterns:
+            return False
+        candidates = set()
+        if event.comm:
+            candidates.add(event.comm)
+        if caller_comm:
+            candidates.add(caller_comm)
+        if event.pid and self.tracker:
+            proc = self.tracker.get_proc(event.pid)
+            if proc and proc.get("comm"):
+                candidates.add(proc["comm"])
+            if proc and proc.get("exe"):
+                candidates.add(os.path.basename(proc["exe"]))
+        for c in candidates:
+            if matches_pattern_list(c, patterns):
+                return True
+        return False
+
+    def _matches_exe_filter(self, event, patterns):
+        if not patterns:
+            return False
+        candidates = set()
+        if event.exe:
+            candidates.add(event.exe)
+        if event.pid and self.tracker:
+            proc = self.tracker.get_proc(event.pid)
+            if proc and proc.get("exe"):
+                candidates.add(proc["exe"])
+        if not candidates and self.resolver and self.resolver.is_live:
+            live_exe = self.resolver.get_exe(event.pid)
+            if live_exe:
+                candidates.add(live_exe)
+        for e in candidates:
+            if matches_pattern_list(e, patterns):
                 return True
         return False
 
@@ -6469,6 +6546,18 @@ class AudispStraceApp:
             if self.has_exclude_session and self._matches_session_filter(event, self.exclude_sessions):
                 should_display = False
             elif self.has_session_filter and not self._matches_session_filter(event, self.session_filter):
+                should_display = False
+
+        if should_display:
+            if self.has_exclude_comm and self._matches_comm_filter(event, caller_comm, self.exclude_comms):
+                should_display = False
+            elif self.has_comm_filter and not self._matches_comm_filter(event, caller_comm, self.comm_filter):
+                should_display = False
+
+        if should_display:
+            if self.has_exclude_exe and self._matches_exe_filter(event, self.exclude_exes):
+                should_display = False
+            elif self.has_exe_filter and not self._matches_exe_filter(event, self.exe_filter):
                 should_display = False
 
         if should_display:
@@ -6952,6 +7041,32 @@ def main():
         help="Exclude specified session ID(s) (comma-separated or specified multiple times)"
     )
 
+    # Process command & executable filtering
+    parser.add_argument(
+        "--comm", "--command",
+        dest="comms",
+        action="append",
+        help="Filter by process command name (comma-separated or specified multiple times, supports wildcards)"
+    )
+    parser.add_argument(
+        "--exclude-comm", "--exclude-command",
+        dest="exclude_comms",
+        action="append",
+        help="Exclude specified command name(s) (comma-separated or specified multiple times, supports wildcards)"
+    )
+    parser.add_argument(
+        "--exe", "--executable",
+        dest="exes",
+        action="append",
+        help="Filter by executable binary path or name (comma-separated or specified multiple times, supports wildcards)"
+    )
+    parser.add_argument(
+        "--exclude-exe", "--exclude-executable",
+        dest="exclude_exes",
+        action="append",
+        help="Exclude specified executable path(s) (comma-separated or specified multiple times, supports wildcards)"
+    )
+
     # Colorization
     parser.add_argument(
         "--color", "--colour",
@@ -7061,6 +7176,10 @@ def main():
     auid_uids, auid_names = parse_user_list(args.auids)
     session_ids = parse_session_list(args.session_ids)
     exclude_session_ids = parse_session_list(args.exclude_session_ids)
+    comms = parse_pattern_list(args.comms)
+    exclude_comms = parse_pattern_list(args.exclude_comms)
+    exes = parse_pattern_list(args.exes)
+    exclude_exes = parse_pattern_list(args.exclude_exes)
 
     global _ACTIVE_OUT_FILE, _ACTIVE_APP
     out_file = sys.stdout
@@ -7095,6 +7214,10 @@ def main():
         auid_names=auid_names,
         session_ids=session_ids,
         exclude_session_ids=exclude_session_ids,
+        comms=comms,
+        exclude_comms=exclude_comms,
+        exes=exes,
+        exclude_exes=exclude_exes,
         color=args.color,
         out_file=out_file,
         summary=summary,
