@@ -32,6 +32,7 @@
 #include <sys/timex.h>
 #include <time.h>
 #include <grp.h>
+#include <pwd.h>
 #include <termios.h>
 #include <sys/inotify.h>
 #include <sys/mount.h>
@@ -2069,17 +2070,121 @@ static void run_worker_tests(const char *base_dir) {
     printf("=== Worker completed all operations ===\n");
 }
 
+static struct passwd *resolve_user(const char *user_str) {
+    if (!user_str || !*user_str)
+        return NULL;
+    struct passwd *pw = getpwnam(user_str);
+    if (!pw) {
+        char *endptr = NULL;
+        long uid_val = strtol(user_str, &endptr, 10);
+        if (endptr && *endptr == '\0' && uid_val >= 0) {
+            pw = getpwuid((uid_t)uid_val);
+        }
+    }
+    return pw;
+}
+
+static int drop_privileges(const struct passwd *pw) {
+    if (!pw)
+        return -1;
+
+    printf("\n[Privilege Switch] Dropping privileges to user '%s' (uid=%d, gid=%d)...\n",
+           pw->pw_name, (int)pw->pw_uid, (int)pw->pw_gid);
+
+    /* Initialize supplementary group access list */
+    if (initgroups(pw->pw_name, pw->pw_gid) != 0) {
+        perror("initgroups");
+        return -1;
+    }
+
+    /* Set real, effective, and saved group ID */
+    if (setgid(pw->pw_gid) != 0) {
+        perror("setgid");
+        return -1;
+    }
+
+    /* Set real, effective, and saved user ID */
+    if (setuid(pw->pw_uid) != 0) {
+        perror("setuid");
+        return -1;
+    }
+
+    /* Verify privileges dropped completely */
+    if (getuid() != pw->pw_uid || geteuid() != pw->pw_uid ||
+        getgid() != pw->pw_gid || getegid() != pw->pw_gid) {
+        fprintf(stderr, "Error: failed to drop privileges completely!\n");
+        return -1;
+    }
+
+    printf("[Privilege Switch] Successfully running as user '%s' (uid=%d, gid=%d)\n\n",
+           pw->pw_name, (int)getuid(), (int)getgid());
+    return 0;
+}
+
 int main(int argc, char **argv, char **envp) {
-    /* If invoked as worker, run operations directly */
-    if (argc >= 3 && strcmp(argv[1], "--worker") == 0) {
-        run_worker_tests(argv[2]);
+    const char *target_user = NULL;
+    const char *sandbox_dir = NULL;
+    int is_worker = 0;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--worker") == 0) {
+            is_worker = 1;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                sandbox_dir = argv[++i];
+            }
+        } else if (strcmp(argv[i], "--user") == 0 || strcmp(argv[i], "-u") == 0) {
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                target_user = argv[++i];
+            } else {
+                fprintf(stderr, "Error: %s requires a username or UID argument\n", argv[i]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            printf("Usage: %s [OPTIONS]\n", argv[0]);
+            printf(" audisp-strace Syscall Exercise & Verification Tool\n\n");
+            printf("Options:\n");
+            printf("  --user, -u <USER>    Drop privileges to specified user/UID prior to running syscalls (requires root)\n");
+            printf("  -h, --help           Show this help message\n");
+            return 0;
+        } else {
+            fprintf(stderr, "Unknown option: %s (use --help for options)\n", argv[i]);
+            return 1;
+        }
+    }
+
+    struct passwd *pw = NULL;
+    if (target_user) {
+        if (getuid() != 0 && geteuid() != 0) {
+            fprintf(stderr, "Error: --user requires root privileges (uid 0); current uid=%d, euid=%d\n",
+                    (int)getuid(), (int)geteuid());
+            return 1;
+        }
+        pw = resolve_user(target_user);
+        if (!pw) {
+            fprintf(stderr, "Error: user '%s' not found in passwd database\n", target_user);
+            return 1;
+        }
+    }
+
+    /* If invoked as worker, drop privileges if requested, then run operations */
+    if (is_worker) {
+        if (!sandbox_dir) {
+            fprintf(stderr, "Error: --worker requires a sandbox directory\n");
+            return 1;
+        }
+        if (pw) {
+            if (drop_privileges(pw) != 0) {
+                return 1;
+            }
+        }
+        run_worker_tests(sandbox_dir);
         return 0;
     }
 
     printf("====================================================\n");
     printf(" audisp-strace Syscall Exercise & Verification Tool\n");
     printf("====================================================\n");
-    printf("Parent Process PID: %d\n", getpid());
+    printf("Parent Process PID: %d (uid=%d, gid=%d)\n", getpid(), (int)getuid(), (int)getgid());
 
     /* Create temporary sandbox directory */
     char template_path[] = "/tmp/audisp_test_XXXXXX";
@@ -2089,6 +2194,22 @@ int main(int argc, char **argv, char **envp) {
         return 1;
     }
     printf("Created test sandbox: %s\n", sandbox);
+
+    /* If dropping privileges in worker, chown sandbox so unprivileged worker has full access */
+    if (pw) {
+        if (chown(sandbox, pw->pw_uid, pw->pw_gid) != 0) {
+            perror("chown sandbox");
+            rmdir(sandbox);
+            return 1;
+        }
+        if (chmod(sandbox, 0700) != 0) {
+            perror("chmod sandbox");
+            rmdir(sandbox);
+            return 1;
+        }
+        printf("Configured sandbox ownership for user '%s' (uid=%d, gid=%d)\n",
+               pw->pw_name, (int)pw->pw_uid, (int)pw->pw_gid);
+    }
 
     /* Fork + execve to create process tree */
     printf("\nCreating process tree via fork() + execve()...\n");
@@ -2100,8 +2221,13 @@ int main(int argc, char **argv, char **envp) {
     }
 
     if (child_pid == 0) {
-        char *child_argv[] = { argv[0], "--worker", sandbox, NULL };
-        execve(argv[0], child_argv, envp);
+        if (target_user) {
+            char *child_argv[] = { argv[0], "--worker", sandbox, "--user", (char *)target_user, NULL };
+            execve(argv[0], child_argv, envp);
+        } else {
+            char *child_argv[] = { argv[0], "--worker", sandbox, NULL };
+            execve(argv[0], child_argv, envp);
+        }
         perror("execve");
         _exit(1);
     }

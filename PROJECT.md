@@ -380,6 +380,7 @@ Sample 3-line format per monitored event:
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.
   - Added dedicated Section 18 exercising and verifying unlinked-while-open ("ghost file") descriptors across `open`, `write`, `unlink`, post-unlink `write`, `fstat` (`st_nlink == 0`), `lseek`, `read`, `/proc/self/fd` validation (`(deleted)`), descriptor duplication (`dup`), and `close`.
+  - Added `--user <USER>` / `-u <USER>` command-line option to drop privileges (`initgroups`, `setgid`, `setuid`) prior to running tests when invoked as root (`uid 0`), with automatic sandbox ownership configuration (`chown`/`chmod`).
 - [x] Created `setup_audit_rules.sh` to configure `auditctl` rules for all tested syscalls.
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
 
