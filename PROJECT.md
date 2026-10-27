@@ -77,6 +77,8 @@ Sample 3-line format per monitored event:
    - `--exclude-comm`, `--exclude-command`: Comma-separated or repeatable command name exclusion filter.
    - `--exe`, `--executable`: Comma-separated or repeatable executable path or name filter with glob wildcard support (e.g. `--exe /usr/bin/ls`, `--exe ls`).
    - `--exclude-exe`, `--exclude-executable`: Comma-separated or repeatable executable exclusion filter.
+   - `-P`, `--path`, `--path-prefix`: Comma-separated or repeatable file or directory path prefix filter (modeled after `strace -P path`), tracing only syscalls that access specified paths.
+   - `--exclude-path`, `--exclude-path-prefix`: Comma-separated or repeatable file or directory path prefix exclusion filter.
    - `-Z`, `--failed-only`: Display only syscalls that returned an error code (like `strace -Z`).
    - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
    - `-C`, `-1`, `--compact [{summary,strace}]`: Compact 1-line output per event (`summary` [default] with `[uid]` `[ppid]`, or `strace` for pure syscall line).
@@ -350,6 +352,11 @@ Sample 3-line format per monitored event:
 - [x] Implemented custom filesystem support syscall classes (`%perm` / `%perms`, `%remove` / `%delete`):
   - Added `%perm` (with aliases `%perms`, `%permission`, `%permissions`): targets `chmod`, `fchmod`, `fchmodat`, `fchmodat2`, `chown`, `lchown`, `fchown`, `fchownat`, `setxattr`, `lsetxattr`, `fsetxattr`, `setxattrat`, `removexattr`, `lremovexattr`, `fremovexattr`, `removexattrat`, and `file_setattr` to isolate permission, ownership, attribute, and ACL (`setfacl`) modifications.
   - Added `%remove` (with aliases `%delete`, `%rm`): targets `unlink`, `unlinkat`, `rmdir`, `rename`, `renameat`, and `renameat2` to isolate file and directory deletions and renames.
+- [x] Implemented path prefix filtering (`-P` / `--path` / `--path-prefix`, `--exclude-path` / `--exclude-path-prefix`):
+  - Modeled after `strace -P path` to trace only system calls accessing a specified directory or file path prefix (e.g. `-P /etc`, `-P /var/www`, `-P /tmp`).
+  - Supports comma-separated or repeatable path arguments (`-P /etc,/var/log` or `-P /etc -P /var/log`).
+  - Extracts and resolves file paths from audit `PATH` records (canonicalized relative to `event.cwd`), `get_opened_path()`, open file descriptors via `ProcessTracker.get_fd_path(pid, fd)` (for `read`, `write`, `fstat`, `fchmod`, `fchown`, `close`, etc.), UNIX domain socket paths, and executable paths (`event.exe`).
+  - Distinguishes directory boundaries to prevent prefix collisions (e.g. `-P /etc` matches `/etc` and `/etc/shadow`, but not `/etc-old`).
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.

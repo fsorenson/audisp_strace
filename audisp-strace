@@ -681,6 +681,46 @@ def matches_pattern_list(value, patterns):
     return False
 
 
+def parse_path_list(spec_list):
+    """Parses a list of comma-separated directory or file path prefixes (e.g. ['/etc,/var/log', '/tmp'])."""
+    paths = []
+    if not spec_list:
+        return paths
+    for item in spec_list:
+        for part in item.split(','):
+            part = part.strip().strip('"').strip("'")
+            if not part:
+                continue
+            norm = os.path.normpath(part)
+            if not os.path.isabs(norm):
+                abs_norm = os.path.normpath(os.path.abspath(norm))
+                if abs_norm not in paths:
+                    paths.append(abs_norm)
+            if norm not in paths:
+                paths.append(norm)
+    return paths
+
+
+def matches_path_prefix(path, prefixes):
+    """Returns True if path matches any prefix in prefixes."""
+    if not path or not prefixes:
+        return False
+    norm_path = os.path.normpath(path)
+    for pfx in prefixes:
+        norm_pfx = os.path.normpath(pfx)
+        if norm_pfx == "/":
+            if norm_path.startswith("/"):
+                return True
+        elif norm_path == norm_pfx:
+            return True
+        elif norm_path.startswith(norm_pfx + "/"):
+            return True
+        elif not os.path.isabs(norm_pfx):
+            if norm_path.endswith("/" + norm_pfx) or ("/" + norm_pfx + "/") in norm_path:
+                return True
+    return False
+
+
 def parse_user_list(spec_list):
     """Parses a list of usernames or numeric UIDs (e.g. ['root,1000', 'pcp']).
 
@@ -6318,6 +6358,7 @@ class AudispStraceApp:
                  session_ids=None, exclude_session_ids=None,
                  comms=None, exclude_comms=None,
                  exes=None, exclude_exes=None,
+                 paths=None, exclude_paths=None,
                  color="auto",
                  out_file=None,
                  summary=False,
@@ -6390,6 +6431,11 @@ class AudispStraceApp:
         self.exclude_exes = exclude_exes if exclude_exes else None
         self.has_exe_filter = bool(self.exe_filter)
         self.has_exclude_exe = bool(self.exclude_exes)
+
+        self.path_prefixes = paths if paths else None
+        self.exclude_paths = exclude_paths if exclude_paths else None
+        self.has_path_filter = bool(self.path_prefixes)
+        self.has_exclude_path = bool(self.exclude_paths)
 
         self.resolver = ProcResolver(is_live=is_live)
         self.tracker = ProcessTracker(self.resolver, max_procs=self.max_procs)
@@ -6497,6 +6543,102 @@ class AudispStraceApp:
                 return True
         return False
 
+    def get_event_paths(self, event):
+        """Extracts all candidate file/directory paths accessed by this event."""
+        paths = set()
+        scname = event.syscall_name
+
+        # 1. PATH records
+        for p in event.paths:
+            name = p.get("name")
+            if not name or name == "(null)":
+                continue
+            name = name.strip('"')
+            if not name or name == "(null)":
+                continue
+            if name.startswith("/"):
+                paths.add(os.path.normpath(name))
+            else:
+                if event.cwd:
+                    paths.add(os.path.normpath(os.path.join(event.cwd, name)))
+                paths.add(os.path.normpath(name))
+
+        # 2. Opened path for open/creat syscalls
+        if scname in ('open', 'openat', 'openat2', 'creat'):
+            opened = self.handler.get_opened_path(event)
+            if opened:
+                paths.add(os.path.normpath(opened))
+
+        # 3. Descriptor tracking: check potential file descriptors in a0, a1, a2
+        pid = event.pid
+        if pid and self.tracker:
+            for field in ("a0", "a1", "a2"):
+                val = event.syscall.get(field)
+                if val is not None:
+                    try:
+                        v_int = int(str(val), 16) if not str(val).startswith("-") else int(val)
+                        if 0 <= v_int < 65536:
+                            fd_path = self.tracker.get_fd_path(pid, v_int)
+                            if fd_path:
+                                paths.add(os.path.normpath(fd_path))
+                    except (ValueError, TypeError):
+                        pass
+
+            dirfd_val = event.syscall.get("a0")
+            if dirfd_val is not None:
+                try:
+                    dfd_int = int(str(dirfd_val), 16) if not str(dirfd_val).startswith("-") else int(dirfd_val)
+                    if dfd_int not in (-100, 0xffffff9c, 4294967196) and 0 <= dfd_int < 65536:
+                        dirfd_path = self.tracker.get_fd_path(pid, dfd_int)
+                        if dirfd_path:
+                            paths.add(os.path.normpath(dirfd_path))
+                            for p in event.paths:
+                                p_name = p.get("name", "").strip('"')
+                                if p_name and not p_name.startswith("/") and p_name != "(null)":
+                                    paths.add(os.path.normpath(os.path.join(dirfd_path, p_name)))
+                except (ValueError, TypeError):
+                    pass
+
+        # 4. UNIX domain sockets
+        if event.sockaddr:
+            raw_hex = event.sockaddr.get("saddr", "").strip()
+            if raw_hex:
+                try:
+                    raw_bytes = bytes.fromhex(raw_hex)
+                    if len(raw_bytes) > 2:
+                        family = struct.unpack("=H", raw_bytes[:2])[0]
+                        if family == 1:  # AF_UNIX
+                            path_bytes = raw_bytes[2:]
+                            if path_bytes and path_bytes[0] != 0:
+                                null_pos = path_bytes.find(b"\x00")
+                                fs_bytes = path_bytes[:null_pos] if null_pos != -1 else path_bytes
+                                try:
+                                    s_path = fs_bytes.decode("utf-8", errors="replace")
+                                    if s_path:
+                                        paths.add(os.path.normpath(s_path))
+                                except Exception:
+                                    pass
+                except (ValueError, TypeError):
+                    pass
+
+        # 5. Executable paths for execve / execveat
+        if scname in ('execve', 'execveat'):
+            if event.exe:
+                paths.add(os.path.normpath(event.exe))
+            if event.execve_args and len(event.execve_args) > 0 and event.execve_args[0]:
+                paths.add(os.path.normpath(event.execve_args[0]))
+
+        return paths
+
+    def _matches_path_filter(self, event, prefixes):
+        if not prefixes:
+            return False
+        event_paths = self.get_event_paths(event)
+        for p in event_paths:
+            if matches_path_prefix(p, prefixes):
+                return True
+        return False
+
     def on_audit_event(self, au, event_type):
         if event_type != auparse.AUPARSE_CB_EVENT_READY:
             return
@@ -6594,6 +6736,12 @@ class AudispStraceApp:
             if self.has_exclude_exe and self._matches_exe_filter(event, self.exclude_exes):
                 should_display = False
             elif self.has_exe_filter and not self._matches_exe_filter(event, self.exe_filter):
+                should_display = False
+
+        if should_display:
+            if self.has_exclude_path and self._matches_path_filter(event, self.exclude_paths):
+                should_display = False
+            elif self.has_path_filter and not self._matches_path_filter(event, self.path_prefixes):
                 should_display = False
 
         if should_display:
@@ -7103,6 +7251,20 @@ def main():
         help="Exclude specified executable path(s) (comma-separated or specified multiple times, supports wildcards)"
     )
 
+    # Path prefix filtering
+    parser.add_argument(
+        "-P", "--path", "--path-prefix",
+        dest="paths",
+        action="append",
+        help="Trace only system calls accessing specified path or directory prefix (comma-separated or specified multiple times)"
+    )
+    parser.add_argument(
+        "--exclude-path", "--exclude-path-prefix",
+        dest="exclude_paths",
+        action="append",
+        help="Exclude system calls accessing specified path or directory prefix (comma-separated or specified multiple times)"
+    )
+
     # Colorization
     parser.add_argument(
         "--color", "--colour",
@@ -7216,6 +7378,8 @@ def main():
     exclude_comms = parse_pattern_list(args.exclude_comms)
     exes = parse_pattern_list(args.exes)
     exclude_exes = parse_pattern_list(args.exclude_exes)
+    paths = parse_path_list(args.paths)
+    exclude_paths = parse_path_list(args.exclude_paths)
 
     global _ACTIVE_OUT_FILE, _ACTIVE_APP
     out_file = sys.stdout
@@ -7254,6 +7418,8 @@ def main():
         exclude_comms=exclude_comms,
         exes=exes,
         exclude_exes=exclude_exes,
+        paths=paths,
+        exclude_paths=exclude_paths,
         color=args.color,
         out_file=out_file,
         summary=summary,

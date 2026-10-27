@@ -51,6 +51,7 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Filter by Audit Login UID (`--auid`).
   - Filter by Login Session ID (`--session-id` / `--sid`, `--exclude-session-id` / `--exclude-sid`) to isolate specific user sessions or exclude unset background daemon sessions.
   - Filter by Process Command Name (`--comm`, `--exclude-comm`) and Executable Binary (`--exe`, `--exclude-exe`) with wildcard/glob matching.
+  - Filter by Path Prefix (`-P` / `--path`, `--exclude-path`): Trace only syscalls accessing files under a directory or file prefix (modeled after `strace -P`), with automatic resolution of relative paths (`cwd`, `dirfd`), descriptors, and UNIX sockets.
   - Filter by Exit Status: failed only (`-Z`) or successful only (`-z`).
 - **Syscall Statistics & Summary (`-c` / `--summary-only`, `--summary`, `-S`)**:
   - Aggregates call counts, error counts, and error percentages per syscall.
@@ -108,6 +109,7 @@ usage: audisp-strace [-h] [-l] [--offline] [-t {time,datetime,epoch}]
                      [--session-id SESSION_IDS] [--exclude-session-id EXCLUDE_SESSION_IDS]
                      [--comm COMMS] [--exclude-comm EXCLUDE_COMMS]
                      [--exe EXES] [--exclude-exe EXCLUDE_EXES]
+                     [-P PATHS] [--exclude-path EXCLUDE_PATHS]
                      [--color [{auto,always,never}]] [-o OUTPUT] [-A]
                      [-c] [--summary] [-S {calls,errors,error%,name}] [--json]
                      [-L STRING_LIMIT] [-k] [--show-serial]
@@ -130,6 +132,16 @@ audisp-strace --offline audit.log -s %perm
 Trace file and directory deletions or renames:
 ```bash
 audisp-strace --offline audit.log -s %remove
+```
+
+Trace system calls accessing files under `/etc` or `/var/www`:
+```bash
+audisp-strace --offline audit.log -P /etc,/var/www
+```
+
+Exclude background accesses to `/var/log`:
+```bash
+audisp-strace --offline audit.log --exclude-path /var/log
 ```
 
 Display only failed system calls (`-Z`):
@@ -227,6 +239,8 @@ audisp-strace --offline audit.log -c -S error%
 | `--exclude-comm`, `--exclude-command` | Exclude specified command name(s) | `--exclude-comm auditd` |
 | `--exe`, `--executable` | Filter by executable path or name (supports wildcards) | `--exe /usr/bin/ls`, `--exe ls` |
 | `--exclude-exe`, `--exclude-executable` | Exclude specified executable path(s) | `--exclude-exe /usr/sbin/*` |
+| `-P`, `--path`, `--path-prefix` | Filter by accessed file/directory path prefix | `-P /etc`, `-P /var/www,/tmp` |
+| `--exclude-path`, `--exclude-path-prefix` | Exclude accessed file/directory path prefix | `--exclude-path /var/log` |
 | `-C`, `--compact` | Compact 1-line mode (`summary` or `strace`) | `-C summary` |
 | `--json`, `--jsonl` | Output events as JSON Lines (NDJSON) | `--json` |
 | `--color` | ANSI color output (`auto`, `always`, `never`) | `--color=always` |
