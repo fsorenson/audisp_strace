@@ -1,0 +1,55 @@
+# audisp-strace: Enhancement Roadmap & To-Do List
+
+## 1. Recently Completed Enhancements
+• [x] Native Audit Log Follow Mode (`-F` / `--follow`, `--from-start`, `-n K`):
+      Built-in rotation-aware live follower across inode changes, EOF sleeps, and truncations.
+• [x] Unlinked-While-Open / "Ghost File" Tracking (`(deleted)`):
+      Live `/proc/<pid>/fd/<fd>` inspection + offline cross-syscall tracking decorating deleted open files across read/write/close.
+• [x] Audit Sequence Gap & Drop Detection (`-g` / `--detect-drops`, `--drop-threshold`, `--drop-window`):
+      Sliding-window netlink jitter absorption, idle flush timeout, warning banners, JSON drop events, and summary metrics.
+• [x] Mount & Filesystem Namespace Syscall Class (`%mount` / `%mounts` / `%mnt`):
+      19 mount, filesystem namespace, and container isolation syscalls (mount, umount2, pivot_root, chroot, new Mount API, unshare, setns, swapon/swapoff).
+• [x] File & Record Locking Syscall Class (`%locks` / `%lock`):
+      `flock` and `fcntl` with `F_SETLK`/`F_SETLKW`/`F_GETLK`, 64-bit variants, and Open File Description `F_OFD_*` locks with sub-command filtering and `{...}` formatting.
+• [x] Targeted Error Code Filtering (`-e` / `--errno`, `-E` / `--exclude-errno`):
+      Filter or exclude specific error names (e.g. `EACCES`, `ENOENT`, `EPERM`) or numeric error codes (`13`, `2`), case-insensitive and prefixless (`acces`, `13`). Implies failed-only for `-e`; fully integrated with summary mode (`-c`) and JSON output (`--json`).
+
+---
+
+## 2. High-Value Enhancement Suggestions & Remaining To-Do Items
+
+### A. Root-Cause Analysis & Support Triage
+• Conversion of File/Directory Mode Bits to Readable Format (`0755 <rwxr-xr-x>`):
+    • What it does: Formats octal mode arguments in `chmod`, `fchmod`, `fchmodat`, `open`, `openat`, `creat`, `mkdir`, `mkdirat`, `mknod`, and `umask` with readable symbolic strings (e.g., `0755 <rwxr-xr-x>`, `0644 <rw-r--r-->`, `04755 <rwsr-xr-x>`).
+    • Support Value: High. Makes permission change investigations instantly readable without manual octal-to-binary bit decoding.
+
+### B. Forensics & Investigation Timing
+• Relative Timestamps (`-r` / `--relative-time`):
+    • What it does: Displays the elapsed time delta since the previous event (or previous event on the same PID), formatted like `strace -r` (e.g., `+0.000412`).
+    • Support Value: High. Immediately highlights execution stalls, storage I/O latency hangs, or bursts of rapid activity.
+
+• Multi-File Rotated Log Chronological Merging (`--merge` / `--sort-time`):
+    • What it does: When passing multiple rotated log files (e.g., `audisp-strace audit.log.4 audit.log.3 audit.log.2 audit.log.1 audit.log`), performs a k-way chronological merge of events across file boundaries based on timestamp/epoch rather than reading file-by-file sequentially.
+    • Support Value: Medium-High. Essential when analyzing historical multi-day incidents spanning across several rotated audit log segments.
+
+### C. Rule Configuration & Operator Ergonomics
+• Audit Rule Generator (`--generate-rules` / `--auditctl`):
+    • What it does: Inspects your current CLI filters (e.g., `-s %perm`, `-s %mount`, `-s %locks`, `-P /etc`, `-u apache`, or `--comm nginx`) and prints the exact, copy-pasteable `auditctl` commands needed to capture those events in the kernel with proper `arch=b64`, syscall lists, and session exclusions (`-F auid!=-1` or `-F ses!=-1`).
+    • Support Value: Medium-High. Eliminates guesswork when setting up audit rules for customers.
+
+• Security & Anomaly Highlighting (Heuristic Flags / Badges):
+    • What it does: Optional visual badges/alerts or filters for suspicious filesystem security anomalies:
+        • Creation of SUID/SGID binaries (`chmod 4755` or `chmod +s`).
+        • Execution from world-writable or temporary directories (`/tmp`, `/dev/shm`, `/var/tmp`).
+        • Modification of critical system files (`/etc/ld.so.preload`, `/etc/shadow`, `/etc/sudoers`, `/etc/pam.d/*`).
+    • Support Value: Medium. Highlights potential privilege escalation or tampering attempts.
+
+### D. Operational Scalability & Long-Running Captures
+• Compressed Output Stream (`-o <file>.gz` / `--compress`):
+    • What it does: Transparently compresses trace and JSON output streams using standard library `gzip` (auto-detected when `-o` filename ends in `.gz`, or via `--compress gzip`). Features low-overhead compression (`compresslevel=1` by default) to keep CPU impact negligible during high-volume audit floods, paired with deterministic buffer flushing for live inspection with `zcat`/`zless`/`zgrep`.
+    • Support Value: High. Critical for long-running captures and 24/7 background audispd logging to prevent filling `/var/log` or triage disks with repetitive text.
+
+### E. Packaging & Deployment
+• `make install` / Packaging Target:
+    • What it does: Simple Makefile install target to install `audisp-strace` to `/usr/local/bin` (or `/usr/bin`) and install `audisp-strace.conf` into `/etc/audit/plugins.d/` (or `/etc/audisp/plugins.d/` depending on distro release).
+    • Support Value: Convenience for server deployment.
