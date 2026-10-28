@@ -396,6 +396,11 @@ Sample 3-line format per monitored event:
   - Formats pointer to `struct flock` arguments in `handle_fcntl` as `{...}` (or `NULL` if 0) matching standard `strace` conventions.
   - Added `'flock'` to `DESC_CTRL_SYSCALLS` and default monitoring.
   - Extended `test_syscalls.c` Section 15 to exercise `F_SETLK`, `F_GETLK`, and OFD locks (`F_OFD_SETLK`, `F_OFD_GETLK`).
+- [x] Implemented targeted error code filtering (`-e` / `--errno` / `--errnos`, `-E` / `--exclude-errno` / `--exclude-errnos`):
+  - Filters syscall events by specific error names (e.g. `EACCES`, `ENOENT`, `EPERM`) or numeric error codes (`13`, `2`), case-insensitive and prefixless (`acces`, `13`).
+  - Implies failed-only mode (`-Z`) for `-e` / `--errno`; fully integrated with summary mode (`-c` / `--summary`) and JSON Lines output (`--json`).
+  - Added `-E` / `--exclude-errno` to suppress benign background errors while retaining other failures and successful events.
+  - Added mutual exclusivity validation between `-z` (`--successful-only`) and `-e` (`--errno`).
 - [x] Fixed `handle_fchown` dispatch method in `SyscallHandler`.
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.
@@ -406,8 +411,6 @@ Sample 3-line format per monitored event:
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
 
 ### Next Steps / Ideas
-- [ ] **Targeted Error Code Filtering (`-e errno` / `--errno EACCES,ENOENT,EBUSY` / `--exclude-errno`)**:
-  - Filter by specific error codes/names to isolate fatal permission or unmount errors without benign search path noise.
 - [ ] **Octal Mode to Symbolic Permission Conversion (`0755 <rwxr-xr-x>`)**:
   - Automatically decode mode bits in `chmod`, `open`, `creat`, `mkdir`, `umask` to readable `<rwxr-xr-x>` annotations.
 - [ ] **Relative Timestamps (`-r` / `--relative-time`)**:
