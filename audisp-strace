@@ -11,6 +11,15 @@ import collections
 import datetime
 import errno
 import fnmatch
+import gzip
+try:
+    import bz2
+except ImportError:
+    bz2 = None
+try:
+    import lzma
+except ImportError:
+    lzma = None
 import grp
 import json
 import os
@@ -7779,7 +7788,116 @@ def detect_live():
     return False
 
 
+def open_input_stream(path):
+    """
+    Open an input file stream, automatically detecting gzip, bz2, and xz compression
+    via file magic bytes or filename extension.
+    """
+    if path == "-":
+        return sys.stdin
+    try:
+        with open(path, "rb") as peek_f:
+            magic = peek_f.read(6)
+    except OSError:
+        # Re-attempt with standard open which will raise standard OSError
+        return open(path, "r", encoding="utf-8", errors="replace")
+
+    if magic.startswith(b"\x1f\x8b"):
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    elif magic.startswith(b"BZh"):
+        if bz2 is not None:
+            return bz2.open(path, "rt", encoding="utf-8", errors="replace")
+    elif magic.startswith(b"\xfd7zXZ\x00"):
+        if lzma is not None:
+            return lzma.open(path, "rt", encoding="utf-8", errors="replace")
+
+    # Extension fallbacks if file was empty or too short for magic check
+    lower = path.lower()
+    if lower.endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    elif lower.endswith(".bz2"):
+        if bz2 is None:
+            raise OSError("bz2 module is not available in this Python build")
+        return bz2.open(path, "rt", encoding="utf-8", errors="replace")
+    elif lower.endswith((".xz", ".lzma")):
+        if lzma is None:
+            raise OSError("lzma module is not available in this Python build")
+        return lzma.open(path, "rt", encoding="utf-8", errors="replace")
+
+    return open(path, "r", encoding="utf-8", errors="replace")
+
+
+def open_output_stream(path, append=False, compression="auto", compress_level=1):
+    """
+    Open an output stream, transparently applying compression if requested
+    or auto-detected from the file extension.
+
+    Returns:
+        (stream, close_on_exit)
+    """
+    if compression == "auto":
+        if path and path != "-":
+            lower_path = path.lower()
+            if lower_path.endswith(".gz"):
+                compression = "gzip"
+            elif lower_path.endswith(".bz2"):
+                compression = "bz2"
+            elif lower_path.endswith((".xz", ".lzma")):
+                compression = "xz"
+            else:
+                compression = "none"
+        else:
+            compression = "none"
+
+    if compression not in ("gzip", "bz2", "xz", "none"):
+        raise ValueError(f"unsupported compression format: '{compression}'")
+
+    mode_prefix = "a" if append else "w"
+
+    if not path or path == "-":
+        if compression == "none":
+            return sys.stdout, False
+        if sys.stdout.isatty():
+            sys.stderr.write("audisp-strace: compressed output not written to a terminal (redirect stdout or use -o FILE)\n")
+            sys.exit(1)
+        mode = mode_prefix + "t"
+        if compression == "gzip":
+            return gzip.open(sys.stdout.buffer, mode=mode, compresslevel=compress_level, encoding="utf-8", errors="replace"), True
+        elif compression == "bz2":
+            if bz2 is None:
+                sys.stderr.write("audisp-strace: 'bz2' python module is not available in this build\n")
+                sys.exit(1)
+            return bz2.open(sys.stdout.buffer, mode=mode, compresslevel=compress_level, encoding="utf-8", errors="replace"), True
+        elif compression == "xz":
+            if lzma is None:
+                sys.stderr.write("audisp-strace: 'lzma' python module is not available in this build\n")
+                sys.exit(1)
+            return lzma.open(sys.stdout.buffer, mode=mode, preset=compress_level, encoding="utf-8", errors="replace"), True
+
+    # Destination is a file path
+    mode = mode_prefix + "t" if compression != "none" else mode_prefix
+    try:
+        if compression == "gzip":
+            return gzip.open(path, mode=mode, compresslevel=compress_level, encoding="utf-8", errors="replace"), True
+        elif compression == "bz2":
+            if bz2 is None:
+                sys.stderr.write("audisp-strace: 'bz2' python module is not available in this build\n")
+                sys.exit(1)
+            return bz2.open(path, mode=mode, compresslevel=compress_level, encoding="utf-8", errors="replace"), True
+        elif compression == "xz":
+            if lzma is None:
+                sys.stderr.write("audisp-strace: 'lzma' python module is not available in this build\n")
+                sys.exit(1)
+            return lzma.open(path, mode=mode, preset=compress_level, encoding="utf-8", errors="replace"), True
+        else:
+            return open(path, mode=mode, encoding="utf-8", errors="replace"), True
+    except OSError as e:
+        sys.stderr.write(f"audisp-strace: cannot open '{path}' for writing: {e}\n")
+        sys.exit(1)
+
+
 _ACTIVE_OUT_FILE = None
+_CLOSE_OUT_FILE = False
 _ACTIVE_APP = None
 
 
@@ -7791,6 +7909,8 @@ def setup_signals():
                 _ACTIVE_APP.print_summary()
             if _ACTIVE_OUT_FILE and not _ACTIVE_OUT_FILE.closed:
                 _ACTIVE_OUT_FILE.flush()
+                if _CLOSE_OUT_FILE:
+                    _ACTIVE_OUT_FILE.close()
             sys.stdout.flush()
             sys.stderr.flush()
         except Exception:
@@ -8025,6 +8145,28 @@ def main():
         action="store_true",
         help="Open the file specified with -o/--output in append mode instead of overwriting"
     )
+    parser.add_argument(
+        "--compress", "--compression",
+        dest="compression",
+        default="auto",
+        choices=["auto", "gzip", "bz2", "xz", "none"],
+        help="Compress output stream: 'auto' (default, inferred from -o extension: .gz, .bz2, .xz), 'gzip', 'bz2', 'xz', or 'none'"
+    )
+    parser.add_argument(
+        "--compress-level", "--compression-level",
+        dest="compress_level",
+        type=int,
+        default=1,
+        choices=range(1, 10),
+        metavar="1-9",
+        help="Compression level from 1 (fastest, lowest CPU overhead) to 9 (highest compression). Default: 1"
+    )
+    parser.add_argument(
+        "--gzip",
+        dest="gzip_flag",
+        action="store_true",
+        help="Shortcut for --compress gzip"
+    )
 
     # Summary & Statistics
     parser.add_argument(
@@ -8150,18 +8292,20 @@ def main():
     errno_names, errno_codes = parse_errno_spec(args.errnos)
     exclude_errno_names, exclude_errno_codes = parse_errno_spec(args.exclude_errnos)
 
-    global _ACTIVE_OUT_FILE, _ACTIVE_APP
-    out_file = sys.stdout
-    close_out_file = False
-    if args.output and args.output != "-":
-        mode = "a" if args.append else "w"
-        try:
-            out_file = open(args.output, mode, encoding="utf-8", errors="replace")
-            close_out_file = True
-            _ACTIVE_OUT_FILE = out_file
-        except OSError as e:
-            sys.stderr.write(f"audisp-strace: cannot open '{args.output}' for writing: {e}\n")
-            sys.exit(1)
+    global _ACTIVE_OUT_FILE, _CLOSE_OUT_FILE, _ACTIVE_APP
+
+    if args.gzip_flag and args.compression != "auto" and args.compression != "gzip":
+        parser.error(f"cannot specify both --gzip and --compress {args.compression}")
+
+    compression_mode = "gzip" if args.gzip_flag else args.compression
+    out_file, close_out_file = open_output_stream(
+        args.output,
+        append=args.append,
+        compression=compression_mode,
+        compress_level=args.compress_level
+    )
+    _ACTIVE_OUT_FILE = out_file
+    _CLOSE_OUT_FILE = close_out_file
 
     app = AudispStraceApp(
         is_live=is_live,
@@ -8218,7 +8362,7 @@ def main():
                     app.process_stream(sys.stdin)
                 else:
                     try:
-                        with open(fp, "r", errors="replace") as f:
+                        with open_input_stream(fp) as f:
                             app.process_stream(f)
                     except OSError as e:
                         sys.stderr.write(f"audisp-strace: cannot read {fp}: {e}\n")
@@ -8245,7 +8389,7 @@ def main():
                     app.process_stream(sys.stdin)
                 else:
                     try:
-                        with open(file_path, "r", errors="replace") as f:
+                        with open_input_stream(file_path) as f:
                             app.process_stream(f)
                     except OSError as e:
                         sys.stderr.write(f"audisp-strace: cannot read {file_path}: {e}\n")
@@ -8259,6 +8403,7 @@ def main():
             app.print_summary()
             if close_out_file and not out_file.closed:
                 out_file.flush()
+                out_file.close()
             sys.stdout.flush()
         except Exception:
             pass
@@ -8270,6 +8415,7 @@ def main():
                 app.print_summary()
                 if close_out_file and not out_file.closed:
                     out_file.flush()
+                    out_file.close()
                 sys.stdout.flush()
             except Exception:
                 pass

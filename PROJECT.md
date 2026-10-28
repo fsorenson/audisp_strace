@@ -95,6 +95,9 @@ Sample 3-line format per monitored event:
    - `--color`, `--colour [auto|always|never]`: Colorize terminal output with ANSI colors (`auto` [default, enabled when stdout is a TTY and `NO_COLOR` is not set], `always`, or `never`).
    - `-o`, `--output FILE`: Write trace output to `FILE` instead of stdout.
    - `-A`, `--append`, `--output-append-mode`: Open file specified by `-o`/`--output` in append mode instead of overwriting.
+   - `--compress`, `--compression`: Compress output stream (`auto` [default, inferred from `.gz`, `.bz2`, `.xz` extension on `-o`], `gzip`, `bz2`, `xz`, `none`).
+   - `--compress-level`, `--compression-level`: Integer compression level 1 to 9 (default: 1 for lowest CPU overhead).
+   - `--gzip`: Shortcut for `--compress gzip`.
    - `-L`, `--string-limit`, `--strsize`, `--string-len`: Maximum string length to display for arguments and string literals (default: 32, use 0 for unlimited), modeled after `strace -s strsize`. File and directory paths are preserved without truncation.
    - `-k`, `--show-key`: Display audit rule key when present (`[key="rule_name"]`).
    - `--show-serial`, `--serial`: Display audit event serial number with timestamp (`14:19:27.079:1260437`).
@@ -409,10 +412,15 @@ Sample 3-line format per monitored event:
   - Added `--user <USER>` / `-u <USER>` command-line option to drop privileges (`initgroups`, `setgid`, `setuid`) prior to running tests when invoked as root (`uid 0`), with automatic sandbox ownership configuration (`chown`/`chmod`).
 - [x] Created `setup_audit_rules.sh` to configure `auditctl` rules for all tested syscalls.
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
+- [x] Implemented output stream and file compression (`--compress`, `-o <file>.gz`, `--gzip`, `--compress-level`):
+  - Transparently compress output streams via standard library `gzip`, `bz2`, or `xz` (auto-detected via `.gz`, `.bz2`, `.xz` extension on `-o` or explicitly selected via `--compress`).
+  - Low-overhead `compresslevel=1` default for ~90-95% compression with minimal CPU overhead, preserving daemon throughput during high audit volumes.
+  - Deterministic buffer flushing for live log readability with `zcat`/`zless`/`zgrep`.
+  - Full RFC 1952 concatenated stream support when appending (`-A` / `--append`).
+  - Safety check to prevent dumping raw binary compressed bytes to interactive terminals when stdout is unredirected.
+  - Transparent on-the-fly decompression of input audit log files (`.gz`, `.bz2`, `.xz`, or via magic byte inspection).
 
 ### Next Steps / Ideas
-- [ ] **Compressed Output Stream (`-o <file>.gz` / `--compress`)**:
-  - Transparently compress output streams via `gzip` (auto-detected via `.gz` extension on `-o` or `--compress gzip`) with lightweight `compresslevel=1` default and deterministic buffer flushing for live log readability with `zless`/`zgrep`.
 - [ ] **Octal Mode to Symbolic Permission Conversion (`0755 <rwxr-xr-x>`)**:
   - Automatically decode mode bits in `chmod`, `open`, `creat`, `mkdir`, `umask` to readable `<rwxr-xr-x>` annotations.
 - [ ] **Relative Timestamps (`-r` / `--relative-time`)**:

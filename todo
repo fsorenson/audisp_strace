@@ -13,6 +13,8 @@
       `flock` and `fcntl` with `F_SETLK`/`F_SETLKW`/`F_GETLK`, 64-bit variants, and Open File Description `F_OFD_*` locks with sub-command filtering and `{...}` formatting.
 • [x] Targeted Error Code Filtering (`-e` / `--errno`, `-E` / `--exclude-errno`):
       Filter or exclude specific error names (e.g. `EACCES`, `ENOENT`, `EPERM`) or numeric error codes (`13`, `2`), case-insensitive and prefixless (`acces`, `13`). Implies failed-only for `-e`; fully integrated with summary mode (`-c`) and JSON output (`--json`).
+• [x] Output Stream & File Compression (`--compress`, `-o <file>.gz`, `--gzip`, `--compress-level`):
+      Transparently compresses output traces, JSON records, and summary tables with gzip, bz2, or xz. Auto-detected by filename extension on `-o` or explicitly selected via `--compress`. Uses fast default `compresslevel=1` for ~90-95% compression with minimal CPU overhead, deterministic flushing for real-time `zcat`/`zless` visibility, clean RFC 1952 concatenated stream support with `-A` / `--append`, terminal protection check for stdout, and transparent decompression of compressed audit input logs.
 
 ---
 
@@ -44,12 +46,7 @@
         • Modification of critical system files (`/etc/ld.so.preload`, `/etc/shadow`, `/etc/sudoers`, `/etc/pam.d/*`).
     • Support Value: Medium. Highlights potential privilege escalation or tampering attempts.
 
-### D. Operational Scalability & Long-Running Captures
-• Compressed Output Stream (`-o <file>.gz` / `--compress`):
-    • What it does: Transparently compresses trace and JSON output streams using standard library `gzip` (auto-detected when `-o` filename ends in `.gz`, or via `--compress gzip`). Features low-overhead compression (`compresslevel=1` by default) to keep CPU impact negligible during high-volume audit floods, paired with deterministic buffer flushing for live inspection with `zcat`/`zless`/`zgrep`.
-    • Support Value: High. Critical for long-running captures and 24/7 background audispd logging to prevent filling `/var/log` or triage disks with repetitive text.
-
-### E. Packaging & Deployment
+### D. Packaging & Deployment
 • `make install` / Packaging Target:
     • What it does: Simple Makefile install target to install `audisp-strace` to `/usr/local/bin` (or `/usr/bin`) and install `audisp-strace.conf` into `/etc/audit/plugins.d/` (or `/etc/audisp/plugins.d/` depending on distro release).
     • Support Value: Convenience for server deployment.
