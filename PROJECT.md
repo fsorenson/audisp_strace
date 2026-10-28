@@ -85,6 +85,8 @@ Sample 3-line format per monitored event:
    - `-n`, `--lines K`: When following with `-F`, output the last K lines before tailing new events (or `all`).
    - `-Z`, `--failed-only`: Display only syscalls that returned an error code (like `strace -Z`).
    - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
+   - `-e`, `--errno`, `--errnos`: Filter by specific error name or numeric errno code (e.g. `-e EACCES`, `-e ENOENT,13`, `-e perm`; implies failed-only).
+   - `-E`, `--exclude-errno`, `--exclude-errnos`: Exclude specific error name(s) or code(s) (e.g. `-E ENOENT,2`).
    - `-C`, `-1`, `--compact [{summary,strace}]`: Compact 1-line output per event (`summary` [default] with `[uid]` `[ppid]`, or `strace` for pure syscall line).
    - `--json`, `--jsonl`, `--json-lines`: Output structured JSON Lines (NDJSON), one complete JSON event object per line.
    - `-c`, `--summary-only`: Count syscalls and errors, printing only the summary table on exit (EOF or Ctrl-C).

@@ -9,6 +9,7 @@ traces with enriched process ancestry and process credentials.
 import argparse
 import collections
 import datetime
+import errno
 import fnmatch
 import grp
 import json
@@ -630,6 +631,45 @@ def parse_locks_spec(spec_str):
     has_locks = any(x in ("%locks", "%lock") for x in items)
     has_all_fcntl = any(x in ("fcntl", "%desc", "%file") for x in items)
     return has_locks and not has_all_fcntl
+
+
+def parse_errno_spec(spec_list):
+    """Parses a list of errno specifications (names or numeric codes).
+
+    Returns a tuple of (set_of_names, set_of_codes) or (None, None) if empty.
+    """
+    if not spec_list:
+        return None, None
+    names = set()
+    codes = set()
+    for item in spec_list:
+        if not item:
+            continue
+        for token in str(item).split(","):
+            token = token.strip()
+            if not token:
+                continue
+            # Try numeric code first
+            try:
+                num = abs(int(token))
+                codes.add(num)
+                name = errno.errorcode.get(num)
+                if name:
+                    names.add(name.upper())
+                continue
+            except ValueError:
+                pass
+            # It's an errno name
+            name_upper = token.upper()
+            if not name_upper.startswith("E") and hasattr(errno, "E" + name_upper):
+                name_upper = "E" + name_upper
+            names.add(name_upper)
+            code_val = getattr(errno, name_upper, None)
+            if isinstance(code_val, int):
+                codes.add(code_val)
+    if not names and not codes:
+        return None, None
+    return names, codes
 
 
 def unescape_audit_str(val):
@@ -1576,6 +1616,37 @@ class AuditEvent:
             interp = self.syscall_interp.get("exit")
             return f"-1 {interp}" if interp else str(exit_val)
         return str(exit_val)
+
+    @property
+    def errno_code(self):
+        """Returns the positive integer errno (e.g. 2 for ENOENT, 13 for EACCES), or None if not failed."""
+        if not self.is_failed:
+            return None
+        code = self.exit_code
+        if code is not None and code < 0:
+            return abs(code)
+        interp = self.syscall_interp.get("exit", "")
+        if interp:
+            err_name = interp.partition("(")[0].strip().upper()
+            val = getattr(errno, err_name, None)
+            if isinstance(val, int):
+                return val
+        return None
+
+    @property
+    def errno_name(self):
+        """Returns the uppercase string errno name (e.g. 'ENOENT', 'EACCES'), or None if not failed."""
+        if not self.is_failed:
+            return None
+        interp = self.syscall_interp.get("exit", "")
+        if interp:
+            err_name = interp.partition("(")[0].strip().upper()
+            if err_name:
+                return err_name
+        code = self.errno_code
+        if code is not None:
+            return errno.errorcode.get(code)
+        return None
 
     @property
     def key(self):
@@ -6639,6 +6710,7 @@ class AudispStraceApp:
     def __init__(self, is_live=False, time_format="time", all_syscalls=False,
                  syscalls=None, exclude_syscalls=None,
                  failed_only=False, successful_only=False,
+                 errnos=None, exclude_errnos=None,
                  compact=None,
                  pids=None, exclude_pids=None, follow_fork=False,
                  user_uids=None, user_names=None,
@@ -6673,6 +6745,24 @@ class AudispStraceApp:
         self.locks_only_exclude = bool(locks_only_exclude)
         self.failed_only = failed_only
         self.successful_only = successful_only
+
+        if isinstance(errnos, tuple) and len(errnos) == 2:
+            self.errno_names, self.errno_codes = errnos
+        elif errnos is not None:
+            self.errno_names, self.errno_codes = parse_errno_spec(errnos if isinstance(errnos, list) else [errnos])
+        else:
+            self.errno_names, self.errno_codes = None, None
+        self.has_errno_filter = bool(self.errno_names or self.errno_codes)
+        if self.has_errno_filter:
+            self.failed_only = True
+
+        if isinstance(exclude_errnos, tuple) and len(exclude_errnos) == 2:
+            self.exclude_errno_names, self.exclude_errno_codes = exclude_errnos
+        elif exclude_errnos is not None:
+            self.exclude_errno_names, self.exclude_errno_codes = parse_errno_spec(exclude_errnos if isinstance(exclude_errnos, list) else [exclude_errnos])
+        else:
+            self.exclude_errno_names, self.exclude_errno_codes = None, None
+        self.has_exclude_errno = bool(self.exclude_errno_names or self.exclude_errno_codes)
         self.compact = compact
         self.summary = summary
         self.summary_only = summary_only
@@ -6745,6 +6835,28 @@ class AudispStraceApp:
 
         self.au = auparse.AuParser(auparse.AUSOURCE_FEED)
         self.au.add_callback(_auparse_callback, self)
+
+    def _matches_errno_filter(self, event):
+        if not event.is_failed:
+            return False
+        code = event.errno_code
+        if code is not None and self.errno_codes and code in self.errno_codes:
+            return True
+        name = event.errno_name
+        if name and self.errno_names and name in self.errno_names:
+            return True
+        return False
+
+    def _matches_exclude_errno(self, event):
+        if not event.is_failed:
+            return False
+        code = event.errno_code
+        if code is not None and self.exclude_errno_codes and code in self.exclude_errno_codes:
+            return True
+        name = event.errno_name
+        if name and self.exclude_errno_names and name in self.exclude_errno_names:
+            return True
+        return False
 
     def _matches_user_filter(self, event):
         if event.uid is not None and event.uid in self.user_uids:
@@ -7068,6 +7180,12 @@ class AudispStraceApp:
             if self.failed_only and not event.is_failed:
                 should_display = False
             elif self.successful_only and event.is_failed:
+                should_display = False
+
+        if should_display:
+            if self.has_exclude_errno and self._matches_exclude_errno(event):
+                should_display = False
+            elif self.has_errno_filter and not self._matches_errno_filter(event):
                 should_display = False
 
         if should_display:
@@ -7763,6 +7881,19 @@ def main():
     )
 
     parser.add_argument(
+        "-e", "--errno", "--errnos",
+        dest="errnos",
+        action="append",
+        help="Filter by error code or name (e.g. -e EACCES, -e ENOENT,13; implies failed-only)"
+    )
+    parser.add_argument(
+        "-E", "--exclude-errno", "--exclude-errnos",
+        dest="exclude_errnos",
+        action="append",
+        help="Exclude specified error code(s) or name(s) (e.g. -E ENOENT,2)"
+    )
+
+    parser.add_argument(
         "-C", "-1", "--compact",
         dest="compact",
         nargs="?",
@@ -7993,6 +8124,10 @@ def main():
     if any(arg.startswith(("-S", "--sort-by")) for arg in sys.argv) and not (summary_only or summary):
         summary_only = True
 
+    if args.successful_only and args.errnos:
+        sys.stderr.write("audisp-strace: --successful-only (-z) and --errno (-e) cannot be used together\n")
+        sys.exit(1)
+
     locks_only_include = parse_locks_spec(args.syscalls)
     locks_only_exclude = parse_locks_spec(args.exclude)
     syscalls_filter = expand_syscall_spec(args.syscalls)
@@ -8012,6 +8147,8 @@ def main():
     exclude_exes = parse_pattern_list(args.exclude_exes)
     paths = parse_path_list(args.paths)
     exclude_paths = parse_path_list(args.exclude_paths)
+    errno_names, errno_codes = parse_errno_spec(args.errnos)
+    exclude_errno_names, exclude_errno_codes = parse_errno_spec(args.exclude_errnos)
 
     global _ACTIVE_OUT_FILE, _ACTIVE_APP
     out_file = sys.stdout
@@ -8034,6 +8171,8 @@ def main():
         exclude_syscalls=exclude_filter,
         failed_only=args.failed_only,
         successful_only=args.successful_only,
+        errnos=(errno_names, errno_codes),
+        exclude_errnos=(exclude_errno_names, exclude_errno_codes),
         compact=args.compact,
         pids=pids_filter,
         exclude_pids=exclude_pids,

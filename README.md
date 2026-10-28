@@ -56,6 +56,7 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Filter by Process Command Name (`--comm`, `--exclude-comm`) and Executable Binary (`--exe`, `--exclude-exe`) with wildcard/glob matching.
   - Filter by Path Prefix (`-P` / `--path`, `--exclude-path`): Trace only syscalls accessing files under a directory or file prefix (modeled after `strace -P`), with automatic resolution of relative paths (`cwd`, `dirfd`), descriptors, and UNIX sockets.
   - Filter by Exit Status: failed only (`-Z`) or successful only (`-z`).
+  - Targeted Error Code Filtering (`-e` / `--errno`, `-E` / `--exclude-errno`): Filter or exclude specific error names (e.g. `EACCES`, `ENOENT`, `perm`) or numeric error codes (e.g. `13`, `2`). Comma-separated or repeatable. Compatible with summary statistics (`-c`) and JSON output (`--json`).
 - **Syscall Statistics & Summary (`-c` / `--summary-only`, `--summary`, `-S`)**:
   - Aggregates call counts, error counts, and error percentages per syscall.
   - Sortable by `calls`, `errors`, `error%`, or `name`.
@@ -324,6 +325,8 @@ On multi-core SMP systems under heavy load, Linux kernel netlink queues deliver 
 | `-a`, `--all` | Display all captured syscalls (overrides default filter) | `-a` |
 | `-Z`, `--failed-only` | Display only syscalls returning an error | `-Z` |
 | `-z`, `--successful-only` | Display only syscalls returning success | `-z` |
+| `-e`, `--errno` | Filter by error code or name (implies failed-only) | `-e EACCES`, `-e ENOENT,13` |
+| `-E`, `--exclude-errno` | Exclude specified error code(s) or name(s) | `-E ENOENT`, `-E 2` |
 | `-p`, `--pid` | Filter by PID (repeatable or comma-separated) | `-p 1234,5678` |
 | `--exclude-pid` | Exclude specific PIDs | `--exclude-pid 1` |
 | `-f`, `--follow-fork` | Trace child processes created by `clone`/`fork` | `-p 1234 -f` |
