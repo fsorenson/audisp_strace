@@ -411,6 +411,8 @@ Sample 3-line format per monitored event:
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
 
 ### Next Steps / Ideas
+- [ ] **Compressed Output Stream (`-o <file>.gz` / `--compress`)**:
+  - Transparently compress output streams via `gzip` (auto-detected via `.gz` extension on `-o` or `--compress gzip`) with lightweight `compresslevel=1` default and deterministic buffer flushing for live log readability with `zless`/`zgrep`.
 - [ ] **Octal Mode to Symbolic Permission Conversion (`0755 <rwxr-xr-x>`)**:
   - Automatically decode mode bits in `chmod`, `open`, `creat`, `mkdir`, `umask` to readable `<rwxr-xr-x>` annotations.
 - [ ] **Relative Timestamps (`-r` / `--relative-time`)**:
