@@ -2108,6 +2108,257 @@ static void run_worker_tests(const char *base_dir) {
         log_op("close", "close unlinked-while-open fd", res);
     }
 
+    /* -------------------------------------------------------------
+     * 19. DIRECT LEGACY SYSCALL VERIFICATION (Bypassing libc wrappers)
+     *
+     * Glibc wraps many legacy syscalls into their modern *at, *2, or *64
+     * equivalents (e.g. open -> openat, stat/lstat/fstat -> newfstatat,
+     * access -> faccessat2, pipe -> pipe2, select -> pselect6,
+     * epoll_create -> epoll_create1, inotify_init -> inotify_init1, fork -> clone).
+     *
+     * Invoking the legacy SYS_* numbers directly via syscall() ensures the
+     * kernel audit subsystem generates real audit records with legacy syscall numbers,
+     * enabling end-to-end verification of audisp-strace legacy handlers.
+     * ------------------------------------------------------------- */
+    printf("\n--- Direct Legacy Syscall Verification (Bypassing libc wrappers) ---\n");
+
+    /* Direct SYS_open & SYS_creat */
+#ifdef SYS_open
+    int fd_leg_open = (int)syscall(SYS_open, "legacy_direct_open.txt", O_RDWR | O_CREAT | O_TRUNC, 0644);
+    log_op("open", "direct SYS_open legacy_direct_open.txt", fd_leg_open);
+#else
+    int fd_leg_open = -1;
+#endif
+
+#ifdef SYS_creat
+    int fd_leg_creat = (int)syscall(SYS_creat, "legacy_direct_creat.txt", 0644);
+    log_op("creat", "direct SYS_creat legacy_direct_creat.txt", fd_leg_creat);
+    if (fd_leg_creat >= 0) close(fd_leg_creat);
+#endif
+
+    /* Direct SYS_stat, SYS_lstat, SYS_fstat */
+#ifdef SYS_stat
+    struct stat st_leg;
+    memset(&st_leg, 0, sizeof(st_leg));
+    res = (int)syscall(SYS_stat, "legacy_direct_open.txt", &st_leg);
+    log_op("stat", "direct SYS_stat legacy_direct_open.txt", res);
+#endif
+
+#ifdef SYS_lstat
+    res = (int)syscall(SYS_lstat, "legacy_direct_open.txt", &st_leg);
+    log_op("lstat", "direct SYS_lstat legacy_direct_open.txt", res);
+#endif
+
+#ifdef SYS_fstat
+    if (fd_leg_open >= 0) {
+        res = (int)syscall(SYS_fstat, fd_leg_open, &st_leg);
+        log_op("fstat", "direct SYS_fstat fd_leg_open", res);
+    }
+#endif
+
+    /* Direct SYS_access & SYS_faccessat */
+#ifdef SYS_access
+    res = (int)syscall(SYS_access, "legacy_direct_open.txt", R_OK | W_OK);
+    log_op("access", "direct SYS_access legacy_direct_open.txt", res);
+#endif
+
+#ifdef SYS_faccessat
+    res = (int)syscall(SYS_faccessat, AT_FDCWD, "legacy_direct_open.txt", R_OK);
+    log_op("faccessat", "direct SYS_faccessat AT_FDCWD + legacy_direct_open.txt", res);
+#endif
+
+    /* Direct SYS_chmod, SYS_chown, SYS_lchown */
+#ifdef SYS_chmod
+    res = (int)syscall(SYS_chmod, "legacy_direct_open.txt", 0600);
+    log_op("chmod", "direct SYS_chmod legacy_direct_open.txt to 0600", res);
+#endif
+
+#ifdef SYS_chown
+    res = (int)syscall(SYS_chown, "legacy_direct_open.txt", getuid(), getgid());
+    log_op("chown", "direct SYS_chown legacy_direct_open.txt", res);
+#endif
+
+#ifdef SYS_lchown
+    res = (int)syscall(SYS_lchown, "legacy_direct_open.txt", getuid(), getgid());
+    log_op("lchown", "direct SYS_lchown legacy_direct_open.txt", res);
+#endif
+
+    /* Direct SYS_mkdir & SYS_rmdir */
+#ifdef SYS_mkdir
+    res = (int)syscall(SYS_mkdir, "legacy_direct_dir", 0755);
+    log_op("mkdir", "direct SYS_mkdir legacy_direct_dir", res);
+#endif
+
+#ifdef SYS_rmdir
+    res = (int)syscall(SYS_rmdir, "legacy_direct_dir");
+    log_op("rmdir", "direct SYS_rmdir legacy_direct_dir", res);
+#endif
+
+    /* Direct SYS_link, SYS_symlink, SYS_readlink */
+#ifdef SYS_link
+    res = (int)syscall(SYS_link, "legacy_direct_open.txt", "legacy_direct_link.txt");
+    log_op("link", "direct SYS_link legacy_direct_open.txt -> legacy_direct_link.txt", res);
+#endif
+
+#ifdef SYS_symlink
+    res = (int)syscall(SYS_symlink, "legacy_direct_open.txt", "legacy_direct_symlink.txt");
+    log_op("symlink", "direct SYS_symlink legacy_direct_open.txt -> legacy_direct_symlink.txt", res);
+#endif
+
+#ifdef SYS_readlink
+    char rlink_leg[256];
+    res = (int)syscall(SYS_readlink, "legacy_direct_symlink.txt", rlink_leg, sizeof(rlink_leg) - 1);
+    log_op("readlink", "direct SYS_readlink legacy_direct_symlink.txt", res);
+#endif
+
+    /* Direct SYS_rename & SYS_unlink */
+#ifdef SYS_rename
+    res = (int)syscall(SYS_rename, "legacy_direct_creat.txt", "legacy_direct_renamed.txt");
+    log_op("rename", "direct SYS_rename legacy_direct_creat.txt -> legacy_direct_renamed.txt", res);
+#endif
+
+#ifdef SYS_unlink
+    res = (int)syscall(SYS_unlink, "legacy_direct_link.txt");
+    log_op("unlink", "direct SYS_unlink legacy_direct_link.txt", res);
+    res = (int)syscall(SYS_unlink, "legacy_direct_symlink.txt");
+    log_op("unlink", "direct SYS_unlink legacy_direct_symlink.txt", res);
+    res = (int)syscall(SYS_unlink, "legacy_direct_renamed.txt");
+    log_op("unlink", "direct SYS_unlink legacy_direct_renamed.txt", res);
+#endif
+
+    /* Direct SYS_mknod */
+#ifdef SYS_mknod
+    res = (int)syscall(SYS_mknod, "legacy_direct_fifo.pipe", S_IFIFO | 0644, 0);
+    log_op("mknod", "direct SYS_mknod legacy_direct_fifo.pipe", res);
+    if (res == 0) unlink("legacy_direct_fifo.pipe");
+#endif
+
+    /* Direct SYS_pipe */
+#ifdef SYS_pipe
+    int p_leg[2] = {-1, -1};
+    res = (int)syscall(SYS_pipe, p_leg);
+    log_op("pipe", "direct SYS_pipe", res);
+    if (res == 0) {
+        close(p_leg[0]);
+        close(p_leg[1]);
+    }
+#endif
+
+    /* Direct SYS_dup2 */
+#ifdef SYS_dup2
+    if (fd_leg_open >= 0) {
+        res = (int)syscall(SYS_dup2, fd_leg_open, 67);
+        log_op("dup2", "direct SYS_dup2 fd_leg_open to 67", res);
+        if (res >= 0) close(res);
+    }
+#endif
+
+    /* Direct SYS_select & SYS_poll */
+#ifdef SYS_select
+    fd_set r_fds_leg;
+    FD_ZERO(&r_fds_leg);
+    FD_SET(0, &r_fds_leg);
+    struct timeval tv_sel_leg = {0, 0};
+    res = (int)syscall(SYS_select, 1, &r_fds_leg, NULL, NULL, &tv_sel_leg);
+    log_op("select", "direct SYS_select stdin non-blocking", res);
+#endif
+
+#ifdef SYS_poll
+    struct pollfd pfd_leg = {0, POLLIN, 0};
+    res = (int)syscall(SYS_poll, &pfd_leg, 1, 0);
+    log_op("poll", "direct SYS_poll stdin non-blocking", res);
+#endif
+
+    /* Direct SYS_epoll_create */
+#ifdef SYS_epoll_create
+    res = (int)syscall(SYS_epoll_create, 16);
+    log_op("epoll_create", "direct SYS_epoll_create size 16", res);
+    if (res >= 0) close(res);
+#endif
+
+    /* Direct SYS_inotify_init */
+#ifdef SYS_inotify_init
+    res = (int)syscall(SYS_inotify_init);
+    log_op("inotify_init", "direct SYS_inotify_init", res);
+    if (res >= 0) close(res);
+#endif
+
+    /* Direct SYS_eventfd */
+#ifdef SYS_eventfd
+    res = (int)syscall(SYS_eventfd, 0);
+    log_op("eventfd", "direct SYS_eventfd initval 0", res);
+    if (res >= 0) close(res);
+#endif
+
+    /* Direct SYS_signalfd */
+#ifdef SYS_signalfd
+    sigset_t smask_leg;
+    sigemptyset(&smask_leg);
+    res = (int)syscall(SYS_signalfd, -1, &smask_leg, sizeof(smask_leg));
+    log_op("signalfd", "direct SYS_signalfd fd -1", res);
+    if (res >= 0) close(res);
+#endif
+
+    /* Direct SYS_utime, SYS_utimes, SYS_futimesat */
+#ifdef SYS_utime
+    struct utimbuf utb_leg = {1000000, 1000000};
+    res = (int)syscall(SYS_utime, "legacy_direct_open.txt", &utb_leg);
+    log_op("utime", "direct SYS_utime legacy_direct_open.txt", res);
+#endif
+
+#ifdef SYS_utimes
+    struct timeval tv_leg[2] = {{1000000, 0}, {1000000, 0}};
+    res = (int)syscall(SYS_utimes, "legacy_direct_open.txt", tv_leg);
+    log_op("utimes", "direct SYS_utimes legacy_direct_open.txt", res);
+#endif
+
+#ifdef SYS_futimesat
+    res = (int)syscall(SYS_futimesat, AT_FDCWD, "legacy_direct_open.txt", tv_leg);
+    log_op("futimesat", "direct SYS_futimesat AT_FDCWD + legacy_direct_open.txt", res);
+#endif
+
+    /* Direct SYS_time & SYS_gettimeofday */
+#ifdef SYS_time
+    time_t t_now_leg = 0;
+    res = (int)syscall(SYS_time, &t_now_leg);
+    log_op("time", "direct SYS_time", res);
+#endif
+
+#ifdef SYS_gettimeofday
+    struct timeval gtv_leg;
+    res = (int)syscall(SYS_gettimeofday, &gtv_leg, NULL);
+    log_op("gettimeofday", "direct SYS_gettimeofday", res);
+#endif
+
+    /* Direct SYS_alarm */
+#ifdef SYS_alarm
+    res = (int)syscall(SYS_alarm, 0);
+    log_op("alarm", "direct SYS_alarm 0 (query/cancel)", res);
+#endif
+
+    /* Direct SYS_fork */
+#ifdef SYS_fork
+    pid_t fpid_leg = (pid_t)syscall(SYS_fork);
+    if (fpid_leg == 0) {
+        _exit(0);
+    } else if (fpid_leg > 0) {
+        waitpid(fpid_leg, NULL, 0);
+        log_op("fork", "direct SYS_fork child process", 0);
+    } else {
+        log_op("fork", "direct SYS_fork child process", (int)fpid_leg);
+    }
+#endif
+
+    /* Cleanup legacy_direct_open.txt */
+    if (fd_leg_open >= 0) {
+        close(fd_leg_open);
+#ifdef SYS_unlink
+        syscall(SYS_unlink, "legacy_direct_open.txt");
+#else
+        unlink("legacy_direct_open.txt");
+#endif
+    }
+
     rmdir("subdir_rel/nested_in_dirfd");
     unlinkat(AT_FDCWD, "sub_at_fdcwd_rel", AT_REMOVEDIR);
     rmdir("subdir_rel");

@@ -398,6 +398,7 @@ Sample 3-line format per monitored event:
 - [x] Fixed `renameat2` and `unlinkat` flag parsing from audit records.
 - [x] Created C test generator `test_syscalls.c` and `Makefile` exercising 75+ syscalls across memory, I/O, sockets, descriptors, permissions, and process management.
   - Added dedicated Section 18 exercising and verifying unlinked-while-open ("ghost file") descriptors across `open`, `write`, `unlink`, post-unlink `write`, `fstat` (`st_nlink == 0`), `lseek`, `read`, `/proc/self/fd` validation (`(deleted)`), descriptor duplication (`dup`), and `close`.
+  - Added dedicated Section 19 exercising 33 legacy syscalls via direct `syscall(SYS_xxx, ...)` calls to bypass libc wrappers (e.g. `open`, `creat`, `stat`, `lstat`, `fstat`, `access`, `faccessat`, `chmod`, `chown`, `lchown`, `mkdir`, `rmdir`, `link`, `symlink`, `readlink`, `rename`, `unlink`, `mknod`, `pipe`, `dup2`, `select`, `poll`, `epoll_create`, `inotify_init`, `eventfd`, `signalfd`, `utime`, `utimes`, `futimesat`, `time`, `gettimeofday`, `alarm`, `fork`), ensuring the kernel audit subsystem produces real audit events with legacy syscall numbers for comprehensive end-to-end verification.
   - Added `--user <USER>` / `-u <USER>` command-line option to drop privileges (`initgroups`, `setgid`, `setuid`) prior to running tests when invoked as root (`uid 0`), with automatic sandbox ownership configuration (`chown`/`chmod`).
 - [x] Created `setup_audit_rules.sh` to configure `auditctl` rules for all tested syscalls.
 - [x] Created audisp plugin configuration file `audisp-strace.conf`.
@@ -417,5 +418,4 @@ Sample 3-line format per monitored event:
   - Visual badges for SUID/SGID creation, executions from `/tmp` or `/dev/shm`, and sensitive file edits.
 - [ ] **`make install` / Packaging Target**:
   - Makefile target to install binary to `/usr/local/bin` and plugin config to `/etc/audit/plugins.d/`.
-- [ ] Potential to-do: Add direct `syscall(SYS_open, ...)` and `syscall(SYS_stat, ...)` to `test_syscalls.c` if explicit audit verification of legacy syscall numbers is desired on x86_64.
 - [ ] Live integration test on test VM with auditd daemon active.
