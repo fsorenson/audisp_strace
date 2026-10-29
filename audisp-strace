@@ -6855,6 +6855,31 @@ class SyscallHandler:
         return json.dumps(record, separators=(",", ":"))
 
 
+def format_duration(seconds):
+    if seconds < 0:
+        return f"{seconds:.3f}s"
+    if seconds < 60.0:
+        return f"{seconds:.3f}s"
+    tot_sec = int(seconds)
+    milli = int(round((seconds - tot_sec) * 1000.0))
+    if milli >= 1000:
+        tot_sec += 1
+        milli = 0
+    days, rem = divmod(tot_sec, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0 or days > 0:
+        parts.append(f"{hours:02d}h" if days > 0 else f"{hours}h")
+    if minutes > 0 or hours > 0 or days > 0:
+        parts.append(f"{minutes:02d}m" if (days > 0 or hours > 0) else f"{minutes}m")
+    parts.append(f"{secs:02d}.{milli:03d}s" if (days > 0 or hours > 0 or minutes > 0) else f"{secs}.{milli:03d}s")
+    human = " ".join(parts)
+    return f"{human} ({seconds:.3f}s)"
+
+
 def _auparse_callback(au, event_type, user_data):
     if user_data:
         user_data.on_audit_event(au, event_type)
@@ -6935,6 +6960,8 @@ class AudispStraceApp:
         self._event_count = 0
         self.stats = collections.defaultdict(lambda: {"calls": 0, "errors": 0})
         self._summary_printed = False
+        self.first_event_ts = None
+        self.last_event_ts = None
 
         if isinstance(color, bool):
             self.color_enabled = color
@@ -7393,6 +7420,10 @@ class AudispStraceApp:
                 should_display = False
 
         if should_display:
+            if self.first_event_ts is None:
+                self.first_event_ts = (event.sec, event.milli, event.serial)
+            self.last_event_ts = (event.sec, event.milli, event.serial)
+
             if self.summary or self.summary_only:
                 self.stats[scname]["calls"] += 1
                 if event.is_failed:
@@ -7973,7 +8004,24 @@ class AudispStraceApp:
         sep_text    = "-------  ---------  ---------  -------  ----------------"
         theme = self.theme
 
-        lines = [theme.bold(header_text), theme.dim(sep_text)]
+        lines = []
+        if self.first_event_ts and self.last_event_ts:
+            f_sec, f_milli, f_serial = self.first_event_ts
+            l_sec, l_milli, l_serial = self.last_event_ts
+            f_epoch = f_sec + f_milli / 1000.0
+            l_epoch = l_sec + l_milli / 1000.0
+            dur = max(0.0, l_epoch - f_epoch)
+            dur_str = format_duration(dur)
+            f_dt = datetime.datetime.fromtimestamp(f_epoch).astimezone()
+            l_dt = datetime.datetime.fromtimestamp(l_epoch).astimezone()
+            f_str = f"{f_dt.strftime('%Y-%m-%d %H:%M:%S')}.{f_milli:03d} {f_dt.strftime('%z')}"
+            l_str = f"{l_dt.strftime('%Y-%m-%d %H:%M:%S')}.{l_milli:03d} {l_dt.strftime('%z')}"
+            ser_str = f", serials: {f_serial}..{l_serial}" if f_serial != l_serial else f", serial: {f_serial}"
+            tr_label = theme.bold("Time range:") if theme.enabled else "Time range:"
+            lines.append(f"{tr_label} {f_str} .. {l_str} (duration: {dur_str}{ser_str})")
+            lines.append("")
+
+        lines.extend([theme.bold(header_text), theme.dim(sep_text)])
 
         for r in rows:
             pct_str = "%7.2f" % r["pct_calls"]
@@ -8153,6 +8201,232 @@ def open_output_stream(path, append=False, compression="auto", compress_level=1)
         sys.exit(1)
 
 
+def inspect_stream(stream):
+    first = None
+    last = None
+    for line in stream:
+        m = RE_AUDIT_MSG.search(line)
+        if m:
+            entry = (float(m.group(1)), int(m.group(2)))
+            if first is None:
+                first = entry
+            last = entry
+    if first is None:
+        return {"error": "no audit records found"}
+    return {
+        "first_ts": first[0],
+        "first_serial": first[1],
+        "last_ts": last[0],
+        "last_serial": last[1],
+    }
+
+
+def inspect_audit_file(path):
+    if path == "-":
+        return inspect_stream(sys.stdin)
+    try:
+        with open(path, "rb") as f:
+            magic = f.read(6)
+    except OSError as e:
+        return {"error": str(e)}
+
+    is_compressed = (
+        magic.startswith(b"\x1f\x8b") or
+        magic.startswith(b"BZh") or
+        magic.startswith(b"\xfd7zXZ\x00") or
+        path.endswith((".gz", ".bz2", ".xz"))
+    )
+
+    if is_compressed:
+        try:
+            with open_input_stream(path) as stream:
+                return inspect_stream(stream)
+        except OSError as e:
+            return {"error": str(e)}
+
+    # Uncompressed file: fast seek
+    try:
+        size = os.path.getsize(path)
+    except OSError as e:
+        return {"error": str(e)}
+    if size == 0:
+        return {"error": "empty file"}
+
+    first = None
+    last = None
+
+    try:
+        with open(path, "rb") as f:
+            read_bytes = 0
+            while read_bytes < min(size, 1024 * 1024):
+                line = f.readline()
+                if not line:
+                    break
+                read_bytes += len(line)
+                m = RE_AUDIT_MSG.search(line.decode("utf-8", "replace"))
+                if m:
+                    first = (float(m.group(1)), int(m.group(2)))
+                    break
+
+            if first is None:
+                return {"error": "no audit records found"}
+
+            chunk_size = min(size, 65536)
+            while chunk_size <= size:
+                f.seek(size - chunk_size)
+                tail_data = f.read(chunk_size).decode("utf-8", "replace")
+                matches = RE_AUDIT_MSG.findall(tail_data)
+                if matches:
+                    last_m = matches[-1]
+                    last = (float(last_m[0]), int(last_m[1]))
+                    break
+                if chunk_size == size:
+                    break
+                chunk_size = min(size, chunk_size * 4)
+    except OSError as e:
+        return {"error": str(e)}
+
+    if last is None:
+        last = first
+
+    return {
+        "first_ts": first[0],
+        "first_serial": first[1],
+        "last_ts": last[0],
+        "last_serial": last[1],
+    }
+
+
+def format_time_range_entry(ts_float, time_format="datetime"):
+    sec = int(ts_float)
+    milli = int(round((ts_float - sec) * 1000.0))
+    if milli >= 1000:
+        sec += 1
+        milli = 0
+    dt = datetime.datetime.fromtimestamp(ts_float).astimezone()
+    if time_format == "epoch":
+        return f"{ts_float:.3f}"
+    elif time_format == "time":
+        return f"{dt.strftime('%H:%M:%S')}.{milli:03d}"
+    else:  # "datetime"
+        return f"{dt.strftime('%Y-%m-%d %H:%M:%S')}.{milli:03d} {dt.strftime('%z')}"
+
+
+def cmd_time_range(files, args, out_file):
+    target_files = files if files else ["-"]
+    results = []
+
+    for path in target_files:
+        info = inspect_audit_file(path)
+        results.append((path, info))
+
+    time_fmt = args.timestamp_format if args.timestamp_format is not None else "datetime"
+
+    if args.color == "always":
+        color_enabled = True
+    elif args.color == "never":
+        color_enabled = False
+    else:
+        is_tty = hasattr(out_file, "isatty") and out_file.isatty()
+        color_enabled = bool(is_tty and not os.environ.get("NO_COLOR"))
+    theme = ColorTheme(color_enabled)
+
+    if args.json_format:
+        for path, info in results:
+            display_path = "<stdin>" if path == "-" else path
+            if "error" in info:
+                rec = {"file": display_path, "error": info["error"]}
+            else:
+                dur = max(0.0, info["last_ts"] - info["first_ts"])
+                f_dt = datetime.datetime.fromtimestamp(info["first_ts"]).astimezone()
+                l_dt = datetime.datetime.fromtimestamp(info["last_ts"]).astimezone()
+                rec = {
+                    "file": display_path,
+                    "start_time": f_dt.isoformat(),
+                    "end_time": l_dt.isoformat(),
+                    "start_epoch": round(info["first_ts"], 3),
+                    "end_epoch": round(info["last_ts"], 3),
+                    "duration_seconds": round(dur, 3),
+                    "first_serial": info["first_serial"],
+                    "last_serial": info["last_serial"],
+                }
+            out_file.write(json.dumps(rec) + "\n")
+
+        valid_results = [r for r in results if "error" not in r[1]]
+        if len(valid_results) > 1:
+            min_ts = min(r[1]["first_ts"] for r in valid_results)
+            max_ts = max(r[1]["last_ts"] for r in valid_results)
+            min_ser = min(r[1]["first_serial"] for r in valid_results)
+            max_ser = max(r[1]["last_serial"] for r in valid_results)
+            tot_dur = max(0.0, max_ts - min_ts)
+            f_dt = datetime.datetime.fromtimestamp(min_ts).astimezone()
+            l_dt = datetime.datetime.fromtimestamp(max_ts).astimezone()
+            tot_rec = {
+                "file": "total",
+                "files_count": len(valid_results),
+                "start_time": f_dt.isoformat(),
+                "end_time": l_dt.isoformat(),
+                "start_epoch": round(min_ts, 3),
+                "end_epoch": round(max_ts, 3),
+                "duration_seconds": round(tot_dur, 3),
+                "first_serial": min_ser,
+                "last_serial": max_ser,
+            }
+            out_file.write(json.dumps(tot_rec) + "\n")
+        out_file.flush()
+        return
+
+    # Text mode
+    max_path_len = max(len("<stdin>" if p == "-" else p) for p, _ in results)
+    pad = max(max_path_len, 14)
+
+    for path, info in results:
+        display_path = "<stdin>" if path == "-" else path
+        path_padded = display_path.ljust(pad)
+        if theme.enabled:
+            label = theme.bold(path_padded + ":")
+        else:
+            label = path_padded + ":"
+
+        if "error" in info:
+            err_msg = theme.result_failed(info["error"]) if theme.enabled else info["error"]
+            out_file.write(f"{label} {err_msg}\n")
+            continue
+
+        f_str = format_time_range_entry(info["first_ts"], time_fmt)
+        l_str = format_time_range_entry(info["last_ts"], time_fmt)
+        dur = max(0.0, info["last_ts"] - info["first_ts"])
+        dur_str = format_duration(dur)
+        f_ser = info["first_serial"]
+        l_ser = info["last_serial"]
+        ser_str = f", serials: {f_ser}..{l_ser}" if f_ser != l_ser else f", serial: {f_ser}"
+
+        out_file.write(f"{label} {f_str} .. {l_str} (duration: {dur_str}{ser_str})\n")
+
+    valid_results = [r for r in results if "error" not in r[1]]
+    if len(valid_results) > 1:
+        min_ts = min(r[1]["first_ts"] for r in valid_results)
+        max_ts = max(r[1]["last_ts"] for r in valid_results)
+        min_ser = min(r[1]["first_serial"] for r in valid_results)
+        max_ser = max(r[1]["last_serial"] for r in valid_results)
+        tot_dur = max(0.0, max_ts - min_ts)
+        tot_dur_str = format_duration(tot_dur)
+        f_str = format_time_range_entry(min_ts, time_fmt)
+        l_str = format_time_range_entry(max_ts, time_fmt)
+        ser_str = f", serials: {min_ser}..{max_ser}" if min_ser != max_ser else f", serial: {min_ser}"
+
+        tot_label_text = f"Total ({len(valid_results)} files)"
+        tot_padded = tot_label_text.ljust(pad)
+        if theme.enabled:
+            tot_label = theme.bold(tot_padded + ":")
+        else:
+            tot_label = tot_padded + ":"
+
+        out_file.write(f"{tot_label} {f_str} .. {l_str} (duration: {tot_dur_str}{ser_str})\n")
+
+    out_file.flush()
+
+
 _ACTIVE_OUT_FILE = None
 _CLOSE_OUT_FILE = False
 _ACTIVE_APP = None
@@ -8230,7 +8504,7 @@ def main():
     parser.add_argument(
         "-t", "--timestamp-format",
         choices=["time", "datetime", "epoch", "relative"],
-        default="time",
+        default=None,
         help="Timestamp format (default: time, e.g. 17:53:01.027; 'relative' shows relative time delta)"
     )
     parser.add_argument(
@@ -8244,6 +8518,12 @@ def main():
         dest="relative_by_pid",
         action="store_true",
         help="Calculate relative timestamp deltas per PID rather than across the global event stream"
+    )
+    parser.add_argument(
+        "--time-range",
+        dest="time_range",
+        action="store_true",
+        help="Fast inspection of audit log file(s) to report start and end timestamps, duration, and serial range"
     )
     parser.add_argument(
         "-s", "--syscalls",
@@ -8582,9 +8862,18 @@ def main():
     _ACTIVE_OUT_FILE = out_file
     _CLOSE_OUT_FILE = close_out_file
 
+    if args.time_range:
+        cmd_time_range(args.files, args, out_file)
+        if close_out_file and not out_file.closed:
+            out_file.flush()
+            out_file.close()
+        sys.exit(0)
+
+    time_format = args.timestamp_format if args.timestamp_format is not None else "time"
+
     app = AudispStraceApp(
         is_live=is_live,
-        time_format=args.timestamp_format,
+        time_format=time_format,
         all_syscalls=args.all_syscalls,
         syscalls=syscalls_filter,
         exclude_syscalls=exclude_filter,

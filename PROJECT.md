@@ -436,6 +436,12 @@ Sample 3-line format per monitored event:
   - `-t relative` renders standalone relative deltas (`     0.001253`).
   - `--relative-by-pid` computes relative deltas per individual PID rather than globally across the event stream.
   - Integrated into compact mode (`-C`, `-C strace`), JSON Lines output (`"relative_time": 0.001253`), and multi-file merging (`-m`).
+- [x] Implemented fast log time range inspection and summary boundaries (`--time-range`, `-c` / `--summary`):
+  - Added instant seek-based inspection (<1ms) reading file head and tail to determine exact start time, end time, duration, and serial range without full event decoding.
+  - Transparently falls back to lightweight line streaming for compressed files (`.gz`, `.bz2`, `.xz`) or `stdin`.
+  - Supports multi-file batches (`audisp-strace --time-range /var/log/audit/audit.log*`) printing per-file coverage and an aligned `Total (N files)` summary span.
+  - Supports `--json` machine-readable output format.
+  - Enriched `-c` / `--summary-only` and `--summary` to display a dedicated `Time range:` header showing start/end timestamps, duration, and serial boundaries of matched events.
 
 ### Next Steps / Ideas
 - [ ] **Audit Rule Generator (`--generate-rules` / `--auditctl`)**:

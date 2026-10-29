@@ -96,6 +96,10 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Standard `-r` appends relative deltas (`(+     0.001253)`) next to wall-clock timestamps, while `-t relative` displays standalone relative time (`     0.001253`).
   - Optional `--relative-by-pid` isolates deltas per process to track elapsed execution time within each PID independently.
   - Fully integrated with compact mode (`-C`), JSON output (`"relative_time": 0.001253`), and multi-file merging (`-m`).
+- **Fast Time Range & Coverage Inspection (`--time-range`, `capinfos`-style)**:
+  - Instantly inspects audit log files (<1ms via seek-based header/trailer reads on regular files, streaming on compressed files) to report start/end timestamps, duration, and serial ranges without full tracing.
+  - Supports multiple files (`audisp-strace --time-range /var/log/audit/audit.log*`) showing aligned per-file coverage and an overall Total span line.
+  - Enriches summary mode (`-c` / `--summary`) to display boundary timestamps and duration above the syscall frequency table.
 
 ---
 
@@ -131,7 +135,7 @@ sudo cp audisp-strace /usr/local/bin/
 ```text
 usage: audisp-strace [-h] [-l] [--offline] [-F] [--from-start] [-n K] [-m]
                      [-t {time,datetime,epoch,relative}] [-r]
-                     [--relative-by-pid] [-s SYSCALLS] [-x EXCLUDE]
+                     [--relative-by-pid] [--time-range] [-s SYSCALLS] [-x EXCLUDE]
                      [-a] [-Z | -z] [-e ERRNOS] [-E EXCLUDE_ERRNOS]
                      [-C [{summary,strace}]] [-p PIDS]
                      [--exclude-pid EXCLUDE_PIDS] [-f] [--trace-self]
@@ -344,6 +348,7 @@ On multi-core SMP systems under heavy load, Linux kernel netlink queues deliver 
 | `-t`, `--timestamp-format` | Timestamp format (`time`, `datetime`, `epoch`, `relative`) | `-t relative`, `-t epoch` |
 | `-r`, `--relative-time`, `--relative-timestamps` | Display relative elapsed time delta since previous event (modeled after `strace -r`) | `-r` |
 | `--relative-by-pid`, `--relative-per-pid` | Calculate relative time deltas per individual PID rather than globally | `-r --relative-by-pid` |
+| `--time-range` | Fast inspection of audit log file(s) reporting start/end times, duration, and serials | `--time-range audit.log*` |
 | `-s`, `--syscalls` | Comma-separated syscalls or `%CLASS` selectors to monitor | `-s %perm,openat` |
 | `-x`, `-X`, `--exclude` | Syscalls or `%CLASS` selectors to omit | `-X %desc,close` |
 | `-a`, `--all` | Display all captured syscalls (overrides default filter) | `-a` |
