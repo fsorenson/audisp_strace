@@ -84,6 +84,10 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Auto-selects compression based on file extension (`-o trace.log.gz`, `-o trace.json.gz`), or via explicit `--compress gzip` / `--gzip`.
   - Uses low-overhead `compresslevel=1` by default (achieving 85–95% space reduction with minimal CPU usage) and flushes deterministically for real-time inspection with `zcat` / `zless` / `zgrep`.
   - Full RFC 1952 concatenated stream support with `-A` / `--append`, terminal protection check for unredirected stdout, and transparent on-the-fly decompression of input audit files (`.gz`, `.bz2`, `.xz`, or via magic bytes).
+- **Readable Mode Bits & Symbolic Permissions (`0755 <rwxr-xr-x>`)**:
+  - Automatically decodes octal file and directory mode bits into readable permission strings across `chmod`, `fchmod`, `fchmodat`, `open`, `openat`, `creat`, `mkdir`, `mkdirat`, `mknod`, `mknodat`, and `umask`.
+  - Distinguishes SUID (`04755 <rwsr-xr-x>`), SGID (`02755 <rwxr-sr-x>`), Sticky (`01777 <rwxrwxrwt>`), and umask values (`0022 <----w--w->`, `0 <--------->`).
+  - Resolves file type constants in `mknod` (`S_IFIFO|0644 <rw-r--r-->`) and System V IPC flags in `shmget`/`semget`/`msgget` (`IPC_CREAT|0600`).
 
 ---
 

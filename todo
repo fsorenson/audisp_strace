@@ -15,17 +15,14 @@
       Filter or exclude specific error names (e.g. `EACCES`, `ENOENT`, `EPERM`) or numeric error codes (`13`, `2`), case-insensitive and prefixless (`acces`, `13`). Implies failed-only for `-e`; fully integrated with summary mode (`-c`) and JSON output (`--json`).
 • [x] Output Stream & File Compression (`--compress`, `-o <file>.gz`, `--gzip`, `--compress-level`):
       Transparently compresses output traces, JSON records, and summary tables with gzip, bz2, or xz. Auto-detected by filename extension on `-o` or explicitly selected via `--compress`. Uses fast default `compresslevel=1` for ~90-95% compression with minimal CPU overhead, deterministic flushing for real-time `zcat`/`zless` visibility, clean RFC 1952 concatenated stream support with `-A` / `--append`, terminal protection check for stdout, and transparent decompression of compressed audit input logs.
+• [x] Conversion of File/Directory Mode Bits to Readable Format (`0755 <rwxr-xr-x>`):
+      Decodes octal mode arguments across `chmod`, `fchmod`, `fchmodat`, `open`, `openat`, `creat`, `mkdir`, `mkdirat`, `mknod`, `mknodat`, and `umask` (both mask parameter and previous mask return value) with readable symbolic permissions (`0755 <rwxr-xr-x>`, `0644 <rw-r--r-->`, `04755 <rwsr-xr-x>`, `02755 <rwxr-sr-x>`, `01777 <rwxrwxrwt>`, `0022 <----w--w->`, `0 <--------->`). Automatically decodes file type flags in `mknod` (`S_IFIFO|0644 <rw-r--r-->`) and properly isolates System V IPC flags in `shmget`/`semget`/`msgget` (`IPC_CREAT|0600`).
 
 ---
 
 ## 2. High-Value Enhancement Suggestions & Remaining To-Do Items
 
-### A. Root-Cause Analysis & Support Triage
-• Conversion of File/Directory Mode Bits to Readable Format (`0755 <rwxr-xr-x>`):
-    • What it does: Formats octal mode arguments in `chmod`, `fchmod`, `fchmodat`, `open`, `openat`, `creat`, `mkdir`, `mkdirat`, `mknod`, and `umask` with readable symbolic strings (e.g., `0755 <rwxr-xr-x>`, `0644 <rw-r--r-->`, `04755 <rwsr-xr-x>`).
-    • Support Value: High. Makes permission change investigations instantly readable without manual octal-to-binary bit decoding.
-
-### B. Forensics & Investigation Timing
+### A. Forensics & Investigation Timing
 • Relative Timestamps (`-r` / `--relative-time`):
     • What it does: Displays the elapsed time delta since the previous event (or previous event on the same PID), formatted like `strace -r` (e.g., `+0.000412`).
     • Support Value: High. Immediately highlights execution stalls, storage I/O latency hangs, or bursts of rapid activity.
@@ -34,7 +31,7 @@
     • What it does: When passing multiple rotated log files (e.g., `audisp-strace audit.log.4 audit.log.3 audit.log.2 audit.log.1 audit.log`), performs a k-way chronological merge of events across file boundaries based on timestamp/epoch rather than reading file-by-file sequentially.
     • Support Value: Medium-High. Essential when analyzing historical multi-day incidents spanning across several rotated audit log segments.
 
-### C. Rule Configuration & Operator Ergonomics
+### B. Rule Configuration & Operator Ergonomics
 • Audit Rule Generator (`--generate-rules` / `--auditctl`):
     • What it does: Inspects your current CLI filters (e.g., `-s %perm`, `-s %mount`, `-s %locks`, `-P /etc`, `-u apache`, or `--comm nginx`) and prints the exact, copy-pasteable `auditctl` commands needed to capture those events in the kernel with proper `arch=b64`, syscall lists, and session exclusions (`-F auid!=-1` or `-F ses!=-1`).
     • Support Value: Medium-High. Eliminates guesswork when setting up audit rules for customers.

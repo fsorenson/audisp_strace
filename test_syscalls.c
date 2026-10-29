@@ -551,6 +551,19 @@ static void run_worker_tests(const char *base_dir) {
     res = fchmodat(dir_fd, abs_file, 0644, 0);
     log_op("fchmodat", "dir_fd + absolute path to 0644", res);
 
+    /* Exercise special mode bits: SUID (04755), SGID (02755), Sticky (01777) */
+    res = chmod("creat_file.txt", 04755);
+    log_op("chmod", "creat_file.txt to SUID 04755", res);
+
+    res = chmod("creat_file.txt", 02755);
+    log_op("chmod", "creat_file.txt to SGID 02755", res);
+
+    res = chmod("creat_file.txt", 01777);
+    log_op("chmod", "creat_file.txt to Sticky 01777", res);
+
+    res = chmod("creat_file.txt", 0600);
+    log_op("chmod", "creat_file.txt restore to 0600", res);
+
     /* -------------------------------------------------------------
      * 5. OWNERSHIP: chown, fchown, lchown, fchownat
      * ------------------------------------------------------------- */

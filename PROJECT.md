@@ -419,10 +419,14 @@ Sample 3-line format per monitored event:
   - Full RFC 1952 concatenated stream support when appending (`-A` / `--append`).
   - Safety check to prevent dumping raw binary compressed bytes to interactive terminals when stdout is unredirected.
   - Transparent on-the-fly decompression of input audit log files (`.gz`, `.bz2`, `.xz`, or via magic byte inspection).
+- [x] Implemented conversion of file/directory mode bits to readable format (`0755 <rwxr-xr-x>`):
+  - Formats octal mode arguments across `chmod`, `fchmod`, `fchmodat`, `fchmodat2`, `open`, `openat`, `creat`, `mkdir`, `mkdirat`, `mknod`, `mknodat`, `mq_open`, and `umask` (both mask parameter and previous mask return value).
+  - Displays readable symbolic strings (`0755 <rwxr-xr-x>`, `0644 <rw-r--r-->`, `04755 <rwsr-xr-x>`, `02755 <rwxr-sr-x>`, `01777 <rwxrwxrwt>`, `0022 <----w--w->`, `0 <--------->`).
+  - Resolves file type flags in `mknod`/`mknodat` (`S_IFIFO|0644 <rw-r--r-->`).
+  - Decoupled and formatted System V IPC flags in `shmget`, `semget`, `msgget` (`IPC_CREAT|0600`).
+  - Added test exercises for SUID (04755), SGID (02755), Sticky (01777), and restore in `test_syscalls.c` Section 4.
 
 ### Next Steps / Ideas
-- [ ] **Octal Mode to Symbolic Permission Conversion (`0755 <rwxr-xr-x>`)**:
-  - Automatically decode mode bits in `chmod`, `open`, `creat`, `mkdir`, `umask` to readable `<rwxr-xr-x>` annotations.
 - [ ] **Relative Timestamps (`-r` / `--relative-time`)**:
   - Display elapsed delta since previous event (`+0.000412`) to identify latency hangs or bursts.
 - [ ] **Audit Rule Generator (`--generate-rules` / `--auditctl`)**:

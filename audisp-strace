@@ -3178,14 +3178,123 @@ class SyscallHandler:
             return f"{val_int}<{path}>"
         return str(val_int)
 
-    def _resolve_mode(self, raw_mode, interp_mode):
-        if interp_mode and interp_mode.startswith('0'):
-            return interp_mode
+    @staticmethod
+    def _parse_mode_int(raw_mode, interp_mode=None):
+        if interp_mode is not None:
+            s = str(interp_mode).strip()
+            if s.startswith("0") and not s.lower().startswith("0x"):
+                try:
+                    return int(s, 8)
+                except ValueError:
+                    pass
+            elif s.lower().startswith("0x"):
+                try:
+                    return int(s, 16)
+                except ValueError:
+                    pass
+        if isinstance(raw_mode, int):
+            return raw_mode
+        if raw_mode is None or raw_mode == "":
+            return 0
+        s = str(raw_mode).strip()
+        if s.lower().startswith("0x"):
+            try:
+                return int(s, 16)
+            except ValueError:
+                return 0
+        if s.startswith("0") and len(s) > 1 and not s.lower().startswith("0x"):
+            try:
+                return int(s, 8)
+            except ValueError:
+                pass
         try:
-            int_val = int(raw_mode, 16) if str(raw_mode).startswith('0x') else int(str(raw_mode), 16)
-            return f"0{int_val:o}"
-        except (ValueError, TypeError):
-            return str(raw_mode)
+            return int(s, 16)
+        except ValueError:
+            try:
+                return int(s)
+            except ValueError:
+                return 0
+
+    @classmethod
+    def _format_file_mode(cls, mode):
+        if not isinstance(mode, int) or mode < 0:
+            return str(mode)
+
+        file_type = mode & 0o170000
+        perm_bits = mode & 0o7777
+
+        # User permissions
+        ur = 'r' if (perm_bits & 0o400) else '-'
+        uw = 'w' if (perm_bits & 0o200) else '-'
+        if perm_bits & 0o4000:  # SUID
+            ux = 's' if (perm_bits & 0o100) else 'S'
+        else:
+            ux = 'x' if (perm_bits & 0o100) else '-'
+
+        # Group permissions
+        gr = 'r' if (perm_bits & 0o040) else '-'
+        gw = 'w' if (perm_bits & 0o020) else '-'
+        if perm_bits & 0o2000:  # SGID
+            gx = 's' if (perm_bits & 0o010) else 'S'
+        else:
+            gx = 'x' if (perm_bits & 0o010) else '-'
+
+        # Others permissions
+        or_ = 'r' if (perm_bits & 0o004) else '-'
+        ow = 'w' if (perm_bits & 0o002) else '-'
+        if perm_bits & 0o1000:  # Sticky
+            ox = 't' if (perm_bits & 0o001) else 'T'
+        else:
+            ox = 'x' if (perm_bits & 0o001) else '-'
+
+        sym = f"{ur}{uw}{ux}{gr}{gw}{gx}{or_}{ow}{ox}"
+
+        if perm_bits & 0o7000:
+            oct_str = f"0{perm_bits:04o}"
+        elif perm_bits == 0:
+            oct_str = "0"
+        else:
+            oct_str = f"0{perm_bits:03o}"
+
+        FILE_TYPE_NAMES = {
+            0o010000: "S_IFIFO",
+            0o020000: "S_IFCHR",
+            0o040000: "S_IFDIR",
+            0o060000: "S_IFBLK",
+            0o100000: "S_IFREG",
+            0o120000: "S_IFLNK",
+            0o140000: "S_IFSOCK",
+        }
+
+        if file_type and file_type in FILE_TYPE_NAMES:
+            type_name = FILE_TYPE_NAMES[file_type]
+            if perm_bits != 0:
+                return f"{type_name}|{oct_str} <{sym}>"
+            return f"{type_name} <{sym}>"
+
+        return f"{oct_str} <{sym}>"
+
+    def _resolve_mode(self, raw_mode, interp_mode=None):
+        int_val = self._parse_mode_int(raw_mode, interp_mode)
+        return self._format_file_mode(int_val)
+
+    def _format_ipc_flags(self, raw_flg, interp_flg=None):
+        if interp_flg and ("IPC_" in str(interp_flg) or "|" in str(interp_flg)):
+            return str(interp_flg)
+        flg_val = self._parse_id(raw_flg)
+        if not isinstance(flg_val, int):
+            return str(raw_flg)
+        parts = []
+        if flg_val & 0o1000:
+            parts.append("IPC_CREAT")
+        if flg_val & 0o2000:
+            parts.append("IPC_EXCL")
+        if flg_val & 0o4000:
+            parts.append("IPC_NOWAIT")
+        perm = flg_val & 0o777
+        if perm or not parts:
+            parts.append(f"0{perm:03o}")
+        return "|".join(parts)
 
     def _resolve_fd(self, event, field_name="a0"):
         fd_raw = event.syscall.get(field_name, "0")
@@ -4713,7 +4822,7 @@ class SyscallHandler:
         key_str = "IPC_PRIVATE" if key == 0 else f"0x{key:x}"
         size = self._parse_id(event.syscall.get("a1", "0"))
         flg = self._parse_id(event.syscall.get("a2", "0"))
-        flg_str = self._resolve_mode(flg, event.syscall_interp.get("a2"))
+        flg_str = self._format_ipc_flags(flg, event.syscall_interp.get("a2"))
         return f"shmget({key_str}, {size}, {flg_str}) = {event.exit_str}"
 
     def handle_shmctl(self, event):
@@ -4727,7 +4836,7 @@ class SyscallHandler:
         key_str = "IPC_PRIVATE" if key == 0 else f"0x{key:x}"
         nsems = self._parse_id(event.syscall.get("a1", "0"))
         flg = self._parse_id(event.syscall.get("a2", "0"))
-        flg_str = self._resolve_mode(flg, event.syscall_interp.get("a2"))
+        flg_str = self._format_ipc_flags(flg, event.syscall_interp.get("a2"))
         return f"semget({key_str}, {nsems}, {flg_str}) = {event.exit_str}"
 
     def handle_semop(self, event, scname=None):
@@ -4751,7 +4860,7 @@ class SyscallHandler:
         key = self._parse_id(event.syscall.get("a0", "0"))
         key_str = "IPC_PRIVATE" if key == 0 else f"0x{key:x}"
         flg = self._parse_id(event.syscall.get("a1", "0"))
-        flg_str = self._resolve_mode(flg, event.syscall_interp.get("a1"))
+        flg_str = self._format_ipc_flags(flg, event.syscall_interp.get("a1"))
         return f"msgget({key_str}, {flg_str}) = {event.exit_str}"
 
     def handle_msgsnd(self, event):
@@ -5881,9 +5990,9 @@ class SyscallHandler:
 
     def handle_umask(self, event):
         mask_val = self._parse_id(event.syscall.get("a0", "0"))
-        mask_str = f"0{mask_val:o}" if isinstance(mask_val, int) and mask_val >= 0 else str(mask_val)
+        mask_str = self._resolve_mode(mask_val, event.syscall_interp.get("a0"))
         if event.is_success and event.exit_code is not None and event.exit_code >= 0:
-            exit_str = f"0{event.exit_code:o}"
+            exit_str = self._resolve_mode(event.exit_code)
         else:
             exit_str = event.exit_str
         return f"umask({mask_str}) = {exit_str}"
