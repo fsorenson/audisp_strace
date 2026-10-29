@@ -6761,7 +6761,8 @@ class SyscallHandler:
         key_tag = ""
         if self.show_key and event.key:
             if theme.enabled:
-                key_tag = f" {theme.dim('[key=')}{theme.string(f'\"{event.key}\"')}{theme.dim(']')}"
+                k_val = theme.string(f'"{event.key}"')
+                key_tag = f" {theme.dim('[key=')}{k_val}{theme.dim(']')}"
             else:
                 key_tag = f' [key="{event.key}"]'
 
