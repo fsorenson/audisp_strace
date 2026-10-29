@@ -16,7 +16,7 @@ sessionid=$(cat /proc/$$/sessionid)
 echo "Adding audit rules with key: $KEY"
 
 # Exclude the current session to prevent runaway feedback loops
-auditctl -a never,exit -F sessionid=$sessionid
+auditctl -a never,exit -F sessionid=$sessionid -S all -F key="$KEY"
 
 # Permissions & Ownership
 auditctl -a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F key="$KEY"

@@ -8581,7 +8581,7 @@ def cmd_generate_rules(args, out_file):
         lines.append(f"# Key: {key}")
         lines.append("")
         lines.append("# 1. Exclude the current interactive session to prevent audit feedback loops")
-        lines.append(f"auditctl -a never,exit -F sessionid=$(cat /proc/$$/sessionid 2>/dev/null || echo 0)")
+        lines.append(f"auditctl -a never,exit -F sessionid=$(cat /proc/$$/sessionid 2>/dev/null || echo 0) -S all -F key=\"{key}\"")
         lines.append("")
         lines.append("# 2. Monitored syscall rules")
     else:
