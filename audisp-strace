@@ -1781,12 +1781,33 @@ class ColorTheme:
 class TraceFormatter:
     """Formats 3-line strace-like output."""
 
-    def __init__(self, time_format="time", theme=None, show_serial=False):
+    def __init__(self, time_format="time", theme=None, show_serial=False, relative_time=False, relative_by_pid=False):
         self.time_format = time_format
         self.theme = theme if theme is not None else ColorTheme(False)
         self.show_serial = bool(show_serial)
+        self.relative_time = bool(relative_time) or (time_format == "relative")
+        self.relative_by_pid = bool(relative_by_pid)
         self._uid_cache = {}
         self._gid_cache = {}
+        self._last_event_time = None
+        self._last_pid_time = {}
+
+    def compute_relative_delta(self, sec, milli, pid=None):
+        curr_time = sec + (milli / 1000.0)
+        if self.relative_by_pid and pid is not None:
+            last = self._last_pid_time.get(pid)
+            if last is None:
+                delta = 0.0
+            else:
+                delta = curr_time - last
+            self._last_pid_time[pid] = curr_time
+        else:
+            if self._last_event_time is None:
+                delta = 0.0
+            else:
+                delta = curr_time - self._last_event_time
+            self._last_event_time = curr_time
+        return delta
 
     def resolve_user(self, uid_str, fallback=""):
         if uid_str is None or uid_str == "" or uid_str in ("4294967295", "-1"):
@@ -1812,16 +1833,28 @@ class TraceFormatter:
         self._gid_cache[gid_str] = name
         return name
 
-    def format_timestamp(self, sec, milli, serial=None):
-        dt = datetime.datetime.fromtimestamp(sec).astimezone()
+    def format_timestamp(self, sec, milli, serial=None, pid=None):
         serial_suffix = f":{serial}" if (self.show_serial and serial is not None) else ""
+        delta_str = ""
+        if self.relative_time or self.time_format == "relative":
+            delta = self.compute_relative_delta(sec, milli, pid=pid)
+            if self.time_format == "relative":
+                return f"{delta:13.6f}{serial_suffix}"
+            else:
+                sign = "+" if delta >= 0.0 else "-"
+                delta_str = f" ({sign}{abs(delta):13.6f})"
+
+        dt = datetime.datetime.fromtimestamp(sec).astimezone()
         if self.time_format == "time":
-            return f"{dt.strftime('%H:%M:%S')}.{milli:03d}{serial_suffix}"
+            base_ts = f"{dt.strftime('%H:%M:%S')}.{milli:03d}{serial_suffix}"
         elif self.time_format == "datetime":
-            return f"{dt.strftime('%Y-%m-%d %H:%M:%S')}.{milli:03d}{serial_suffix} {dt.strftime('%z')}"
+            base_ts = f"{dt.strftime('%Y-%m-%d %H:%M:%S')}.{milli:03d}{serial_suffix} {dt.strftime('%z')}"
         elif self.time_format == "epoch":
-            return f"{sec}.{milli:03d}{serial_suffix}"
-        return f"{dt.strftime('%H:%M:%S')}.{milli:03d}{serial_suffix}"
+            base_ts = f"{sec}.{milli:03d}{serial_suffix}"
+        else:
+            base_ts = f"{dt.strftime('%H:%M:%S')}.{milli:03d}{serial_suffix}"
+
+        return f"{base_ts}{delta_str}"
 
     def get_credentials_dict(self, event):
         fields = event.syscall
@@ -6713,7 +6746,7 @@ class SyscallHandler:
 
         # Line 1 header: <pid><comm> <timestamp> <call_str>
         comm = caller_comm or event.comm or self.tracker._resolve_name(event.pid)
-        ts_str = self.formatter.format_timestamp(event.sec, event.milli, event.serial)
+        ts_str = self.formatter.format_timestamp(event.sec, event.milli, event.serial, pid=event.pid)
         theme = self.formatter.theme
         if theme.enabled:
             pid_colored = theme.pid(event.pid)
@@ -6813,6 +6846,9 @@ class SyscallHandler:
             "credentials": self.formatter.get_credentials_dict(event),
             "ancestry": anc_list,
         }
+        if self.formatter.relative_time or self.formatter.time_format == "relative":
+            delta = self.formatter.compute_relative_delta(sec, milli, pid=event.pid)
+            record["relative_time"] = round(delta, 6)
         if event.cwd:
             record["cwd"] = event.cwd
 
@@ -6850,6 +6886,8 @@ class AudispStraceApp:
                  string_limit=32,
                  show_key=False,
                  show_serial=False,
+                 relative_time=False,
+                 relative_by_pid=False,
                  max_procs=10000,
                  detect_drops=False,
                  drop_threshold=1,
@@ -6950,7 +6988,13 @@ class AudispStraceApp:
 
         self.resolver = ProcResolver(is_live=is_live)
         self.tracker = ProcessTracker(self.resolver, max_procs=self.max_procs)
-        self.formatter = TraceFormatter(time_format=time_format, theme=self.theme, show_serial=self.show_serial)
+        self.formatter = TraceFormatter(
+            time_format=time_format,
+            theme=self.theme,
+            show_serial=self.show_serial,
+            relative_time=relative_time,
+            relative_by_pid=relative_by_pid
+        )
         self.handler = SyscallHandler(self.tracker, self.resolver, self.formatter, string_limit=self.string_limit, show_key=self.show_key)
 
         self.au = auparse.AuParser(auparse.AUSOURCE_FEED)
@@ -8185,9 +8229,21 @@ def main():
     )
     parser.add_argument(
         "-t", "--timestamp-format",
-        choices=["time", "datetime", "epoch"],
+        choices=["time", "datetime", "epoch", "relative"],
         default="time",
-        help="Timestamp format (default: time, e.g. 17:53:01.027)"
+        help="Timestamp format (default: time, e.g. 17:53:01.027; 'relative' shows relative time delta)"
+    )
+    parser.add_argument(
+        "-r", "--relative-time", "--relative-timestamps",
+        dest="relative_time",
+        action="store_true",
+        help="Print relative timestamp delta since previous event (modeled after strace -r)"
+    )
+    parser.add_argument(
+        "--relative-by-pid", "--relative-per-pid",
+        dest="relative_by_pid",
+        action="store_true",
+        help="Calculate relative timestamp deltas per PID rather than across the global event stream"
     )
     parser.add_argument(
         "-s", "--syscalls",
@@ -8564,6 +8620,8 @@ def main():
         string_limit=args.string_limit,
         show_key=args.show_key,
         show_serial=args.show_serial,
+        relative_time=args.relative_time,
+        relative_by_pid=args.relative_by_pid,
         max_procs=args.max_procs,
         detect_drops=args.detect_drops,
         drop_threshold=args.drop_threshold,

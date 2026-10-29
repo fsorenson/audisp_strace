@@ -430,10 +430,14 @@ Sample 3-line format per monitored event:
   - Performs an $O(\log K)$ memory-efficient k-way chronological event merge across multiple input files using `heapq.merge` with unique file index tie-breaking.
   - Automatically correlates events across rotated log segments (even if specified out-of-order or via reverse glob expansion) and multi-node logs.
   - Fully compatible with compressed input streams (`.gz`, `.bz2`, `.xz`), JSON output (`--json`), and summary stats (`-c`).
+- [x] Implemented relative timestamps (`-r` / `--relative-time` / `--relative-timestamps`, `-t relative`, `--relative-by-pid`):
+  - Displays elapsed time delta since previous event modeled after `strace -r` with microsecond precision.
+  - `-r` appends relative delta `(+     0.001253)` next to wall-clock timestamps (`-t time`, `-t datetime`, `-t epoch`).
+  - `-t relative` renders standalone relative deltas (`     0.001253`).
+  - `--relative-by-pid` computes relative deltas per individual PID rather than globally across the event stream.
+  - Integrated into compact mode (`-C`, `-C strace`), JSON Lines output (`"relative_time": 0.001253`), and multi-file merging (`-m`).
 
 ### Next Steps / Ideas
-- [ ] **Relative Timestamps (`-r` / `--relative-time`)**:
-  - Display elapsed delta since previous event (`+0.000412`) to identify latency hangs or bursts.
 - [ ] **Audit Rule Generator (`--generate-rules` / `--auditctl`)**:
   - Generate exact copy-pasteable `auditctl` command lines matching current CLI filters and session exclusions.
 - [ ] **Security & Anomaly Badges / Heuristic Alerts**:

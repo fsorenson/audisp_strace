@@ -19,17 +19,14 @@
       Decodes octal mode arguments across `chmod`, `fchmod`, `fchmodat`, `open`, `openat`, `creat`, `mkdir`, `mkdirat`, `mknod`, `mknodat`, and `umask` (both mask parameter and previous mask return value) with readable symbolic permissions (`0755 <rwxr-xr-x>`, `0644 <rw-r--r-->`, `04755 <rwsr-xr-x>`, `02755 <rwxr-sr-x>`, `01777 <rwxrwxrwt>`, `0022 <----w--w->`, `0 <--------->`). Automatically decodes file type flags in `mknod` (`S_IFIFO|0644 <rw-r--r-->`) and properly isolates System V IPC flags in `shmget`/`semget`/`msgget` (`IPC_CREAT|0600`).
 • [x] Multi-File Rotated Log Chronological Merging (`-m` / `--merge`, `--sort-time`, `--chronological`):
       Performs an $O(\log K)$ memory-efficient k-way chronological merge of audit events across multiple input files using `heapq.merge` based on timestamp and serial number. Seamlessly handles rotated log segments passed in reverse/arbitrary order, cluster logs, and mixed compression formats (`.gz`, `.bz2`, `.xz`).
+• [x] Relative Timestamps (`-r` / `--relative-time` / `--relative-timestamps`, `-t relative`, `--relative-by-pid`):
+      Displays elapsed time deltas since previous events modeled after `strace -r` with microsecond precision. Standard `-r` appends relative deltas (`(+     0.001253)`) next to wall-clock timestamps (`-t time`, `-t datetime`, `-t epoch`), while `-t relative` renders standalone deltas (`     0.001253`). Optional `--relative-by-pid` isolates deltas per process rather than across the global stream. Seamlessly integrated with compact modes (`-C`, `-C strace`), JSON export (`"relative_time": 0.001253`), and multi-file merging (`-m`).
 
 ---
 
 ## 2. High-Value Enhancement Suggestions & Remaining To-Do Items
 
-### A. Forensics & Investigation Timing
-• Relative Timestamps (`-r` / `--relative-time`):
-    • What it does: Displays the elapsed time delta since the previous event (or previous event on the same PID), formatted like `strace -r` (e.g., `+0.000412`).
-    • Support Value: High. Immediately highlights execution stalls, storage I/O latency hangs, or bursts of rapid activity.
-
-### B. Rule Configuration & Operator Ergonomics
+### A. Rule Configuration & Operator Ergonomics
 • Audit Rule Generator (`--generate-rules` / `--auditctl`):
     • What it does: Inspects your current CLI filters (e.g., `-s %perm`, `-s %mount`, `-s %locks`, `-P /etc`, `-u apache`, or `--comm nginx`) and prints the exact, copy-pasteable `auditctl` commands needed to capture those events in the kernel with proper `arch=b64`, syscall lists, and session exclusions (`-F auid!=-1` or `-F ses!=-1`).
     • Support Value: Medium-High. Eliminates guesswork when setting up audit rules for customers.

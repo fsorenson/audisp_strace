@@ -91,6 +91,11 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
 - **Multi-File Chronological Merging (`-m` / `--merge`, `--sort-time`)**:
   - Automatically merges events across multiple audit logs or rotated file segments (`audit.log`, `audit.log.1.gz`, `audit.log.2.xz`) in strict chronological order using a streaming k-way merge.
   - Eliminates the need to manually sort or reorder files when analyzing multi-day incidents spanning across rotated log files.
+- **Relative Timestamps (`-r` / `--relative-time`, `-t relative`, `--relative-by-pid`)**:
+  - Displays elapsed time delta since the previous event modeled after `strace -r` with microsecond precision.
+  - Standard `-r` appends relative deltas (`(+     0.001253)`) next to wall-clock timestamps, while `-t relative` displays standalone relative time (`     0.001253`).
+  - Optional `--relative-by-pid` isolates deltas per process to track elapsed execution time within each PID independently.
+  - Fully integrated with compact mode (`-C`), JSON output (`"relative_time": 0.001253`), and multi-file merging (`-m`).
 
 ---
 
@@ -124,9 +129,11 @@ sudo cp audisp-strace /usr/local/bin/
 ## Usage
 
 ```text
-usage: audisp-strace [-h] [-l] [--offline] [-F] [--from-start] [-n K]
-                     [-t {time,datetime,epoch}] [-s SYSCALLS] [-x EXCLUDE]
-                     [-a] [-Z | -z] [-C [{summary,strace}]] [-p PIDS]
+usage: audisp-strace [-h] [-l] [--offline] [-F] [--from-start] [-n K] [-m]
+                     [-t {time,datetime,epoch,relative}] [-r]
+                     [--relative-by-pid] [-s SYSCALLS] [-x EXCLUDE]
+                     [-a] [-Z | -z] [-e ERRNOS] [-E EXCLUDE_ERRNOS]
+                     [-C [{summary,strace}]] [-p PIDS]
                      [--exclude-pid EXCLUDE_PIDS] [-f] [--trace-self]
                      [-u USERS] [--exclude-user EXCLUDE_USERS] [--auid AUIDS]
                      [--session-id SESSION_IDS]
@@ -135,9 +142,12 @@ usage: audisp-strace [-h] [-l] [--offline] [-F] [--from-start] [-n K]
                      [--exe EXES] [--exclude-exe EXCLUDE_EXES]
                      [-P PATHS] [--exclude-path EXCLUDE_PATHS]
                      [--color [{auto,always,never}]] [-o OUTPUT] [-A]
+                     [--compress [{auto,gzip,bz2,xz,none}]]
+                     [--compress-level {1..9}] [--gzip]
                      [-c] [--summary] [-S {calls,errors,error%,name}] [--json]
                      [-L STRING_LIMIT] [-k] [--show-serial]
-                     [--max-procs MAX_PROCS]
+                     [--max-procs MAX_PROCS] [-g] [--drop-threshold DROP_THRESHOLD]
+                     [--drop-window DROP_WINDOW]
                      [files ...]
 ```
 
@@ -331,6 +341,9 @@ On multi-core SMP systems under heavy load, Linux kernel netlink queues deliver 
 | `--from-start` | Read entire file from start before following (used with `-F`) | `sudo audisp-strace -F --from-start` |
 | `-n`, `--lines` | Output last K lines before following (used with `-F`, or `all`) | `sudo audisp-strace -F -n 50` |
 | `-m`, `--merge`, `--sort-time` | Chronological k-way merge across multiple input files | `-m audit.log*`, `-m /var/log/audit/audit.log.*` |
+| `-t`, `--timestamp-format` | Timestamp format (`time`, `datetime`, `epoch`, `relative`) | `-t relative`, `-t epoch` |
+| `-r`, `--relative-time`, `--relative-timestamps` | Display relative elapsed time delta since previous event (modeled after `strace -r`) | `-r` |
+| `--relative-by-pid`, `--relative-per-pid` | Calculate relative time deltas per individual PID rather than globally | `-r --relative-by-pid` |
 | `-s`, `--syscalls` | Comma-separated syscalls or `%CLASS` selectors to monitor | `-s %perm,openat` |
 | `-x`, `-X`, `--exclude` | Syscalls or `%CLASS` selectors to omit | `-X %desc,close` |
 | `-a`, `--all` | Display all captured syscalls (overrides default filter) | `-a` |
