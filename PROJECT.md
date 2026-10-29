@@ -83,6 +83,7 @@ Sample 3-line format per monitored event:
    - `-F`, `--follow`: Continuous live audit log following (like `tail -F`), automatically handling log rotations across inodes and truncations (default: `/var/log/audit/audit.log`).
    - `--from-start`: When following with `-F`, read from the beginning of the file before tailing new events (default starts at end of file).
    - `-n`, `--lines K`: When following with `-F`, output the last K lines before tailing new events (or `all`).
+   - `-m`, `--merge`, `--sort-time`, `--chronological`: Perform an $O(\log K)$ k-way chronological merge of events across multiple input files based on timestamp and serial.
    - `-Z`, `--failed-only`: Display only syscalls that returned an error code (like `strace -Z`).
    - `-z`, `--successful-only`: Display only syscalls that returned without an error code (like `strace -z`).
    - `-e`, `--errno`, `--errnos`: Filter by specific error name or numeric errno code (e.g. `-e EACCES`, `-e ENOENT,13`, `-e perm`; implies failed-only).
@@ -425,14 +426,16 @@ Sample 3-line format per monitored event:
   - Resolves file type flags in `mknod`/`mknodat` (`S_IFIFO|0644 <rw-r--r-->`).
   - Decoupled and formatted System V IPC flags in `shmget`, `semget`, `msgget` (`IPC_CREAT|0600`).
   - Added test exercises for SUID (04755), SGID (02755), Sticky (01777), and restore in `test_syscalls.c` Section 4.
+- [x] Implemented multi-file rotated log chronological merging (`-m` / `--merge`, `--sort-time`, `--chronological`):
+  - Performs an $O(\log K)$ memory-efficient k-way chronological event merge across multiple input files using `heapq.merge` with unique file index tie-breaking.
+  - Automatically correlates events across rotated log segments (even if specified out-of-order or via reverse glob expansion) and multi-node logs.
+  - Fully compatible with compressed input streams (`.gz`, `.bz2`, `.xz`), JSON output (`--json`), and summary stats (`-c`).
 
 ### Next Steps / Ideas
 - [ ] **Relative Timestamps (`-r` / `--relative-time`)**:
   - Display elapsed delta since previous event (`+0.000412`) to identify latency hangs or bursts.
 - [ ] **Audit Rule Generator (`--generate-rules` / `--auditctl`)**:
   - Generate exact copy-pasteable `auditctl` command lines matching current CLI filters and session exclusions.
-- [ ] **Multi-File Rotated Log Chronological Merging (`--merge` / `--sort-time`)**:
-  - K-way chronological event merge across multiple rotated audit files (`audit.log.4` ... `audit.log`).
 - [ ] **Security & Anomaly Badges / Heuristic Alerts**:
   - Visual badges for SUID/SGID creation, executions from `/tmp` or `/dev/shm`, and sensitive file edits.
 - [ ] **`make install` / Packaging Target**:

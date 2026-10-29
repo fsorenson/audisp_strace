@@ -12,6 +12,7 @@ import datetime
 import errno
 import fnmatch
 import gzip
+import heapq
 try:
     import bz2
 except ImportError:
@@ -40,6 +41,7 @@ except ImportError:
     sys.exit(1)
 
 AT_FDCWD = -100  # 0xffffff9c as signed 32-bit int
+RE_AUDIT_MSG = re.compile(r'msg=audit\((\d+(?:\.\d+)?):(\d+)\)')
 
 # Event types that are purely daemon or user authentication bookkeeping
 IGNORE_RECORD_TYPES = {
@@ -7611,6 +7613,108 @@ class AudispStraceApp:
         except OSError:
             pass
 
+    def process_merged_streams(self, file_paths):
+        """
+        Performs a k-way chronological merge of audit events across multiple
+        input files using heapq.merge, feeding assembled event records into auparse
+        in strict timestamp and serial sequence.
+        """
+        streams_to_close = []
+        iterators = []
+
+        def event_stream(fp, file_idx):
+            f = open_input_stream(fp)
+            streams_to_close.append(f)
+            current_key = None
+            current_records = []
+            buffer = ""
+            for line in f:
+                line_clean = line.strip("\r\n").replace('\x1d', ' ')
+                if not line_clean or line_clean.startswith(("    ", "strace:", "audit event:", "audisp-strace entry:", "tail: ")):
+                    continue
+
+                if line_clean.startswith(("type=", "node=")):
+                    if buffer:
+                        m = RE_AUDIT_MSG.search(buffer)
+                        if m:
+                            key = (float(m.group(1)), int(m.group(2)))
+                            if current_key is None:
+                                current_key = key
+                            elif key != current_key:
+                                yield (current_key, file_idx, current_records)
+                                current_key = key
+                                current_records = []
+                        current_records.append(buffer)
+                    buffer = line_clean
+                else:
+                    if buffer:
+                        buffer += line_clean
+                    else:
+                        m = RE_AUDIT_MSG.search(line_clean)
+                        if m:
+                            key = (float(m.group(1)), int(m.group(2)))
+                            if current_key is None:
+                                current_key = key
+                            elif key != current_key:
+                                yield (current_key, file_idx, current_records)
+                                current_key = key
+                                current_records = []
+                        current_records.append(line_clean)
+
+            if buffer:
+                m = RE_AUDIT_MSG.search(buffer)
+                if m:
+                    key = (float(m.group(1)), int(m.group(2)))
+                    if current_key is None:
+                        current_key = key
+                    elif key != current_key:
+                        yield (current_key, file_idx, current_records)
+                        current_key = key
+                        current_records = []
+                current_records.append(buffer)
+
+            if current_records:
+                if current_key is None:
+                    current_key = (0.0, 0)
+                yield (current_key, file_idx, current_records)
+
+        try:
+            for idx, fp in enumerate(file_paths):
+                if fp == "-":
+                    iterators.append(event_stream(fp, idx))
+                else:
+                    try:
+                        iterators.append(event_stream(fp, idx))
+                    except OSError as e:
+                        sys.stderr.write(f"audisp-strace: cannot read {fp}: {e}\n")
+
+            if not iterators:
+                return
+
+            merged = heapq.merge(*iterators, key=lambda item: item[0])
+            for key, file_idx, records in merged:
+                for rec in records:
+                    try:
+                        self.au.feed(rec + "\n")
+                    except OSError:
+                        pass
+
+            try:
+                self.au.flush_feed()
+            except OSError:
+                pass
+            if hasattr(self.out_file, "flush"):
+                try:
+                    self.out_file.flush()
+                except Exception:
+                    pass
+        finally:
+            for s in streams_to_close:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
     def _seek_back_lines(self, f, count):
         """Seeks backwards from end of file to include approximately count lines."""
         if count <= 0:
@@ -8074,6 +8178,12 @@ def main():
         help="When following (-F/--follow), output the last K lines before following (default: 0 to follow only new events, or 'all')"
     )
     parser.add_argument(
+        "-m", "--merge", "--sort-time", "--chronological",
+        dest="merge",
+        action="store_true",
+        help="Perform a k-way chronological merge across multiple input files based on event timestamp and serial"
+    )
+    parser.add_argument(
         "-t", "--timestamp-format",
         choices=["time", "datetime", "epoch"],
         default="time",
@@ -8466,15 +8576,20 @@ def main():
     try:
         if args.follow:
             target_files = args.files if args.files else ["/var/log/audit/audit.log"]
-            for fp in target_files[:-1]:
-                if fp == "-":
-                    app.process_stream(sys.stdin)
+            historical_files = target_files[:-1]
+            if historical_files:
+                if args.merge and len(historical_files) > 1:
+                    app.process_merged_streams(historical_files)
                 else:
-                    try:
-                        with open_input_stream(fp) as f:
-                            app.process_stream(f)
-                    except OSError as e:
-                        sys.stderr.write(f"audisp-strace: cannot read {fp}: {e}\n")
+                    for fp in historical_files:
+                        if fp == "-":
+                            app.process_stream(sys.stdin)
+                        else:
+                            try:
+                                with open_input_stream(fp) as f:
+                                    app.process_stream(f)
+                            except OSError as e:
+                                sys.stderr.write(f"audisp-strace: cannot read {fp}: {e}\n")
 
             follow_target = target_files[-1]
             if len(target_files) > 1:
@@ -8493,15 +8608,18 @@ def main():
                             sys.exit(1)
                 app.follow_file(follow_target, from_start=from_start, lines_count=lines_count)
         elif args.files:
-            for file_path in args.files:
-                if file_path == "-":
-                    app.process_stream(sys.stdin)
-                else:
-                    try:
-                        with open_input_stream(file_path) as f:
-                            app.process_stream(f)
-                    except OSError as e:
-                        sys.stderr.write(f"audisp-strace: cannot read {file_path}: {e}\n")
+            if args.merge and len(args.files) > 1:
+                app.process_merged_streams(args.files)
+            else:
+                for file_path in args.files:
+                    if file_path == "-":
+                        app.process_stream(sys.stdin)
+                    else:
+                        try:
+                            with open_input_stream(file_path) as f:
+                                app.process_stream(f)
+                        except OSError as e:
+                            sys.stderr.write(f"audisp-strace: cannot read {file_path}: {e}\n")
             app.flush_drops()
         else:
             app.process_stream(sys.stdin)

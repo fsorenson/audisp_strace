@@ -88,6 +88,9 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Automatically decodes octal file and directory mode bits into readable permission strings across `chmod`, `fchmod`, `fchmodat`, `open`, `openat`, `creat`, `mkdir`, `mkdirat`, `mknod`, `mknodat`, and `umask`.
   - Distinguishes SUID (`04755 <rwsr-xr-x>`), SGID (`02755 <rwxr-sr-x>`), Sticky (`01777 <rwxrwxrwt>`), and umask values (`0022 <----w--w->`, `0 <--------->`).
   - Resolves file type constants in `mknod` (`S_IFIFO|0644 <rw-r--r-->`) and System V IPC flags in `shmget`/`semget`/`msgget` (`IPC_CREAT|0600`).
+- **Multi-File Chronological Merging (`-m` / `--merge`, `--sort-time`)**:
+  - Automatically merges events across multiple audit logs or rotated file segments (`audit.log`, `audit.log.1.gz`, `audit.log.2.xz`) in strict chronological order using a streaming k-way merge.
+  - Eliminates the need to manually sort or reorder files when analyzing multi-day incidents spanning across rotated log files.
 
 ---
 
@@ -327,6 +330,7 @@ On multi-core SMP systems under heavy load, Linux kernel netlink queues deliver 
 | `-F`, `--follow` | Follow audit log in real time (tracks rotations across inodes) | `sudo audisp-strace -F` |
 | `--from-start` | Read entire file from start before following (used with `-F`) | `sudo audisp-strace -F --from-start` |
 | `-n`, `--lines` | Output last K lines before following (used with `-F`, or `all`) | `sudo audisp-strace -F -n 50` |
+| `-m`, `--merge`, `--sort-time` | Chronological k-way merge across multiple input files | `-m audit.log*`, `-m /var/log/audit/audit.log.*` |
 | `-s`, `--syscalls` | Comma-separated syscalls or `%CLASS` selectors to monitor | `-s %perm,openat` |
 | `-x`, `-X`, `--exclude` | Syscalls or `%CLASS` selectors to omit | `-X %desc,close` |
 | `-a`, `--all` | Display all captured syscalls (overrides default filter) | `-a` |
