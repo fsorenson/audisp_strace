@@ -100,6 +100,9 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Instantly inspects audit log files (<1ms via seek-based header/trailer reads on regular files, streaming on compressed files) to report start/end timestamps, duration, and serial ranges without full tracing.
   - Supports multiple files (`audisp-strace --time-range /var/log/audit/audit.log*`) showing aligned per-file coverage and an overall Total span line.
   - Enriches summary mode (`-c` / `--summary`) to display boundary timestamps and duration above the syscall frequency table.
+- **Audit Rule Generator (`--generate-rules` / `--auditctl`)**:
+  - Automatically translates active CLI filters (`-s %perm`, `-s %mount`, `-P /etc`, `-u apache`, `-Z`) into exact, copy-pasteable `auditctl` shell scripts or `/etc/audit/rules.d/` rule files.
+  - Handles safe syscall chunking, architecture matching (`-F arch=b64`), UID resolution, directory/path classification, session loop suppression, and teardown commands.
 
 ---
 
@@ -135,7 +138,10 @@ sudo cp audisp-strace /usr/local/bin/
 ```text
 usage: audisp-strace [-h] [-l] [--offline] [-F] [--from-start] [-n K] [-m]
                      [-t {time,datetime,epoch,relative}] [-r]
-                     [--relative-by-pid] [--time-range] [-s SYSCALLS] [-x EXCLUDE]
+                     [--relative-by-pid] [--time-range] [--generate-rules]
+                     [--rule-key RULE_KEY] [--rules-format {auditctl,file}]
+                     [--arch {b64,b32,both}]
+                     [-s SYSCALLS] [-x EXCLUDE]
                      [-a] [-Z | -z] [-e ERRNOS] [-E EXCLUDE_ERRNOS]
                      [-C [{summary,strace}]] [-p PIDS]
                      [--exclude-pid EXCLUDE_PIDS] [-f] [--trace-self]
@@ -349,6 +355,10 @@ On multi-core SMP systems under heavy load, Linux kernel netlink queues deliver 
 | `-r`, `--relative-time`, `--relative-timestamps` | Display relative elapsed time delta since previous event (modeled after `strace -r`) | `-r` |
 | `--relative-by-pid`, `--relative-per-pid` | Calculate relative time deltas per individual PID rather than globally | `-r --relative-by-pid` |
 | `--time-range` | Fast inspection of audit log file(s) reporting start/end times, duration, and serials | `--time-range audit.log*` |
+| `--generate-rules`, `--auditctl` | Generate executable `auditctl` rules or rules file matching current CLI filters | `--generate-rules -s %perm -P /etc` |
+| `--rule-key` | Audit rule key tag for generated rules (default: `audisp_strace`) | `--rule-key my_incident` |
+| `--rules-format` | Format for generated rules (`auditctl` or `file`, default: `auditctl`) | `--rules-format file` |
+| `--arch` | Architecture for generated rules (`b64`, `b32`, `both`, default: `b64`) | `--arch both` |
 | `-s`, `--syscalls` | Comma-separated syscalls or `%CLASS` selectors to monitor | `-s %perm,openat` |
 | `-x`, `-X`, `--exclude` | Syscalls or `%CLASS` selectors to omit | `-X %desc,close` |
 | `-a`, `--all` | Display all captured syscalls (overrides default filter) | `-a` |
@@ -395,6 +405,27 @@ On multi-core SMP systems under heavy load, Linux kernel netlink queues deliver 
 ## Setting Up Audit Rules
 
 To monitor syscalls with `audisp-strace`, the Linux kernel must be instructed to log syscall events using `auditctl`.
+
+### Automatic Rule Generation with `--generate-rules`
+
+The fastest and most reliable way to configure kernel audit rules matching your exact monitoring filters is using `--generate-rules` (or `--auditctl`). `audisp-strace` inspects your CLI arguments and generates an executable shell script with safe syscall batching, architecture tags (`-F arch=b64`), UID resolution, directory/path classification (`-F dir=` vs `-F path=`), session loop suppression, and teardown commands:
+
+```bash
+# Generate rules for file permissions changes under /etc and run directly:
+audisp-strace --generate-rules -s %perm -P /etc | sudo sh
+
+# Generate rules for network activity by a specific user:
+audisp-strace --generate-rules -s %net -u apache | sudo sh
+
+# Generate persistent rules for /etc/audit/rules.d/:
+sudo audisp-strace --generate-rules -s %mount -o /etc/audit/rules.d/mounts.rules --rules-format file
+sudo augenrules --load
+
+# Remove generated rules when finished:
+sudo auditctl -D -k "audisp_strace"
+```
+
+### Manual Configuration
 
 Use the provided [`setup_audit_rules.sh`](file:///home/sorenson/projects/audisp_strace/setup_audit_rules.sh) script to set up monitoring rules with session exclusion (preventing audit storm loops when tailing logs over SSH):
 

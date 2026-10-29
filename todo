@@ -23,16 +23,14 @@
       Displays elapsed time deltas since previous events modeled after `strace -r` with microsecond precision. Standard `-r` appends relative deltas (`(+     0.001253)`) next to wall-clock timestamps (`-t time`, `-t datetime`, `-t epoch`), while `-t relative` renders standalone deltas (`     0.001253`). Optional `--relative-by-pid` isolates deltas per process rather than across the global stream. Seamlessly integrated with compact modes (`-C`, `-C strace`), JSON export (`"relative_time": 0.001253`), and multi-file merging (`-m`).
 • [x] Fast Log Time Range Inspection & Summary Boundaries (`--time-range`, `-c` / `--summary`):
       Provides instant (<1ms) metadata inspection of audit log files via seek-based header/trailer reads on uncompressed files and streaming fallback on compressed files (`.gz`, `.bz2`, `.xz`) or stdin. Displays start/end timestamps, human-readable duration, and serial ranges per file, with multi-file alignment and an overall Total span line. Enriches summary mode (`-c` / `--summary`) to display the matched event time range and duration header above the syscall frequency table.
+• [x] Audit Rule Generator (`--generate-rules` / `--auditctl` / `--rules`, `--rule-key`, `--rules-format`, `--arch`):
+      Translates active CLI filters (`-s`, `%CLASS`, `-P`, `-u`, `--auid`, `-p`, `--exe`, `-Z`, `-z`) into exact, ready-to-run `auditctl` shell scripts or `/etc/audit/rules.d/` rule files. Automatically chunks syscalls into safe kernel batches, applies `-F arch=b64` (or `--arch both`/`b32`), resolves usernames to UIDs, formats directory/file path filters (`-F dir=` vs `-F path=`), inserts self-session loop prevention (`-a never,exit -F sessionid=...`), and outputs rule teardown/cleanup commands.
 
 ---
 
 ## 2. High-Value Enhancement Suggestions & Remaining To-Do Items
 
-### A. Rule Configuration & Operator Ergonomics
-• Audit Rule Generator (`--generate-rules` / `--auditctl`):
-    • What it does: Inspects your current CLI filters (e.g., `-s %perm`, `-s %mount`, `-s %locks`, `-P /etc`, `-u apache`, or `--comm nginx`) and prints the exact, copy-pasteable `auditctl` commands needed to capture those events in the kernel with proper `arch=b64`, syscall lists, and session exclusions (`-F auid!=-1` or `-F ses!=-1`).
-    • Support Value: Medium-High. Eliminates guesswork when setting up audit rules for customers.
-
+### A. Security & Anomaly Detection
 • Security & Anomaly Highlighting (Heuristic Flags / Badges):
     • What it does: Optional visual badges/alerts or filters for suspicious filesystem security anomalies:
         • Creation of SUID/SGID binaries (`chmod 4755` or `chmod +s`).

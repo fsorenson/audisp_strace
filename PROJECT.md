@@ -442,10 +442,13 @@ Sample 3-line format per monitored event:
   - Supports multi-file batches (`audisp-strace --time-range /var/log/audit/audit.log*`) printing per-file coverage and an aligned `Total (N files)` summary span.
   - Supports `--json` machine-readable output format.
   - Enriched `-c` / `--summary-only` and `--summary` to display a dedicated `Time range:` header showing start/end timestamps, duration, and serial boundaries of matched events.
+- [x] Implemented audit rule generator (`--generate-rules` / `--auditctl` / `--rules`, `--rule-key`, `--rules-format`, `--arch`):
+  - Converts active CLI filtering flags (`-s`, `%CLASS`, `-P`, `-u`, `--auid`, `-p`, `--exe`, `-Z`, `-z`) directly into executable `auditctl` shell scripts or persistent `/etc/audit/rules.d/` files.
+  - Automatically batches large syscall sets into safe kernel chunks of 14 syscalls per rule.
+  - Resolves path targets to `-F dir=` (directories) or `-F path=` (files), maps usernames to numeric UIDs, and applies status filtering (`-F success=0/1`).
+  - Automatically includes interactive session loop suppression (`auditctl -a never,exit -F sessionid=...`) and teardown/cleanup commands (`auditctl -D -k ...`).
 
 ### Next Steps / Ideas
-- [ ] **Audit Rule Generator (`--generate-rules` / `--auditctl`)**:
-  - Generate exact copy-pasteable `auditctl` command lines matching current CLI filters and session exclusions.
 - [ ] **Security & Anomaly Badges / Heuristic Alerts**:
   - Visual badges for SUID/SGID creation, executions from `/tmp` or `/dev/shm`, and sensitive file edits.
 - [ ] **`make install` / Packaging Target**:
