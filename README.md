@@ -98,6 +98,14 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Fully integrated with compact mode (`-C`), JSON output (`"relative_time": 0.001253`), and multi-file merging (`-m`).
 - **Fast Time Range & Coverage Inspection (`--time-range`, `capinfos`-style)**:
   - Instantly inspects audit log files (<1ms via seek-based header/trailer reads on regular files, streaming on compressed files) to report start/end timestamps, duration, and serial ranges without full tracing.
+- **SELinux AVC Awareness & Denial Highlighting (`--avc`, `-S avc`)**:
+  - Automatically correlates kernel `type=AVC` and `type=USER_AVC` records sharing the event serial number.
+  - Primary line annotation: tags enforcing denials with `[SELinux: DENIED { perms }]` (bold red) and permissive denials with `[SELinux: WOULD DENY { perms }]` (bold yellow warning).
+  - Detailed context on Line 2b: outputs formatted `avc: scontext=... -> tcontext=... (tclass=..., permissive=1)` when an AVC record is present.
+  - Streamlines credentials on Line 2: suppresses redundant identical UIDs/GIDs (`euid=suid=fsuid=uid`, `egid=sgid=fsgid=gid`, unset `auid`), leaving clean space for security contexts.
+  - Enriched `mmap` formatting: parses `type=MMAP` records (`fd=...`) and cross-correlates file paths from attached AVC records, rendering `mmap(..., fd<path>, 0)`.
+  - Dynamic `avc` column in `-c` summary table: automatically appears when AVCs are encountered, displaying per-syscall denial counts and supporting `-S avc` sorting.
+  - Dedicated CLI filter: `--avc` / `--avc-only` / `--selinux` displays only events with SELinux decisions.
   - Supports multiple files (`audisp-strace --time-range /var/log/audit/audit.log*`) showing aligned per-file coverage and an overall Total span line.
   - Enriches summary mode (`-c` / `--summary`) to display boundary timestamps and duration above the syscall frequency table.
 - **Audit Rule Generator (`--generate-rules` / `--auditctl`)**:
@@ -324,6 +332,42 @@ On multi-core SMP systems under heavy load, Linux kernel netlink queues deliver 
 
 ---
 
+## SELinux AVC Awareness & Denial Highlighting
+
+When troubleshooting system issues, determining whether a permission failure was caused by standard UNIX file permissions (DAC) or an SELinux security policy decision (MAC) is often painful. Furthermore, in **Permissive mode**, syscalls succeed even though SELinux *would* have blocked them in Enforcing mode.
+
+`audisp-strace` automatically correlates kernel `type=AVC` and `type=USER_AVC` records sharing the event timestamp and serial:
+
+### 1. Enforcing Mode Denials
+When SELinux blocks an operation, the primary syscall line is annotated with a bold red denial tag and the full source/target contexts are printed on Line 2b:
+```text
+2695136<ps> 10:25:16.083 openat(AT_FDCWD</var/lib/pcp>, "/proc/1313/environ", O_RDONLY) = -1 EACCES(Permission denied)  [SELinux: DENIED { perfmon, sys_admin }]
+    uid=0 (root), gid=0 (root), auid=unset
+    avc: scontext=system_u:system_r:pcp_pmlogger_t:s0 -> tcontext=system_u:system_r:pcp_pmlogger_t:s0 (tclass=capability2, capability)
+    2695121 (unknown)->2695136 (ps)
+```
+
+### 2. Permissive Mode Warnings
+When running in Permissive mode, the syscall returns success, but `audisp-strace` tags the line with a warning so latent breakage is immediately evident before switching to Enforcing:
+```text
+2855201<postdrop> 13:20:01.936 mmap(NULL, 688, PROT_READ, MAP_PRIVATE, 4</etc/centrifydc/group.ignore>, 0) = 0x7fee8c437000  [SELinux: WOULD DENY { map }]
+    uid=0 (root), gid=0 (root), auid=unset, egid=90 (postdrop), sgid=90 (postdrop)
+    avc: scontext=system_u:system_r:postfix_postdrop_t:s0-s0:c0.c1023 -> tcontext=system_u:object_r:etc_runtime_t:s0 (tclass=file, permissive=1)
+    2855200 (unknown)->2855201 (postdrop)
+```
+
+### 3. Dedicated AVC Filtering & Summary Statistics
+- Use `--avc` (or `--selinux`) to show only events with SELinux AVC records:
+  ```bash
+  audisp-strace --offline /var/log/audit/audit.log --avc
+  ```
+- Summary mode (`-c`) automatically includes an `avc` column whenever AVC records are encountered, and supports sorting by AVC frequency with `-S avc`:
+  ```bash
+  audisp-strace --offline audit.log -c -S avc
+  ```
+
+---
+
 ## Filtering Reference
 
 | Flag | Description | Example |
@@ -340,6 +384,7 @@ On multi-core SMP systems under heavy load, Linux kernel netlink queues deliver 
 | `--rule-key` | Audit rule key tag for generated rules (default: `audisp_strace`) | `--rule-key my_incident` |
 | `--rules-format` | Format for generated rules (`auditctl` or `file`, default: `auditctl`) | `--rules-format file` |
 | `--arch` | Architecture for generated rules (`b64`, `b32`, `both`, default: `b64`) | `--arch both` |
+| `--avc`, `--selinux` | Display only events associated with SELinux AVC decisions | `--avc`, `--selinux` |
 | `-s`, `--syscalls` | Comma-separated syscalls or `%CLASS` selectors to monitor | `-s %perm,openat` |
 | `-x`, `-X`, `--exclude` | Syscalls or `%CLASS` selectors to omit | `-X %desc,close` |
 | `-a`, `--all` | Display all captured syscalls (overrides default filter) | `-a` |

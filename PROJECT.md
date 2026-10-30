@@ -451,6 +451,15 @@ Sample 3-line format per monitored event:
   - Replaced the overwhelming 180-line help dump and 25-line wrapped usage text on `-h` / `--help` with a concise, single-screen summary (~27 lines) highlighting the most common and important options.
   - Added `--help-all` to display the complete reference with all 50+ options logically categorized into 8 functional groups (`Input & Live Following`, `Syscall & Error Filtering`, `Process, User & Path Filtering`, `Output Formatting & Timestamps`, `Output File & Compression`, `Statistics & Drop Detection`, `Audit Rule Generation`, `Help & Information`).
   - Set concise 2-line usage banner (`audisp-strace [-F] [-s SYSCALLS] ...`) for both `--help-all` and argument syntax errors.
+- [x] Implemented SELinux AVC awareness and automatic denial/permissive annotation:
+  - Automatically correlates kernel `type=AVC` and `type=USER_AVC` records sharing the event timestamp/serial.
+  - Primary line annotation: tags enforcing denials with `[SELinux: DENIED { perms }]` (bold red) and permissive denials with `[SELinux: WOULD DENY { perms }]` (bold yellow warning).
+  - Streamlined identity credentials on Line 2: suppresses redundant identical UIDs/GIDs (`euid=suid=fsuid=uid`, `egid=sgid=fsgid=gid`, unset `auid`), leaving clean space for security contexts.
+  - Detailed context Line 2b: outputs formatted `avc: scontext=... -> tcontext=... (tclass=..., permissive=1)` when an AVC record is present.
+  - Enriched `mmap` formatting: parses `type=MMAP` records (`fd=...`) and cross-correlates file paths from attached AVC records, rendering `mmap(..., fd<path>, 0)`.
+  - Added `--avc` / `--avc-only` / `--selinux` CLI filter to inspect only events associated with SELinux decisions.
+  - Dynamic `avc` column in `-c` summary table: automatically appears when AVCs are encountered, displaying per-syscall denial counts and supporting `-S avc` sorting.
+  - Full JSON Lines output integration: exports `"avc"` object with `denied`, `result`, `permissive`, `scontext`, `tcontext`, `tclass`, and `paths`.
 
 ### Next Steps / Ideas
 - [ ] **Security & Anomaly Badges / Heuristic Alerts**:

@@ -1451,6 +1451,9 @@ class AuditEvent:
         self.fd_pair = None
         self.sockaddr = None
         self.sockaddr_interp = None
+        self.mmap = None
+        self.avcs = []
+        self.subj = None
 
         au.first_record()
         while True:
@@ -1481,6 +1484,7 @@ class AuditEvent:
             if rectype == "SYSCALL":
                 self.syscall = fields
                 self.syscall_interp = interp_fields
+                self.subj = fields.get("subj")
             elif rectype == "CWD":
                 cwd_val = fields.get("cwd", "")
                 self.cwd = unescape_audit_str(cwd_val)
@@ -1510,9 +1514,91 @@ class AuditEvent:
             elif rectype == "SOCKADDR":
                 self.sockaddr = fields
                 self.sockaddr_interp = interp_fields
+            elif rectype == "MMAP":
+                self.mmap = fields
+            elif rectype in ("AVC", "USER_AVC"):
+                perms_raw = fields.get("seperms") or ""
+                perms_list = [p.strip() for p in perms_raw.split(",") if p.strip()]
+                raw_path = fields.get("path")
+                path_val = unescape_audit_str(raw_path.strip('"')) if raw_path else None
+                raw_comm = fields.get("comm")
+                comm_val = unescape_audit_str(raw_comm.strip('"')) if raw_comm else None
+                avc_info = {
+                    "rectype": rectype,
+                    "seresult": fields.get("seresult", "denied"),
+                    "seperms": perms_list,
+                    "scontext": fields.get("scontext") or self.subj,
+                    "tcontext": fields.get("tcontext"),
+                    "tclass": fields.get("tclass"),
+                    "permissive": fields.get("permissive") == "1",
+                    "path": path_val,
+                    "comm": comm_val,
+                    "pid": fields.get("pid"),
+                    "capability": fields.get("capability"),
+                    "dev": fields.get("dev"),
+                    "ino": fields.get("ino"),
+                }
+                self.avcs.append(avc_info)
 
             if not au.next_record():
                 break
+
+    @property
+    def has_avc(self):
+        return bool(self.avcs)
+
+    @property
+    def avc_is_permissive(self):
+        return any(a.get("permissive") for a in self.avcs)
+
+    @property
+    def avc_is_denied(self):
+        return any(a.get("seresult") == "denied" for a in self.avcs)
+
+    @property
+    def avc_perms(self):
+        seen = []
+        for a in self.avcs:
+            for p in a.get("seperms", []):
+                if p and p not in seen:
+                    seen.append(p)
+        return seen
+
+    @property
+    def avc_perms_str(self):
+        return ", ".join(self.avc_perms)
+
+    @property
+    def avc_tclass_str(self):
+        seen = []
+        for a in self.avcs:
+            tc = a.get("tclass")
+            if tc and tc not in seen:
+                seen.append(tc)
+        return ", ".join(seen)
+
+    @property
+    def avc_scontext(self):
+        for a in self.avcs:
+            if a.get("scontext"):
+                return a["scontext"]
+        return self.subj
+
+    @property
+    def avc_tcontext(self):
+        for a in self.avcs:
+            if a.get("tcontext"):
+                return a["tcontext"]
+        return None
+
+    @property
+    def avc_paths(self):
+        seen = []
+        for a in self.avcs:
+            p = a.get("path")
+            if p and p not in seen:
+                seen.append(p)
+        return seen
 
     @property
     def syscall_name(self):
@@ -1908,16 +1994,75 @@ class TraceFormatter:
     def format_credentials(self, event):
         creds = self.get_credentials_dict(event)
         formatted_creds = []
-        for key in ("uid", "gid", "auid", "agid", "euid", "egid", "suid", "sgid", "fsuid", "fsgid"):
-            info = creds[key]
-            val_id = info["id"]
+
+        uid_info = creds["uid"]
+        gid_info = creds["gid"]
+        auid_info = creds["auid"]
+        agid_info = creds["agid"]
+        euid_info = creds["euid"]
+        egid_info = creds["egid"]
+        suid_info = creds["suid"]
+        sgid_info = creds["sgid"]
+        fsuid_info = creds["fsuid"]
+        fsgid_info = creds["fsgid"]
+
+        def fmt(k, info):
+            vid = info["id"]
             name = info["name"]
             if self.theme.enabled:
-                formatted_creds.append(f"{self.theme.dim(key + '=')}{val_id} ({self.theme.username(name)})")
+                return f"{self.theme.dim(k + '=')}{vid} ({self.theme.username(name)})"
+            return f"{k}={vid} ({name})"
+
+        # Always include primary uid and gid
+        formatted_creds.append(fmt("uid", uid_info))
+        formatted_creds.append(fmt("gid", gid_info))
+
+        # auid: unset or value
+        if str(auid_info["id"]) in ("4294967295", "-1", "") or auid_info["name"] == "unset":
+            if self.theme.enabled:
+                formatted_creds.append(f"{self.theme.dim('auid=')}{self.theme.username('unset')}")
             else:
-                formatted_creds.append(f"{key}={val_id} ({name})")
+                formatted_creds.append("auid=unset")
+        else:
+            formatted_creds.append(fmt("auid", auid_info))
+            if agid_info["id"] != gid_info["id"]:
+                formatted_creds.append(fmt("agid", agid_info))
+
+        # Only include effective, saved, and fs IDs when they diverge from real IDs
+        if euid_info["id"] != uid_info["id"]:
+            formatted_creds.append(fmt("euid", euid_info))
+        if egid_info["id"] != gid_info["id"]:
+            formatted_creds.append(fmt("egid", egid_info))
+        if suid_info["id"] != uid_info["id"]:
+            formatted_creds.append(fmt("suid", suid_info))
+        if sgid_info["id"] != gid_info["id"]:
+            formatted_creds.append(fmt("sgid", sgid_info))
+        if fsuid_info["id"] != uid_info["id"] and fsuid_info["id"] != euid_info["id"]:
+            formatted_creds.append(fmt("fsuid", fsuid_info))
+        if fsgid_info["id"] != gid_info["id"] and fsgid_info["id"] != egid_info["id"]:
+            formatted_creds.append(fmt("fsgid", fsgid_info))
 
         return "    " + ", ".join(formatted_creds)
+
+    def format_avc(self, event):
+        if not event.has_avc:
+            return ""
+        scontext = event.avc_scontext or "(none)"
+        tcontext = event.avc_tcontext or "(none)"
+        tclass = event.avc_tclass_str or "unknown"
+        perms = event.avc_perms_str or "unknown"
+        permissive = event.avc_is_permissive
+        perm_suffix = ", permissive=1" if permissive else ""
+
+        if self.theme.enabled:
+            avc_lbl = self.theme.dim("avc:")
+            sc_part = f"{self.theme.dim('scontext=')}{self.theme.comm(scontext)}"
+            arrow = self.theme.dim("->")
+            tc_part = f"{self.theme.dim('tcontext=')}{self.theme.path(tcontext)}"
+            cls_part = self.theme.dim(f"(tclass={tclass}{perm_suffix})")
+            return f"    {avc_lbl} {sc_part} {arrow} {tc_part} {cls_part}"
+        else:
+            return f"    avc: scontext={scontext} -> tcontext={tcontext} (tclass={tclass}{perm_suffix})"
 
     def format_compact_tags(self, event, tracker):
         fields = event.syscall
@@ -5071,7 +5216,34 @@ class SyscallHandler:
         len_val = self._parse_id(event.syscall.get("a1", "0"))
         prot_str = self._format_prot(event.syscall.get("a2", "0"))
         flags_str = self._format_mmap_flags(event.syscall.get("a3", "0"))
-        args_tail = "-1, 0" if "MAP_ANONYMOUS" in flags_str else "..."
+
+        fd_val = None
+        if event.mmap and "fd" in event.mmap:
+            try:
+                fd_val = int(event.mmap["fd"])
+            except (ValueError, TypeError):
+                fd_val = event.mmap["fd"]
+        elif "MAP_ANONYMOUS" in flags_str:
+            fd_val = -1
+
+        if fd_val is not None:
+            if fd_val == -1:
+                args_tail = "-1, 0"
+            else:
+                fd_path = None
+                if event.pid and self.tracker and isinstance(fd_val, int):
+                    fd_path = self.tracker.get_fd_path(event.pid, fd_val)
+                if not fd_path and event.avc_paths:
+                    fd_path = event.avc_paths[0]
+                    if event.pid and self.tracker and isinstance(fd_val, int):
+                        self.tracker.set_fd(event.pid, fd_val, fd_path)
+                if fd_path:
+                    args_tail = f"{fd_val}<{fd_path}>, 0"
+                else:
+                    args_tail = f"{fd_val}, 0"
+        else:
+            args_tail = "..."
+
         if event.exit_code is not None and event.exit_code >= 0:
             ret_str = f"0x{event.exit_code:x}"
         else:
@@ -6766,27 +6938,48 @@ class SyscallHandler:
             else:
                 key_tag = f' [key="{event.key}"]'
 
+        # SELinux AVC annotation tag on Line 1
+        avc_tag = ""
+        if event.has_avc:
+            perms_str = event.avc_perms_str or "access"
+            if event.avc_is_permissive:
+                if theme.enabled:
+                    avc_tag = f"  {theme.warning(f'[SELinux: WOULD DENY {{ {perms_str} }}]')}"
+                else:
+                    avc_tag = f"  [SELinux: WOULD DENY {{ {perms_str} }}]"
+            else:
+                if theme.enabled:
+                    avc_tag = f"  {theme.result_failed(f'[SELinux: DENIED {{ {perms_str} }}]')}"
+                else:
+                    avc_tag = f"  [SELinux: DENIED {{ {perms_str} }}]"
+
         if compact:
             if compact == "strace":
-                return f"{line1}{key_tag}"
+                return f"{line1}{avc_tag}{key_tag}"
             compact_tags = self.formatter.format_compact_tags(event, self.tracker)
             parts = [line1]
+            if avc_tag:
+                parts.append(avc_tag.strip())
             if compact_tags:
                 parts.append(compact_tags)
             if key_tag:
                 parts.append(key_tag.strip())
             return " ".join(parts)
 
-        if key_tag:
-            line1 = f"{line1}{key_tag}"
+        line1 = f"{line1}{avc_tag}{key_tag}"
 
         # Line 2: Process credentials
         line2 = self.formatter.format_credentials(event)
+
+        # Line 2b: SELinux AVC context line
+        avc_line = self.formatter.format_avc(event) if event.has_avc else ""
 
         # Line 3: Process ancestry tree
         ancestry = self.tracker.get_ancestry(event.pid)
         line3 = self.formatter.format_ancestry(ancestry)
 
+        if avc_line:
+            return f"{line1}\n{line2}\n{avc_line}\n{line3}"
         return f"{line1}\n{line2}\n{line3}"
 
     def format_json_event(self, event, caller_comm=None):
@@ -6847,6 +7040,16 @@ class SyscallHandler:
             "credentials": self.formatter.get_credentials_dict(event),
             "ancestry": anc_list,
         }
+        if event.has_avc:
+            record["avc"] = {
+                "denied": event.avc_perms,
+                "result": "denied" if event.avc_is_denied else "granted",
+                "permissive": event.avc_is_permissive,
+                "scontext": event.avc_scontext,
+                "tcontext": event.avc_tcontext,
+                "tclass": event.avc_tclass_str,
+                "paths": event.avc_paths,
+            }
         if self.formatter.relative_time or self.formatter.time_format == "relative":
             delta = self.formatter.compute_relative_delta(sec, milli, pid=event.pid)
             record["relative_time"] = round(delta, 6)
@@ -6919,7 +7122,8 @@ class AudispStraceApp:
                  drop_threshold=1,
                  drop_window=256,
                  locks_only_include=False,
-                 locks_only_exclude=False):
+                 locks_only_exclude=False,
+                 avc_only=False):
         self.out_file = out_file if out_file is not None else sys.stdout
         self.is_live = is_live
         self.all_syscalls = all_syscalls
@@ -6927,6 +7131,7 @@ class AudispStraceApp:
         self.exclude_filter = set(exclude_syscalls) if exclude_syscalls is not None else set()
         self.locks_only_include = bool(locks_only_include)
         self.locks_only_exclude = bool(locks_only_exclude)
+        self.avc_only = bool(avc_only)
         self.failed_only = failed_only
         self.successful_only = successful_only
 
@@ -6959,7 +7164,7 @@ class AudispStraceApp:
         self.detect_drops = bool(detect_drops)
         self.drop_detector = AuditDropDetector(window_size=drop_window, threshold=drop_threshold) if self.detect_drops else None
         self._event_count = 0
-        self.stats = collections.defaultdict(lambda: {"calls": 0, "errors": 0})
+        self.stats = collections.defaultdict(lambda: {"calls": 0, "errors": 0, "avcs": 0})
         self._summary_printed = False
         self.first_event_ts = None
         self.last_event_ts = None
@@ -7237,6 +7442,16 @@ class AudispStraceApp:
             if event.execve_args and len(event.execve_args) > 0 and event.execve_args[0]:
                 paths.add(os.path.normpath(event.execve_args[0]))
 
+        # 6. AVC records: paths inspected by SELinux
+        for p in event.avc_paths:
+            if p and p != "(null)":
+                if p.startswith("/"):
+                    paths.add(os.path.normpath(p))
+                else:
+                    if event.cwd:
+                        paths.add(os.path.normpath(os.path.join(event.cwd, p)))
+                    paths.add(os.path.normpath(p))
+
         return paths
 
     def _matches_path_filter(self, event, prefixes):
@@ -7420,6 +7635,10 @@ class AudispStraceApp:
             elif self.has_path_filter and not self._matches_path_filter(event, self.path_prefixes):
                 should_display = False
 
+        if should_display and self.avc_only:
+            if not event.has_avc:
+                should_display = False
+
         if should_display:
             if self.first_event_ts is None:
                 self.first_event_ts = (event.sec, event.milli, event.serial)
@@ -7429,6 +7648,8 @@ class AudispStraceApp:
                 self.stats[scname]["calls"] += 1
                 if event.is_failed:
                     self.stats[scname]["errors"] += 1
+                if event.has_avc:
+                    self.stats[scname]["avcs"] += 1
 
             if not self.summary_only:
                 if self.json_format:
@@ -7977,17 +8198,20 @@ class AudispStraceApp:
     def format_summary_table(self):
         total_calls = sum(s["calls"] for s in self.stats.values())
         total_errors = sum(s["errors"] for s in self.stats.values())
+        total_avcs = sum(s.get("avcs", 0) for s in self.stats.values())
 
         rows = []
         for scname, data in self.stats.items():
             calls = data["calls"]
             errors = data["errors"]
+            avcs = data.get("avcs", 0)
             pct_calls = (calls / total_calls * 100.0) if total_calls > 0 else 0.0
             err_pct = (errors / calls * 100.0) if calls > 0 else 0.0
             rows.append({
                 "name": scname,
                 "calls": calls,
                 "errors": errors,
+                "avcs": avcs,
                 "pct_calls": pct_calls,
                 "err_pct": err_pct,
             })
@@ -7996,13 +8220,19 @@ class AudispStraceApp:
             rows.sort(key=lambda r: (r["errors"], r["calls"], r["name"]), reverse=True)
         elif self.sort_by in ("error%", "error_rate"):
             rows.sort(key=lambda r: (r["err_pct"], r["errors"], r["calls"]), reverse=True)
+        elif self.sort_by in ("avc", "avcs"):
+            rows.sort(key=lambda r: (r["avcs"], r["errors"], r["calls"], r["name"]), reverse=True)
         elif self.sort_by in ("name", "syscall"):
             rows.sort(key=lambda r: r["name"])
         else:  # "calls"
             rows.sort(key=lambda r: (r["calls"], r["errors"], r["name"]), reverse=True)
 
-        header_text = "% calls      calls     errors   error%  syscall"
-        sep_text    = "-------  ---------  ---------  -------  ----------------"
+        if total_avcs > 0:
+            header_text = "% calls      calls     errors   error%     avc  syscall"
+            sep_text    = "-------  ---------  ---------  -------  ------  ----------------"
+        else:
+            header_text = "% calls      calls     errors   error%  syscall"
+            sep_text    = "-------  ---------  ---------  -------  ----------------"
         theme = self.theme
 
         lines = []
@@ -8034,7 +8264,14 @@ class AudispStraceApp:
                 errs_str = " " * 9
                 err_pct_str = " " * 7
             sc = theme.bold(r["name"]) if theme.enabled else r["name"]
-            lines.append(f"{pct_str}  {calls_str}  {errs_str}  {err_pct_str}  {sc}")
+            if total_avcs > 0:
+                if r["avcs"] > 0:
+                    avcs_str = theme.warning("%6d" % r["avcs"])
+                else:
+                    avcs_str = " " * 6
+                lines.append(f"{pct_str}  {calls_str}  {errs_str}  {err_pct_str}  {avcs_str}  {sc}")
+            else:
+                lines.append(f"{pct_str}  {calls_str}  {errs_str}  {err_pct_str}  {sc}")
 
         lines.append(theme.dim(sep_text))
         tot_pct_str = " 100.00" if total_calls > 0 else "   0.00"
@@ -8047,7 +8284,11 @@ class AudispStraceApp:
             tot_err_pct_str = " " * 7
 
         tot_label = theme.bold("total") if theme.enabled else "total"
-        lines.append(f"{tot_pct_str}  {tot_calls_str}  {tot_errs_str}  {tot_err_pct_str}  {tot_label}")
+        if total_avcs > 0:
+            tot_avcs_str = theme.warning("%6d" % total_avcs)
+            lines.append(f"{tot_pct_str}  {tot_calls_str}  {tot_errs_str}  {tot_err_pct_str}  {tot_avcs_str}  {tot_label}")
+        else:
+            lines.append(f"{tot_pct_str}  {tot_calls_str}  {tot_errs_str}  {tot_err_pct_str}  {tot_label}")
 
         if self.detect_drops and self.drop_detector:
             lines.append(theme.dim(sep_text))
@@ -8686,6 +8927,7 @@ Common Options:
   -r, --relative-time      Show relative time deltas between events
   -o, --output FILE        Write trace output to FILE (supports .gz/.bz2/.xz)
   --json                   Output events in JSON Lines format
+  --avc, --selinux         Show only events with SELinux AVC decisions
   --time-range             Fast inspection of audit log start/end timestamps
   --generate-rules         Generate auditctl rules matching current filters
 
@@ -8799,6 +9041,12 @@ def main():
         dest="exclude_errnos",
         action="append",
         help="Exclude specified error code(s) or name(s) (e.g. -E ENOENT,2)"
+    )
+    syscall_group.add_argument(
+        "--avc", "--avc-only", "--selinux",
+        dest="avc_only",
+        action="store_true",
+        help="Display only events associated with SELinux AVC decisions (denials or permissive warnings)"
     )
 
     filter_group = parser.add_argument_group("Process, User & Path Filtering")
@@ -9006,9 +9254,9 @@ def main():
     stats_group.add_argument(
         "-S", "--sort-by",
         dest="sort_by",
-        choices=["calls", "errors", "error%", "name"],
+        choices=["calls", "errors", "error%", "name", "avc"],
         default="calls",
-        help="Sort summary table by: 'calls' (default), 'errors', 'error%%', or 'name'"
+        help="Sort summary table by: 'calls' (default), 'errors', 'error%%', 'name', or 'avc'"
     )
     stats_group.add_argument(
         "-g", "--detect-drops", "--detect-gaps",
@@ -9195,7 +9443,8 @@ def main():
         drop_threshold=args.drop_threshold,
         drop_window=args.drop_window,
         locks_only_include=locks_only_include,
-        locks_only_exclude=locks_only_exclude
+        locks_only_exclude=locks_only_exclude,
+        avc_only=args.avc_only
     )
     _ACTIVE_APP = app
 

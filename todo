@@ -27,6 +27,8 @@
       Translates active CLI filters (`-s`, `%CLASS`, `-P`, `-u`, `--auid`, `-p`, `--exe`, `-Z`, `-z`) into exact, ready-to-run `auditctl` shell scripts or `/etc/audit/rules.d/` rule files. Automatically chunks syscalls into safe kernel batches, applies `-F arch=b64` (or `--arch both`/`b32`), resolves usernames to UIDs, formats directory/file path filters (`-F dir=` vs `-F path=`), inserts self-session loop prevention (`-a never,exit -F sessionid=...`), and outputs rule teardown/cleanup commands.
 • [x] Streamlined CLI Help & Option Categorization (`-h` / `--help` vs `--help-all`):
       Replaced oversized 180-line help flood with a concise, single-screen (~27 lines) summary on `-h` / `--help` showing the most common and important options. Added `--help-all` displaying the complete reference organized into 8 functional argument groups with a compact 2-line usage banner.
+• [x] SELinux AVC Awareness & Denial / Permissive Annotation (`--avc`, `-S avc`):
+      Automatically correlates `type=AVC` and `type=USER_AVC` records with syscall events. Highlights enforcing denials with `[SELinux: DENIED { perms }]` and permissive decisions with `[SELinux: WOULD DENY { perms }]`. Formats detailed `scontext -> tcontext` line, streamlines redundant identity fields on Line 2, enriches `mmap` with file paths from AVC records, adds dynamic `avc` column in `-c` summary tables, adds `--avc` CLI filter, and exports normalized `"avc"` objects in `--json`.
 
 ---
 
