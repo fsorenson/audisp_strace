@@ -136,30 +136,11 @@ sudo cp audisp-strace /usr/local/bin/
 ## Usage
 
 ```text
-usage: audisp-strace [-h] [-l] [--offline] [-F] [--from-start] [-n K] [-m]
-                     [-t {time,datetime,epoch,relative}] [-r]
-                     [--relative-by-pid] [--time-range] [--generate-rules]
-                     [--rule-key RULE_KEY] [--rules-format {auditctl,file}]
-                     [--arch {b64,b32,both}]
-                     [-s SYSCALLS] [-x EXCLUDE]
-                     [-a] [-Z | -z] [-e ERRNOS] [-E EXCLUDE_ERRNOS]
-                     [-C [{summary,strace}]] [-p PIDS]
-                     [--exclude-pid EXCLUDE_PIDS] [-f] [--trace-self]
-                     [-u USERS] [--exclude-user EXCLUDE_USERS] [--auid AUIDS]
-                     [--session-id SESSION_IDS]
-                     [--exclude-session-id EXCLUDE_SESSION_IDS]
-                     [--comm COMMS] [--exclude-comm EXCLUDE_COMMS]
-                     [--exe EXES] [--exclude-exe EXCLUDE_EXES]
-                     [-P PATHS] [--exclude-path EXCLUDE_PATHS]
-                     [--color [{auto,always,never}]] [-o OUTPUT] [-A]
-                     [--compress [{auto,gzip,bz2,xz,none}]]
-                     [--compress-level {1..9}] [--gzip]
-                     [-c] [--summary] [-S {calls,errors,error%,name}] [--json]
-                     [-L STRING_LIMIT] [-k] [--show-serial]
-                     [--max-procs MAX_PROCS] [-g] [--drop-threshold DROP_THRESHOLD]
-                     [--drop-window DROP_WINDOW]
-                     [files ...]
+usage: audisp-strace [-F] [-s SYSCALLS] [-P PATHS] [-p PIDS] [-u USERS]
+                     [-C] [-c] [-o OUT] [--json] [-h] [--help-all] [files ...]
 ```
+
+Run `audisp-strace -h` for a concise, single-screen summary of common options, or `audisp-strace --help-all` for comprehensive help categorized by function.
 
 ### 1. Offline Audit Log Analysis
 

@@ -8661,117 +8661,121 @@ def setup_signals():
         pass
 
 
+SHORT_USAGE = """audisp-strace [-F] [-s SYSCALLS] [-P PATHS] [-p PIDS] [-u USERS]
+                     [-C] [-c] [-o OUT] [--json] [-h] [--help-all] [files ...]"""
+
+SHORT_HELP = """usage: audisp-strace [-F] [-s SYSCALLS] [-P PATHS] [-p PIDS] [-u USERS]
+                     [-C] [-c] [-o OUT] [--json] [-h] [--help-all] [files ...]
+
+Linux audisp plugin & audit log strace-like trace formatter.
+
+Common Options:
+  files                    Audit log file(s) to inspect (default: stdin)
+  -F, --follow             Follow /var/log/audit/audit.log in real time
+  -s, --syscalls LIST      Filter by syscall or %CLASS (%perm,%net,%file,openat,...)
+  -x, --exclude LIST       Exclude syscalls or %CLASS
+  -P, --path PATH          Filter by path or directory prefix
+  -p, --pid PID            Filter by PID (comma-separated or repeated)
+  -f, --follow-fork        Follow child processes spawned by traced PIDs
+  -u, --user USER          Filter by username or numeric UID
+  -Z, -z                   Filter by outcome: -Z failed-only, -z successful-only
+  -e, --errno ERRNO        Filter by errno code or name (e.g. EACCES, ENOENT)
+  -C, --compact [MODE]     Compact 1-line output ('summary' or 'strace')
+  -c, --summary-only       Print syscall statistics summary on exit
+  -t, --timestamp-format   Timestamp format (time, datetime, epoch, relative)
+  -r, --relative-time      Show relative time deltas between events
+  -o, --output FILE        Write trace output to FILE (supports .gz/.bz2/.xz)
+  --json                   Output events in JSON Lines format
+  --time-range             Fast inspection of audit log start/end timestamps
+  --generate-rules         Generate auditctl rules matching current filters
+
+Help Options:
+  -h, --help               Show this common options summary and exit
+  --help-all               Show all options and comprehensive usage details
+"""
+
+
+class _ShortHelpAction(argparse.Action):
+    def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS, help=None):
+        super().__init__(option_strings=option_strings, dest=dest, default=default, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(SHORT_HELP.rstrip())
+        parser.exit(0)
+
+
 def main():
     setup_signals()
 
     parser = argparse.ArgumentParser(
-        description="Linux audisp plugin & audit log strace-like trace formatter"
+        description="Linux audisp plugin & audit log strace-like trace formatter",
+        usage=SHORT_USAGE,
+        add_help=False
     )
-    parser.add_argument(
+
+    input_group = parser.add_argument_group("Input & Live Following")
+    input_group.add_argument(
         "files",
         nargs="*",
         help="Audit log files to read (default: stdin)"
     )
-    parser.add_argument(
-        "-l", "--live",
-        action="store_true",
-        default=None,
-        help="Force live mode (/proc lookups enabled)"
-    )
-    parser.add_argument(
-        "--offline",
-        action="store_true",
-        help="Force offline mode (/proc lookups disabled)"
-    )
-    parser.add_argument(
+    input_group.add_argument(
         "-F", "--follow",
         action="store_true",
         help="Follow audit log file in real time (like 'tail -F'), tracking file rotations across inodes (default: /var/log/audit/audit.log)"
     )
-    parser.add_argument(
+    input_group.add_argument(
         "--from-start",
         action="store_true",
         help="When following (-F/--follow), read the file from the beginning before following (default starts at end of file)"
     )
-    parser.add_argument(
+    input_group.add_argument(
         "-n", "--lines",
         dest="tail_lines",
         metavar="K",
         help="When following (-F/--follow), output the last K lines before following (default: 0 to follow only new events, or 'all')"
     )
-    parser.add_argument(
+    input_group.add_argument(
         "-m", "--merge", "--sort-time", "--chronological",
         dest="merge",
         action="store_true",
         help="Perform a k-way chronological merge across multiple input files based on event timestamp and serial"
     )
-    parser.add_argument(
-        "-t", "--timestamp-format",
-        choices=["time", "datetime", "epoch", "relative"],
+    input_group.add_argument(
+        "-l", "--live",
+        action="store_true",
         default=None,
-        help="Timestamp format (default: time, e.g. 17:53:01.027; 'relative' shows relative time delta)"
+        help="Force live mode (/proc lookups enabled)"
     )
-    parser.add_argument(
-        "-r", "--relative-time", "--relative-timestamps",
-        dest="relative_time",
+    input_group.add_argument(
+        "--offline",
         action="store_true",
-        help="Print relative timestamp delta since previous event (modeled after strace -r)"
+        help="Force offline mode (/proc lookups disabled)"
     )
-    parser.add_argument(
-        "--relative-by-pid", "--relative-per-pid",
-        dest="relative_by_pid",
-        action="store_true",
-        help="Calculate relative timestamp deltas per PID rather than across the global event stream"
-    )
-    parser.add_argument(
+    input_group.add_argument(
         "--time-range",
         dest="time_range",
         action="store_true",
         help="Fast inspection of audit log file(s) to report start and end timestamps, duration, and serial range"
     )
-    parser.add_argument(
-        "--generate-rules", "--auditctl", "--rules",
-        dest="generate_rules",
-        action="store_true",
-        help="Generate copy-pasteable auditctl commands or rules.d file matching current CLI filters and exit"
-    )
-    parser.add_argument(
-        "--rule-key",
-        dest="rule_key",
-        default="audisp_strace",
-        help="Audit rule key tag for generated rules (default: 'audisp_strace')"
-    )
-    parser.add_argument(
-        "--rules-format",
-        dest="rules_format",
-        choices=["auditctl", "file"],
-        default="auditctl",
-        help="Format for generated rules: 'auditctl' for shell commands, or 'file' for /etc/audit/rules.d/ (default: 'auditctl')"
-    )
-    parser.add_argument(
-        "--arch",
-        dest="arch",
-        choices=["b64", "b32", "both"],
-        default="b64",
-        help="Target architecture for generated audit rules: 'b64' (default), 'b32', or 'both'"
-    )
-    parser.add_argument(
+
+    syscall_group = parser.add_argument_group("Syscall & Error Filtering")
+    syscall_group.add_argument(
         "-s", "--syscalls",
         help="Comma-separated list of syscalls or %%CLASS shorthands to monitor (e.g. %%perm,%%remove,%%net,openat)"
     )
-    parser.add_argument(
+    syscall_group.add_argument(
         "-x", "-X", "--exclude",
         dest="exclude",
         help="Comma-separated list of syscalls or %%CLASS shorthands to exclude (e.g. %%desc,%%perm,openat)"
     )
-    parser.add_argument(
+    syscall_group.add_argument(
         "-a", "--all",
         dest="all_syscalls",
         action="store_true",
         help="Display all captured syscalls, not just permissions and process lifecycle"
     )
-
-    status_group = parser.add_mutually_exclusive_group()
+    status_group = syscall_group.add_mutually_exclusive_group()
     status_group.add_argument(
         "-Z", "--failed-only",
         dest="failed_only",
@@ -8784,21 +8788,112 @@ def main():
         action="store_true",
         help="Print only syscalls that returned without an error code"
     )
-
-    parser.add_argument(
+    syscall_group.add_argument(
         "-e", "--errno", "--errnos",
         dest="errnos",
         action="append",
         help="Filter by error code or name (e.g. -e EACCES, -e ENOENT,13; implies failed-only)"
     )
-    parser.add_argument(
+    syscall_group.add_argument(
         "-E", "--exclude-errno", "--exclude-errnos",
         dest="exclude_errnos",
         action="append",
         help="Exclude specified error code(s) or name(s) (e.g. -E ENOENT,2)"
     )
 
-    parser.add_argument(
+    filter_group = parser.add_argument_group("Process, User & Path Filtering")
+    filter_group.add_argument(
+        "-p", "--pid",
+        dest="pids",
+        action="append",
+        help="Filter by process ID (comma-separated or specified multiple times)"
+    )
+    filter_group.add_argument(
+        "--exclude-pid",
+        dest="exclude_pids",
+        action="append",
+        help="Exclude specified process ID(s) (comma-separated or specified multiple times)"
+    )
+    filter_group.add_argument(
+        "-f", "--follow-fork",
+        action="store_true",
+        help="When filtering by PID (-p/--pid), follow child processes created by clone/fork/vfork"
+    )
+    filter_group.add_argument(
+        "--trace-self",
+        dest="trace_self",
+        action="store_true",
+        help="Do not suppress audit events generated by audisp-strace itself in live mode (CAUTION: may cause audit feedback loops)"
+    )
+    filter_group.add_argument(
+        "-u", "--user", "--uid",
+        dest="users",
+        action="append",
+        help="Filter by user (username or numeric UID, comma-separated or specified multiple times)"
+    )
+    filter_group.add_argument(
+        "--exclude-user", "--exclude-uid",
+        dest="exclude_users",
+        action="append",
+        help="Exclude specified user(s) (username or numeric UID, comma-separated or specified multiple times)"
+    )
+    filter_group.add_argument(
+        "--auid",
+        dest="auids",
+        action="append",
+        help="Filter by audit login UID or username (comma-separated or specified multiple times)"
+    )
+    filter_group.add_argument(
+        "--session-id", "--session", "--sid",
+        dest="session_ids",
+        action="append",
+        help="Filter by login session ID (comma-separated or specified multiple times, supports 'unset' or -1)"
+    )
+    filter_group.add_argument(
+        "--exclude-session-id", "--exclude-session", "--exclude-sid",
+        dest="exclude_session_ids",
+        action="append",
+        help="Exclude specified session ID(s) (comma-separated or specified multiple times)"
+    )
+    filter_group.add_argument(
+        "--comm", "--command",
+        dest="comms",
+        action="append",
+        help="Filter by process command name (comma-separated or specified multiple times, supports wildcards)"
+    )
+    filter_group.add_argument(
+        "--exclude-comm", "--exclude-command",
+        dest="exclude_comms",
+        action="append",
+        help="Exclude specified command name(s) (comma-separated or specified multiple times, supports wildcards)"
+    )
+    filter_group.add_argument(
+        "--exe", "--executable",
+        dest="exes",
+        action="append",
+        help="Filter by executable binary path or name (comma-separated or specified multiple times, supports wildcards)"
+    )
+    filter_group.add_argument(
+        "--exclude-exe", "--exclude-executable",
+        dest="exclude_exes",
+        action="append",
+        help="Exclude specified executable path(s) (comma-separated or specified multiple times, supports wildcards)"
+    )
+    filter_group.add_argument(
+        "-P", "--path", "--path-prefix",
+        dest="paths",
+        action="append",
+        help="Trace only system calls accessing specified path or directory prefix (comma-separated or specified multiple times)"
+    )
+    filter_group.add_argument(
+        "--exclude-path", "--exclude-path-prefix",
+        dest="exclude_paths",
+        action="append",
+        help="Exclude system calls accessing specified path or directory prefix (comma-separated or specified multiple times)"
+    )
+
+    format_group = parser.add_argument_group("Output Formatting & Timestamps")
+    format_group.add_argument(
         "-C", "-1", "--compact",
         dest="compact",
         nargs="?",
@@ -8807,108 +8902,25 @@ def main():
         choices=["summary", "strace"],
         help="Compact 1-line output per event (choices: 'summary' [default] with [uid] [ppid], or 'strace' for pure syscall line)"
     )
-
-    # PID filtering
-    parser.add_argument(
-        "-p", "--pid",
-        dest="pids",
-        action="append",
-        help="Filter by process ID (comma-separated or specified multiple times)"
+    format_group.add_argument(
+        "-t", "--timestamp-format",
+        choices=["time", "datetime", "epoch", "relative"],
+        default=None,
+        help="Timestamp format (default: time, e.g. 17:53:01.027; 'relative' shows relative time delta)"
     )
-    parser.add_argument(
-        "--exclude-pid",
-        dest="exclude_pids",
-        action="append",
-        help="Exclude specified process ID(s) (comma-separated or specified multiple times)"
-    )
-    parser.add_argument(
-        "-f", "--follow-fork",
+    format_group.add_argument(
+        "-r", "--relative-time", "--relative-timestamps",
+        dest="relative_time",
         action="store_true",
-        help="When filtering by PID (-p/--pid), follow child processes created by clone/fork/vfork"
+        help="Print relative timestamp delta since previous event (modeled after strace -r)"
     )
-    parser.add_argument(
-        "--trace-self",
-        dest="trace_self",
+    format_group.add_argument(
+        "--relative-by-pid", "--relative-per-pid",
+        dest="relative_by_pid",
         action="store_true",
-        help="Do not suppress audit events generated by audisp-strace itself in live mode (CAUTION: may cause audit feedback loops)"
+        help="Calculate relative timestamp deltas per PID rather than across the global event stream"
     )
-
-    # User / UID filtering
-    parser.add_argument(
-        "-u", "--user", "--uid",
-        dest="users",
-        action="append",
-        help="Filter by user (username or numeric UID, comma-separated or specified multiple times)"
-    )
-    parser.add_argument(
-        "--exclude-user", "--exclude-uid",
-        dest="exclude_users",
-        action="append",
-        help="Exclude specified user(s) (username or numeric UID, comma-separated or specified multiple times)"
-    )
-    parser.add_argument(
-        "--auid",
-        dest="auids",
-        action="append",
-        help="Filter by audit login UID or username (comma-separated or specified multiple times)"
-    )
-
-    # Session ID filtering
-    parser.add_argument(
-        "--session-id", "--session", "--sid",
-        dest="session_ids",
-        action="append",
-        help="Filter by login session ID (comma-separated or specified multiple times, supports 'unset' or -1)"
-    )
-    parser.add_argument(
-        "--exclude-session-id", "--exclude-session", "--exclude-sid",
-        dest="exclude_session_ids",
-        action="append",
-        help="Exclude specified session ID(s) (comma-separated or specified multiple times)"
-    )
-
-    # Process command & executable filtering
-    parser.add_argument(
-        "--comm", "--command",
-        dest="comms",
-        action="append",
-        help="Filter by process command name (comma-separated or specified multiple times, supports wildcards)"
-    )
-    parser.add_argument(
-        "--exclude-comm", "--exclude-command",
-        dest="exclude_comms",
-        action="append",
-        help="Exclude specified command name(s) (comma-separated or specified multiple times, supports wildcards)"
-    )
-    parser.add_argument(
-        "--exe", "--executable",
-        dest="exes",
-        action="append",
-        help="Filter by executable binary path or name (comma-separated or specified multiple times, supports wildcards)"
-    )
-    parser.add_argument(
-        "--exclude-exe", "--exclude-executable",
-        dest="exclude_exes",
-        action="append",
-        help="Exclude specified executable path(s) (comma-separated or specified multiple times, supports wildcards)"
-    )
-
-    # Path prefix filtering
-    parser.add_argument(
-        "-P", "--path", "--path-prefix",
-        dest="paths",
-        action="append",
-        help="Trace only system calls accessing specified path or directory prefix (comma-separated or specified multiple times)"
-    )
-    parser.add_argument(
-        "--exclude-path", "--exclude-path-prefix",
-        dest="exclude_paths",
-        action="append",
-        help="Exclude system calls accessing specified path or directory prefix (comma-separated or specified multiple times)"
-    )
-
-    # Colorization
-    parser.add_argument(
+    format_group.add_argument(
         "--color", "--colour",
         dest="color",
         nargs="?",
@@ -8917,27 +8929,52 @@ def main():
         choices=["auto", "always", "never"],
         help="Colorize output: 'auto' (default, if output is a TTY and NO_COLOR is not set), 'always', or 'never'"
     )
+    format_group.add_argument(
+        "-L", "--string-limit", "--strsize", "--string-len",
+        dest="string_limit",
+        type=int,
+        default=32,
+        help="Maximum string length to print for strings and arguments (default: 32, use 0 for unlimited)"
+    )
+    format_group.add_argument(
+        "-k", "--show-key",
+        dest="show_key",
+        action="store_true",
+        help="Display audit rule key for matching events (e.g. [key=\"rule_name\"])"
+    )
+    format_group.add_argument(
+        "--show-serial", "--serial",
+        dest="show_serial",
+        action="store_true",
+        help="Display audit event serial number with timestamp (e.g. 14:19:27.079:1260437)"
+    )
+    format_group.add_argument(
+        "--json", "--jsonl", "--json-lines",
+        dest="json_format",
+        action="store_true",
+        help="Output events as JSON Lines (one JSON object per line)"
+    )
 
-    # Output file
-    parser.add_argument(
+    file_group = parser.add_argument_group("Output File & Compression")
+    file_group.add_argument(
         "-o", "--output",
         dest="output",
         help="Write trace output to FILE instead of stdout"
     )
-    parser.add_argument(
+    file_group.add_argument(
         "-A", "--append", "--output-append-mode",
         dest="append",
         action="store_true",
         help="Open the file specified with -o/--output in append mode instead of overwriting"
     )
-    parser.add_argument(
+    file_group.add_argument(
         "--compress", "--compression",
         dest="compression",
         default="auto",
         choices=["auto", "gzip", "bz2", "xz", "none"],
         help="Compress output stream: 'auto' (default, inferred from -o extension: .gz, .bz2, .xz), 'gzip', 'bz2', 'xz', or 'none'"
     )
-    parser.add_argument(
+    file_group.add_argument(
         "--compress-level", "--compression-level",
         dest="compress_level",
         type=int,
@@ -8946,67 +8983,54 @@ def main():
         metavar="1-9",
         help="Compression level from 1 (fastest, lowest CPU overhead) to 9 (highest compression). Default: 1"
     )
-    parser.add_argument(
+    file_group.add_argument(
         "--gzip",
         dest="gzip_flag",
         action="store_true",
         help="Shortcut for --compress gzip"
     )
 
-    # Summary & Statistics
-    parser.add_argument(
+    stats_group = parser.add_argument_group("Statistics & Drop Detection")
+    stats_group.add_argument(
         "-c", "--summary-only",
         dest="summary_only",
         action="store_true",
         help="Count syscalls and errors, printing only the summary table on exit"
     )
-    parser.add_argument(
+    stats_group.add_argument(
         "--summary",
         dest="summary",
         action="store_true",
         help="Print syscall traces and also print the summary table on exit"
     )
-    parser.add_argument(
+    stats_group.add_argument(
         "-S", "--sort-by",
         dest="sort_by",
         choices=["calls", "errors", "error%", "name"],
         default="calls",
         help="Sort summary table by: 'calls' (default), 'errors', 'error%%', or 'name'"
     )
-
-    # JSON output
-    parser.add_argument(
-        "--json", "--jsonl", "--json-lines",
-        dest="json_format",
+    stats_group.add_argument(
+        "-g", "--detect-drops", "--detect-gaps",
+        dest="detect_drops",
         action="store_true",
-        help="Output events as JSON Lines (one JSON object per line)"
+        help="Detect dropped or missing audit events by tracking event sequence serial numbers"
     )
-
-    # String limit
-    parser.add_argument(
-        "-L", "--string-limit", "--strsize", "--string-len",
-        dest="string_limit",
+    stats_group.add_argument(
+        "--drop-threshold",
+        dest="drop_threshold",
         type=int,
-        default=32,
-        help="Maximum string length to print for strings and arguments (default: 32, use 0 for unlimited)"
+        default=1,
+        help="Minimum number of missing events in a gap to trigger an alert banner (default: 1)"
     )
-
-    # Audit key and serial display
-    parser.add_argument(
-        "-k", "--show-key",
-        dest="show_key",
-        action="store_true",
-        help="Display audit rule key for matching events (e.g. [key=\"rule_name\"])"
+    stats_group.add_argument(
+        "--drop-window",
+        dest="drop_window",
+        type=int,
+        default=256,
+        help="Sliding window size to absorb out-of-order event delivery jitter across CPU cores (default: 256)"
     )
-    parser.add_argument(
-        "--show-serial", "--serial",
-        dest="show_serial",
-        action="store_true",
-        help="Display audit event serial number with timestamp (e.g. 14:19:27.079:1260437)"
-    )
-
-    # Process tracking capacity
-    parser.add_argument(
+    stats_group.add_argument(
         "--max-procs",
         dest="max_procs",
         type=int,
@@ -9014,26 +9038,44 @@ def main():
         help="Maximum number of processes to track in memory (default: 10000, use 0 for unlimited)"
     )
 
-    # Audit sequence gap & drop detection
-    parser.add_argument(
-        "-g", "--detect-drops", "--detect-gaps",
-        dest="detect_drops",
+    rules_group = parser.add_argument_group("Audit Rule Generation")
+    rules_group.add_argument(
+        "--generate-rules", "--auditctl", "--rules",
+        dest="generate_rules",
         action="store_true",
-        help="Detect dropped or missing audit events by tracking event sequence serial numbers"
+        help="Generate copy-pasteable auditctl commands or rules.d file matching current CLI filters and exit"
     )
-    parser.add_argument(
-        "--drop-threshold",
-        dest="drop_threshold",
-        type=int,
-        default=1,
-        help="Minimum number of missing events in a gap to trigger an alert banner (default: 1)"
+    rules_group.add_argument(
+        "--rule-key",
+        dest="rule_key",
+        default="audisp_strace",
+        help="Audit rule key tag for generated rules (default: 'audisp_strace')"
     )
-    parser.add_argument(
-        "--drop-window",
-        dest="drop_window",
-        type=int,
-        default=256,
-        help="Sliding window size to absorb out-of-order event delivery jitter across CPU cores (default: 256)"
+    rules_group.add_argument(
+        "--rules-format",
+        dest="rules_format",
+        choices=["auditctl", "file"],
+        default="auditctl",
+        help="Format for generated rules: 'auditctl' for shell commands, or 'file' for /etc/audit/rules.d/ (default: 'auditctl')"
+    )
+    rules_group.add_argument(
+        "--arch",
+        dest="arch",
+        choices=["b64", "b32", "both"],
+        default="b64",
+        help="Target architecture for generated audit rules: 'b64' (default), 'b32', or 'both'"
+    )
+
+    help_group = parser.add_argument_group("Help & Information")
+    help_group.add_argument(
+        "-h", "--help",
+        action=_ShortHelpAction,
+        help="Show common options summary and exit"
+    )
+    help_group.add_argument(
+        "--help-all",
+        action="help",
+        help="Show all options and comprehensive usage details and exit"
     )
 
     args = parser.parse_args()

@@ -447,6 +447,10 @@ Sample 3-line format per monitored event:
   - Automatically batches large syscall sets into safe kernel chunks of 14 syscalls per rule.
   - Resolves path targets to `-F dir=` (directories) or `-F path=` (files), maps usernames to numeric UIDs, and applies status filtering (`-F success=0/1`).
   - Automatically includes interactive session loop suppression (`auditctl -a never,exit -F sessionid=...`) and teardown/cleanup commands (`auditctl -D -k ...`).
+- [x] Streamlined CLI help output and split into `-h` / `--help` and `--help-all`:
+  - Replaced the overwhelming 180-line help dump and 25-line wrapped usage text on `-h` / `--help` with a concise, single-screen summary (~27 lines) highlighting the most common and important options.
+  - Added `--help-all` to display the complete reference with all 50+ options logically categorized into 8 functional groups (`Input & Live Following`, `Syscall & Error Filtering`, `Process, User & Path Filtering`, `Output Formatting & Timestamps`, `Output File & Compression`, `Statistics & Drop Detection`, `Audit Rule Generation`, `Help & Information`).
+  - Set concise 2-line usage banner (`audisp-strace [-F] [-s SYSCALLS] ...`) for both `--help-all` and argument syntax errors.
 
 ### Next Steps / Ideas
 - [ ] **Security & Anomaly Badges / Heuristic Alerts**:
