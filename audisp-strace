@@ -4,6 +4,9 @@ audisp-strace - Linux audisp plugin and audit log trace formatter.
 
 Reads Linux audit events (from stdin or audit logs) and pretty-prints strace-like
 traces with enriched process ancestry and process credentials.
+
+Copyright (c) 2026 Frank Sorenson <sorenson@redhat.com>
+SPDX-License-Identifier: MIT
 """
 
 import argparse
