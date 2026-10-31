@@ -1,0 +1,98 @@
+# SELinux Test Cases: Permissive mmap with AVC path correlation
+type=AVC msg=audit(1793384401.936:8455679): avc:  denied  { map } for  pid=2855201 comm="postdrop" path="/etc/centrifydc/group.ignore" dev="dm-11" ino=12861290 scontext=system_u:system_r:postfix_postdrop_t:s0-s0:c0.c1023 tcontext=system_u:object_r:etc_runtime_t:s0 tclass=file permissive=1
+type=SYSCALL msg=audit(1793384401.936:8455679): arch=c000003e syscall=9 success=yes exit=140662532173824 a0=0 a1=2b0 a2=1 a3=2 items=0 ppid=2855200 pid=2855201 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=90 sgid=90 fsgid=90 tty=(none) ses=4294967295 comm="postdrop" exe="/usr/sbin/postdrop" subj=system_u:system_r:postfix_postdrop_t:s0-s0:c0.c1023 key=(null)
+ARCH=x86_64 SYSCALL=mmap AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="postdrop" SGID="postdrop" FSGID="postdrop"
+type=MMAP msg=audit(1793384401.936:8455679): fd=4 flags=0x2
+type=PROCTITLE msg=audit(1793384401.936:8455679): proctitle=2F7573722F7362696E2F706F737464726F70002D72
+
+
+type=AVC msg=audit(1793384419.767:8455829): avc:  denied  { map } for  pid=2855423 comm="unix_chkpwd" path="/etc/centrifydc/user.ignore" dev="dm-11" ino=12861292 scontext=system_u:system_r:chkpwd_t:s0 tcontext=system_u:object_r:etc_runtime_t:s0 tclass=file permissive=1
+type=SYSCALL msg=audit(1793384419.767:8455829): arch=c000003e syscall=9 success=yes exit=140214542282752 a0=0 a1=268 a2=1 a3=2 items=0 ppid=2855422 pid=2855423 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="unix_chkpwd" exe="/usr/sbin/unix_chkpwd" subj=system_u:system_r:chkpwd_t:s0 key=(null)
+ARCH=x86_64 SYSCALL=mmap AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=MMAP msg=audit(1793384419.767:8455829): fd=3 flags=0x2
+type=PROCTITLE msg=audit(1793384419.767:8455829): proctitle=2F7573722F7362696E2F756E69785F63686B707764006E6F626F64790063686B657870697279
+
+# SELinux Test Cases: Permissive filesystem operations (mkdir, openat, fsetxattr)
+type=AVC msg=audit(1793312868.306:4160549): avc:  denied  { create } for  pid=3024969 comm="rhsmcertd-worke" name="libdnf.bwN6du" scontext=system_u:system_r:rhsmcertd_t:s0 tcontext=system_u:object_r:user_tmp_t:s0 tclass=dir permissive=1
+type=SYSCALL msg=audit(1793312868.306:4160549): arch=c000003e syscall=83 success=yes exit=0 a0=7ffe17b49770 a1=1c0 a2=11e72518 a3=2bb3ce88 items=2 ppid=1158 pid=3024969 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="rhsmcertd-worke" exe="/usr/libexec/platform-python3.6" subj=system_u:system_r:rhsmcertd_t:s0 key=(null)ARCH=x86_64 SYSCALL=mkdir AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=CWD msg=audit(1793312868.306:4160549): cwd="/"
+type=PATH msg=audit(1793312868.306:4160549): item=0 name=(null) inode=134417020 dev=fd:00 mode=041777 ouid=0 ogid=0 rdev=00:00 obj=system_u:object_r:tmp_t:s0 nametype=PARENT cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0OUID="root" OGID="root"
+type=PATH msg=audit(1793312868.306:4160549): item=1 name=(null) inode=677601 dev=fd:00 mode=040700 ouid=0 ogid=0 rdev=00:00 obj=system_u:object_r:user_tmp_t:s0 nametype=CREATE cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0OUID="root" OGID="root"
+type=PROCTITLE msg=audit(1793312868.306:4160549): proctitle=2F7573722F6C6962657865632F706C6174666F726D2D707974686F6E002F7573722F6C6962657865632F7268736D63657274642D776F726B6572
+
+type=AVC msg=audit(1793312868.307:4160550): avc:  denied  { add_name } for  pid=3024969 comm="rhsmcertd-worke" name="repodata" scontext=system_u:system_r:rhsmcertd_t:s0 tcontext=system_u:object_r:user_tmp_t:s0 tclass=dir permissive=1
+type=SYSCALL msg=audit(1793312868.307:4160550): arch=c000003e syscall=83 success=yes exit=0 a0=55a3b3c05c80 a1=1fd a2=0 a3=7f2e1d1349e0 items=2 ppid=1158 pid=3024969 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="rhsmcertd-worke" exe="/usr/libexec/platform-python3.6" subj=system_u:system_r:rhsmcertd_t:s0 key=(null)ARCH=x86_64 SYSCALL=mkdir AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=CWD msg=audit(1793312868.307:4160550): cwd="/"
+type=PATH msg=audit(1793312868.307:4160550): item=0 name=(null) inode=677601 dev=fd:00 mode=040700 ouid=0 ogid=0 rdev=00:00 obj=system_u:object_r:user_tmp_t:s0 nametype=PARENT cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0OUID="root" OGID="root"
+type=PATH msg=audit(1793312868.307:4160550): item=1 name=(null) inode=74015506 dev=fd:00 mode=040755 ouid=0 ogid=0 rdev=00:00 obj=system_u:object_r:user_tmp_t:s0 nametype=CREATE cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0OUID="root" OGID="root"
+type=PROCTITLE msg=audit(1793312868.307:4160550): proctitle=2F7573722F6C6962657865632F706C6174666F726D2D707974686F6E002F7573722F6C6962657865632F7268736D63657274642D776F726B6572
+
+type=AVC msg=audit(1793312868.307:4160551): avc:  denied  { create } for  pid=3024969 comm="rhsmcertd-worke" name="repomd.xml" scontext=system_u:system_r:rhsmcertd_t:s0 tcontext=system_u:object_r:user_tmp_t:s0 tclass=file permissive=1
+type=SYSCALL msg=audit(1793312868.307:4160551): arch=c000003e syscall=257 success=yes exit=7 a0=ffffff9c a1=55a3b3c05c40 a2=242 a3=1b6 items=4 ppid=1158 pid=3024969 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="rhsmcertd-worke" exe="/usr/libexec/platform-python3.6" subj=system_u:system_r:rhsmcertd_t:s0 key=(null)ARCH=x86_64 SYSCALL=openat AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=CWD msg=audit(1793312868.307:4160551): cwd="/"
+type=PATH msg=audit(1793312868.307:4160551): item=0 name=(null) inode=74015506 dev=fd:00 mode=040755 ouid=0 ogid=0 rdev=00:00 obj=system_u:object_r:user_tmp_t:s0 nametype=PARENT cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0OUID="root" OGID="root"
+type=PATH msg=audit(1793312868.307:4160551): item=1 name=(null) nametype=CREATE cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0
+type=PATH msg=audit(1793312868.307:4160551): item=2 name=(null) inode=74015506 dev=fd:00 mode=040755 ouid=0 ogid=0 rdev=00:00 obj=system_u:object_r:user_tmp_t:s0 nametype=PARENT cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0OUID="root" OGID="root"
+type=PATH msg=audit(1793312868.307:4160551): item=3 name=(null) inode=74015507 dev=fd:00 mode=0100644 ouid=0 ogid=0 rdev=00:00 obj=system_u:object_r:user_tmp_t:s0 nametype=CREATE cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0OUID="root" OGID="root"
+type=PROCTITLE msg=audit(1793312868.307:4160551): proctitle=2F7573722F6C6962657865632F706C6174666F726D2D707974686F6E002F7573722F6C6962657865632F7268736D63657274642D776F726B6572
+
+type=AVC msg=audit(1793312868.307:4160552): avc:  denied  { setattr } for  pid=3024969 comm="rhsmcertd-worke" name="repomd.xml" dev="dm-0" ino=74015507 scontext=system_u:system_r:rhsmcertd_t:s0 tcontext=system_u:object_r:user_tmp_t:s0 tclass=file permissive=1
+type=SYSCALL msg=audit(1793312868.307:4160552): arch=c000003e syscall=190 success=yes exit=0 a0=8 a1=7f2e1d12f790 a2=7f2e1d133f34 a3=1 items=0 ppid=1158 pid=3024969 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="rhsmcertd-worke" exe="/usr/libexec/platform-python3.6" subj=system_u:system_r:rhsmcertd_t:s0 key=(null)ARCH=x86_64 SYSCALL=fsetxattr AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=PROCTITLE msg=audit(1793312868.307:4160552): proctitle=2F7573722F6C6962657865632F706C6174666F726D2D707974686F6E002F7573722F6C6962657865632F7268736D63657274642D776F726B6572
+
+type=AVC msg=audit(1793312868.581:4160553): avc:  denied  { read } for  pid=3024969 comm="rhsmcertd-worke" name="libdnf.bwN6du" dev="dm-0" ino=677601 scontext=system_u:system_r:rhsmcertd_t:s0 tcontext=system_u:object_r:user_tmp_t:s0 tclass=dir permissive=1
+type=SYSCALL msg=audit(1793312868.581:4160553): arch=c000003e syscall=257 success=yes exit=7 a0=ffffff9c a1=7ffe17b49770 a2=90800 a3=0 items=0 ppid=1158 pid=3024969 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="rhsmcertd-worke" exe="/usr/libexec/platform-python3.6" subj=system_u:system_r:rhsmcertd_t:s0 key=(null)ARCH=x86_64 SYSCALL=openat AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=PROCTITLE msg=audit(1793312868.581:4160553): proctitle=2F7573722F6C6962657865632F706C6174666F726D2D707974686F6E002F7573722F6C6962657865632F7268736D63657274642D776F726B6572
+
+type=AVC msg=audit(1793312868.581:4160554): avc:  denied  { remove_name } for  pid=3024969 comm="rhsmcertd-worke" name="repomd.xml" dev="dm-0" ino=74015507 scontext=system_u:system_r:rhsmcertd_t:s0 tcontext=system_u:object_r:user_tmp_t:s0 tclass=dir permissive=1
+type=AVC msg=audit(1793312868.581:4160554): avc:  denied  { unlink } for  pid=3024969 comm="rhsmcertd-worke" name="repomd.xml" dev="dm-0" ino=74015507 scontext=system_u:system_r:rhsmcertd_t:s0 tcontext=system_u:object_r:user_tmp_t:s0 tclass=file permissive=1
+type=SYSCALL msg=audit(1793312868.581:4160554): arch=c000003e syscall=87 success=yes exit=0 a0=55a3b2296c30 a1=0 a2=0 a3=55a3b2296c30 items=0 ppid=1158 pid=3024969 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="rhsmcertd-worke" exe="/usr/libexec/platform-python3.6" subj=system_u:system_r:rhsmcertd_t:s0 key=(null)ARCH=x86_64 SYSCALL=unlink AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=PROCTITLE msg=audit(1793312868.581:4160554): proctitle=2F7573722F6C6962657865632F706C6174666F726D2D707974686F6E002F7573722F6C6962657865632F7268736D63657274642D776F726B6572
+
+# SELinux Test Cases: Enforcing capability denials (perfmon, sys_admin)
+type=AVC msg=audit(1793201116.083:8160573): avc:  denied  { perfmon } for  pid=2695136 comm="ps" capability=38  scontext=system_u:system_r:pcp_pmlogger_t:s0 tcontext=system_u:system_r:pcp_pmlogger_t:s0 tclass=capability2 permissive=0
+type=AVC msg=audit(1793201116.083:8160573): avc:  denied  { sys_admin } for  pid=2695136 comm="ps" capability=21  scontext=system_u:system_r:pcp_pmlogger_t:s0 tcontext=system_u:system_r:pcp_pmlogger_t:s0 tclass=capability permissive=0
+type=SYSCALL msg=audit(1793201116.083:8160573): arch=c000003e syscall=257 success=no exit=-13 a0=ffffff9c a1=7ffe01414ba0 a2=0 a3=0 items=1 ppid=2695121 pid=2695136 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="ps" exe="/usr/bin/ps" subj=system_u:system_r:pcp_pmlogger_t:s0 key=(null)ARCH=x86_64 SYSCALL=openat AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=CWD msg=audit(1793201116.083:8160573): cwd="/var/lib/pcp"
+type=PATH msg=audit(1793201116.083:8160573): item=0 name="/proc/1313/environ" inode=1503578 dev=00:1a mode=0100400 ouid=0 ogid=0 rdev=00:00 obj=system_u:system_r:irqbalance_t:s0 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0OUID="root" OGID="root"
+type=PROCTITLE msg=audit(1793201116.083:8160573): proctitle=7073002D656677
+
+type=AVC msg=audit(1793202919.212:8160766): avc:  denied  { perfmon } for  pid=2696009 comm="ps" capability=38  scontext=system_u:system_r:pcp_pmlogger_t:s0 tcontext=system_u:system_r:pcp_pmlogger_t:s0 tclass=capability2 permissive=0
+type=AVC msg=audit(1793202919.212:8160766): avc:  denied  { sys_admin } for  pid=2696009 comm="ps" capability=21  scontext=system_u:system_r:pcp_pmlogger_t:s0 tcontext=system_u:system_r:pcp_pmlogger_t:s0 tclass=capability permissive=0
+type=SYSCALL msg=audit(1793202919.212:8160766): arch=c000003e syscall=257 success=no exit=-13 a0=ffffff9c a1=7ffc725d58e0 a2=0 a3=0 items=1 ppid=2695978 pid=2696009 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="ps" exe="/usr/bin/ps" subj=system_u:system_r:pcp_pmlogger_t:s0 key=(null)ARCH=x86_64 SYSCALL=openat AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=CWD msg=audit(1793202919.212:8160766): cwd="/var/lib/pcp"
+type=PATH msg=audit(1793202919.212:8160766): item=0 name="/proc/1313/environ" inode=1503578 dev=00:1a mode=0100400 ouid=0 ogid=0 rdev=00:00 obj=system_u:system_r:irqbalance_t:s0 nametype=NORMAL cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0OUID="root" OGID="root"
+type=PROCTITLE msg=audit(1793202919.212:8160766): proctitle=7073002D656677
+
+# SELinux Test Cases: Standalone AVCs (USER_AVC dbus, UDP name_bind, file relabelfrom)
+type=AVC msg=audit(1779126926.781:116): avc:  denied  { relabelfrom } for  pid=1664 comm="gdm" name="stream-properties" dev="dm-0" ino=2338241 scontext=system_u:system_r:xdm_t:s0-s0:c0.c1023 tcontext=system_u:object_r:xdm_var_lib_t:s0 tclass=file permissive=0
+
+type=BPF msg=audit(1780501036.260:25330): prog-id=9122 op=UNLOAD
+
+type=BPF msg=audit(1780595112.634:27021): prog-id=9757 op=LOAD
+
+
+type=AVC msg=audit(1781126540.400:46): avc:  denied  { name_bind } for  pid=2546 comm="rpcbind" src=64860 scontext=system_u:system_r:rpcbind_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=udp_socket permissive=1
+type=SYSCALL msg=audit(1781126540.400:46): arch=c000003e syscall=49 success=yes exit=0 a0=b a1=7fff52fac8e0 a2=10 a3=1e1 items=0 ppid=1 pid=2546 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="rpcbind" exe="/usr/bin/rpcbind" subj=system_u:system_r:rpcbind_t:s0 key=(null) ARCH=x86_64 SYSCALL=bind AUID="unset" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=PROCTITLE msg=audit(1781126540.400:46): proctitle=2F7573722F62696E2F72706362696E64002D77002D66
+
+# VM7 SELinux Test Cases: execve with AVC denial, flock with LOCK_MAND, utimensat with 64-bit AT_FDCWD
+type=AVC msg=audit(1771614008.536:4007): avc:  denied  { execute } for  pid=31949 comm="rpc.statd" name="ha-callout" dev="vda2" ino=68232424 scontext=system_u:system_r:rpcd_t:s0 tcontext=system_u:object_r:var_lib_nfs_t:s0 tclass=file permissive=1
+type=AVC msg=audit(1771614008.536:4007): avc:  denied  { execute_no_trans } for  pid=31949 comm="rpc.statd" path="/var/lib/nfs/statd/ha-callout" dev="vda2" ino=68232424 scontext=system_u:system_r:rpcd_t:s0 tcontext=system_u:object_r:var_lib_nfs_t:s0 tclass=file permissive=1
+type=SYSCALL msg=audit(1771614008.536:4007): arch=c000003e syscall=59 success=yes exit=0 a0=556ebaa8aed0 a1=7ffecc9705d0 a2=7ffecc973188 a3=7f64ca2f6b10 items=3 ppid=1185 pid=31949 auid=4294967295 uid=29 gid=29 euid=29 suid=29 fsuid=29 egid=29 sgid=29 fsgid=29 tty=(none) ses=4294967295 comm="ha-callout" exe="/usr/bin/bash" subj=system_u:system_r:rpcd_t:s0 key=(null)
+type=EXECVE msg=audit(1771614008.536:4007): argc=5 a0="/bin/bash" a1="/var/lib/nfs/statd/ha-callout" a2="add-client" a3="192.168.122.83" a4="vm7.sorenson.redhat.com"
+type=CWD msg=audit(1771614008.536:4007):  cwd="/var/lib/nfs/statd"
+type=PATH msg=audit(1771614008.536:4007): item=0 name="/var/lib/nfs/statd/ha-callout" inode=68232424 dev=fd:02 mode=0100755 ouid=29 ogid=29 rdev=00:00 obj=system_u:object_r:var_lib_nfs_t:s0 objtype=NORMAL cap_fp=0000000000000000 cap_fi=0000000000000000 cap_fe=0 cap_fver=0
+type=PATH msg=audit(1771614008.536:4007): item=1 name="/bin/bash" inode=134753814 dev=fd:02 mode=0100755 ouid=0 ogid=0 rdev=00:00 obj=system_u:object_r:shell_exec_t:s0 objtype=NORMAL cap_fp=0000000000000000 cap_fi=0000000000000000 cap_fe=0 cap_fver=0
+type=PATH msg=audit(1771614008.536:4007): item=2 name="/lib64/ld-linux-x86-64.so.2" inode=203228931 dev=fd:02 mode=0100755 ouid=0 ogid=0 rdev=00:00 obj=system_u:object_r:ld_so_t:s0 objtype=NORMAL cap_fp=0000000000000000 cap_fi=0000000000000000 cap_fe=0 cap_fver=0
+type=PROCTITLE msg=audit(1771614008.536:4007): proctitle=2F62696E2F62617368002F7661722F6C69622F6E66732F73746174642F68612D63616C6C6F7574006164642D636C69656E74003139322E3136382E3132322E383300766D372E736F72656E736F6E2E7265646861742E636F6D
+
+type=AVC msg=audit(1765702515.184:93566): avc:  denied  { lock } for  pid=14391 comm="smbd" path="/home/user1/testfile" dev="vda2" ino=135445162 scontext=system_u:system_r:smbd_t:s0 tcontext=system_u:object_r:home_root_t:s0 tclass=file permissive=1
+type=SYSCALL msg=audit(1765702515.184:93566): arch=c000003e syscall=73 success=yes exit=0 a0=f a1=20 a2=0 a3=3f64a items=0 ppid=1 pid=14391 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="smbd" exe="/usr/sbin/smbd" subj=system_u:system_r:smbd_t:s0 key=(null)
+type=PROCTITLE msg=audit(1765702515.184:93566): proctitle=2F7573722F7362696E2F736D6264002D2D666F726567726F756E64002D2D6E6F2D70726F636573732D67726F7570
+
+type=AVC msg=audit(1765702515.187:93568): avc:  denied  { setattr } for  pid=14391 comm="smbd" name="testfile" dev="vda2" ino=135445162 scontext=system_u:system_r:smbd_t:s0 tcontext=system_u:object_r:home_root_t:s0 tclass=file permissive=1
+type=SYSCALL msg=audit(1765702515.187:93568): arch=c000003e syscall=280 success=yes exit=0 a0=ffffffffffffff9c a1=55bbe9d142f0 a2=7ffdc035f4a0 a3=0 items=1 ppid=1 pid=14391 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="smbd" exe="/usr/sbin/smbd" subj=system_u:system_r:smbd_t:s0 key=(null)
+type=CWD msg=audit(1765702515.187:93568):  cwd="/home/user1"
+type=PATH msg=audit(1765702515.187:93568): item=0 name="testfile" inode=135445162 dev=fd:02 mode=0100744 ouid=501 ogid=501 rdev=00:00 obj=system_u:object_r:home_root_t:s0 objtype=NORMAL cap_fp=0000000000000000 cap_fi=0000000000000000 cap_fe=0 cap_fver=0
+type=PROCTITLE msg=audit(1765702515.187:93568): proctitle=2F7573722F7362696E2F736D6264002D2D666F726567726F756E64002D2D6E6F2D70726F636573732D67726F7570

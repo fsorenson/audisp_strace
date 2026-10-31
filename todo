@@ -29,6 +29,8 @@
       Replaced oversized 180-line help flood with a concise, single-screen (~27 lines) summary on `-h` / `--help` showing the most common and important options. Added `--help-all` displaying the complete reference organized into 8 functional argument groups with a compact 2-line usage banner.
 • [x] SELinux AVC Awareness & Denial / Permissive Annotation (`--avc`, `-S avc`):
       Automatically correlates `type=AVC` and `type=USER_AVC` records with syscall events. Highlights enforcing denials with `[SELinux: DENIED { perms }]` and permissive decisions with `[SELinux: WOULD DENY { perms }]`. Formats detailed `scontext -> tcontext` line, streamlines redundant identity fields on Line 2, enriches `mmap` with file paths from AVC records, adds dynamic `avc` column in `-c` summary tables, adds `--avc` CLI filter, and exports normalized `"avc"` objects in `--json`.
+• [x] Automated Unit Test Suite & Representative Test Consolidation (`make test`, `tests/`):
+      Replaced bulky raw audit log dumps with a lightweight (220 KB), high-density test matrix covering 304 unique syscalls, SELinux enforcing denials & permissive warnings, ghost file tracking, drop detection, multi-file merging, relative timestamps, time-range inspection, and audit rule generation. Fully runnable offline via `make test` or `python3 -m unittest discover tests`.
 
 ---
 

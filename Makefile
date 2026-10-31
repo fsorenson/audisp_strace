@@ -12,4 +12,7 @@ $(TARGET): $(SRC)
 clean:
 	rm -f $(TARGET)
 
-.PHONY: all clean
+test:
+	python3 -m unittest discover tests -v
+
+.PHONY: all clean test

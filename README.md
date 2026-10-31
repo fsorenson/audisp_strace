@@ -98,6 +98,8 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Fully integrated with compact mode (`-C`), JSON output (`"relative_time": 0.001253`), and multi-file merging (`-m`).
 - **Fast Time Range & Coverage Inspection (`--time-range`, `capinfos`-style)**:
   - Instantly inspects audit log files (<1ms via seek-based header/trailer reads on regular files, streaming on compressed files) to report start/end timestamps, duration, and serial ranges without full tracing.
+  - Supports multiple files (`audisp-strace --time-range /var/log/audit/audit.log*`) showing aligned per-file coverage and an overall Total span line.
+  - Enriches summary mode (`-c` / `--summary`) to display boundary timestamps and duration above the syscall frequency table.
 - **SELinux AVC Awareness & Denial Highlighting (`--avc`, `-S avc`)**:
   - Automatically correlates kernel `type=AVC` and `type=USER_AVC` records sharing the event serial number.
   - Primary line annotation: tags enforcing denials with `[SELinux: DENIED { perms }]` (bold red) and permissive denials with `[SELinux: WOULD DENY { perms }]` (bold yellow warning).
@@ -106,8 +108,6 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Enriched `mmap` formatting: parses `type=MMAP` records (`fd=...`) and cross-correlates file paths from attached AVC records, rendering `mmap(..., fd<path>, 0)`.
   - Dynamic `avc` column in `-c` summary table: automatically appears when AVCs are encountered, displaying per-syscall denial counts and supporting `-S avc` sorting.
   - Dedicated CLI filter: `--avc` / `--avc-only` / `--selinux` displays only events with SELinux decisions.
-  - Supports multiple files (`audisp-strace --time-range /var/log/audit/audit.log*`) showing aligned per-file coverage and an overall Total span line.
-  - Enriches summary mode (`-c` / `--summary`) to display boundary timestamps and duration above the syscall frequency table.
 - **Audit Rule Generator (`--generate-rules` / `--auditctl`)**:
   - Automatically translates active CLI filters (`-s %perm`, `-s %mount`, `-P /etc`, `-u apache`, `-Z`) into exact, copy-pasteable `auditctl` shell scripts or `/etc/audit/rules.d/` rule files.
   - Handles safe syscall chunking, architecture matching (`-F arch=b64`), UID resolution, directory/path classification, session loop suppression, and teardown commands.
@@ -469,6 +469,32 @@ Or configure custom rules manually with `auditctl`:
 sudo auditctl -a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F key=perm_mod
 sudo auditctl -a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F key=perm_mod
 ```
+
+---
+
+## Testing
+
+An automated regression test suite is included in [`tests/test_audisp_strace.py`](file:///home/sorenson/projects/audisp_strace/tests/test_audisp_strace.py), using high-density, representative audit log files in [`tests/data/`](file:///home/sorenson/projects/audisp_strace/tests/data/).
+
+Run the test suite directly via `make`:
+```bash
+make test
+```
+Or via Python's `unittest`:
+```bash
+python3 -m unittest discover tests -v
+```
+
+The test suite covers:
+- **Syscall Matrix**: Summary table and execution across 300+ Linux syscalls.
+- **SELinux AVC Awareness**: Permissive warning tags, enforcing denial alerts, fallback path resolution, `--avc` filtering, and dynamic summary columns.
+- **Unlinked-While-Open (Ghost Files)**: Cross-syscall tracking and `(deleted)` descriptor annotation.
+- **Drop & Gap Detection**: Netlink sequence gap detection and warning banners.
+- **Chronological Multi-File Merges**: Streaming k-way heap merges across rotated logs.
+- **Relative Timestamps**: Elapsed delta tracking (`-r` and `-t relative`).
+- **Compact Modes**: Single-line summary and pure strace output formats (`-C` and `-C strace`).
+- **JSON Lines Export**: Machine-parseable NDJSON output schema.
+- **Audit Rule Generation**: Filter-to-auditctl translation and interactive session exclusion.
 
 ---
 

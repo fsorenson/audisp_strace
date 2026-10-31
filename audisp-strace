@@ -1457,7 +1457,13 @@ class AuditEvent:
 
         au.first_record()
         while True:
-            rectype = au.get_type_name()
+            try:
+                rectype = au.get_type_name()
+            except Exception:
+                try:
+                    rectype = f"UNKNOWN[{au.get_type()}]"
+                except Exception:
+                    rectype = "UNKNOWN"
             fields = {}
             interp_fields = {}
             au.first_field()
@@ -1493,6 +1499,8 @@ class AuditEvent:
                 p_copy = dict(fields)
                 if "name" in p_copy:
                     p_copy["name"] = unescape_audit_str(p_copy["name"])
+                if "objtype" in p_copy and "nametype" not in p_copy:
+                    p_copy["nametype"] = p_copy["objtype"]
                 self.paths.append(p_copy)
             elif rectype == "EXECVE":
                 try:
@@ -1519,13 +1527,20 @@ class AuditEvent:
             elif rectype in ("AVC", "USER_AVC"):
                 perms_raw = fields.get("seperms") or ""
                 perms_list = [p.strip() for p in perms_raw.split(",") if p.strip()]
-                raw_path = fields.get("path")
+                seresult = fields.get("seresult", "denied")
+                if not perms_list:
+                    rec_text = au.get_record_text()
+                    m = re.search(r'avc:\s*(\w+)\s*\{\s*([^}]+)\s*\}', rec_text)
+                    if m:
+                        seresult = m.group(1)
+                        perms_list = m.group(2).strip().split()
+                raw_path = fields.get("path") or fields.get("name")
                 path_val = unescape_audit_str(raw_path.strip('"')) if raw_path else None
                 raw_comm = fields.get("comm")
                 comm_val = unescape_audit_str(raw_comm.strip('"')) if raw_comm else None
                 avc_info = {
                     "rectype": rectype,
-                    "seresult": fields.get("seresult", "denied"),
+                    "seresult": seresult,
                     "seperms": perms_list,
                     "scontext": fields.get("scontext") or self.subj,
                     "tcontext": fields.get("tcontext"),
@@ -3348,7 +3363,7 @@ class SyscallHandler:
             val_int = 0
 
         # Check for AT_FDCWD
-        if val_int in (-100, 0xffffff9c, 4294967196):
+        if val_int in (-100, 0xffffff9c, 4294967196, 0xffffffffffffff9c, 18446744073709551516) or (val_int & 0xffffffff) == 0xffffff9c:
             cwd = event.cwd or "unknown"
             return f"AT_FDCWD<{cwd}>"
 
@@ -3515,6 +3530,8 @@ class SyscallHandler:
                 name = event.syscall.get("a0", "")
 
         name = name.strip('"')
+        if (not name or name == "(null)") and event.avc_paths:
+            name = event.avc_paths[0]
         if not name:
             return None
 
@@ -3529,7 +3546,7 @@ class SyscallHandler:
                 dfd_int = int(str(dirfd_val), 16) if not str(dirfd_val).startswith("-") else int(dirfd_val)
             except (ValueError, TypeError):
                 dfd_int = 0
-            if dfd_int not in (-100, 0xffffff9c, 4294967196):
+            if dfd_int not in (-100, 0xffffff9c, 4294967196, 0xffffffffffffff9c, 18446744073709551516) and (dfd_int & 0xffffffff) != 0xffffff9c:
                 dirfd_path = self.tracker.get_fd_path(event.pid, dfd_int)
                 if dirfd_path:
                     return os.path.normpath(os.path.join(dirfd_path, name))
@@ -3562,6 +3579,8 @@ class SyscallHandler:
             name = self._get_pathname(event, "a0")
 
         name = name.strip('"')
+        if (not name or name == "(null)") and event.avc_paths:
+            name = event.avc_paths[0]
         if not name:
             return None
 
@@ -3574,7 +3593,7 @@ class SyscallHandler:
                 dfd_int = int(str(dirfd_val), 16) if not str(dirfd_val).startswith("-") else int(dirfd_val)
             except (ValueError, TypeError):
                 dfd_int = 0
-            if dfd_int not in (-100, 0xffffff9c, 4294967196):
+            if dfd_int not in (-100, 0xffffff9c, 4294967196, 0xffffffffffffff9c, 18446744073709551516) and (dfd_int & 0xffffffff) != 0xffffff9c:
                 dirfd_path = self.tracker.get_fd_path(event.pid, dfd_int)
                 if dirfd_path:
                     clean_dir = dirfd_path[:-10] if dirfd_path.endswith(" (deleted)") else dirfd_path
@@ -3977,7 +3996,17 @@ class SyscallHandler:
         if not isinstance(op, int):
             return str(op_raw)
         flags = []
-        base = op & ~4
+        if op & 32:
+            flags.append("LOCK_MAND")
+            if (op & 192) == 192:
+                flags.append("LOCK_RW")
+            elif op & 64:
+                flags.append("LOCK_READ")
+            elif op & 128:
+                flags.append("LOCK_WRITE")
+            base = op & ~(32 | 64 | 128 | 4)
+        else:
+            base = op & ~4
         if base == 1: flags.append("LOCK_SH")
         elif base == 2: flags.append("LOCK_EX")
         elif base == 8: flags.append("LOCK_UN")
@@ -4486,9 +4515,15 @@ class SyscallHandler:
         for p in event.paths:
             nt = p.get("nametype", "")
             if nt in nametypes:
-                return p.get("name", "")
+                val = p.get("name", "")
+                if val and val != "(null)":
+                    return val
         if event.paths and 0 <= default_idx < len(event.paths):
-            return event.paths[default_idx].get("name", "")
+            val = event.paths[default_idx].get("name", "")
+            if val and val != "(null)":
+                return val
+        if event.avc_paths:
+            return event.avc_paths[0]
         return ""
 
     def handle_unlink(self, event):
@@ -4577,6 +4612,8 @@ class SyscallHandler:
         if not name and event.paths:
             name = event.paths[0].get("name", "")
         name = name.strip('"')
+        if (not name or name == "(null)") and event.avc_paths:
+            name = event.avc_paths[0]
 
         flags_interp = event.syscall_interp.get("a2") or event.syscall.get("a2", "O_RDONLY")
         if "O_CREAT" in flags_interp or "O_TMPFILE" in flags_interp:
@@ -7400,7 +7437,7 @@ class AudispStraceApp:
             if dirfd_val is not None:
                 try:
                     dfd_int = int(str(dirfd_val), 16) if not str(dirfd_val).startswith("-") else int(dirfd_val)
-                    if dfd_int not in (-100, 0xffffff9c, 4294967196) and 0 <= dfd_int < 65536:
+                    if dfd_int not in (-100, 0xffffff9c, 4294967196, 0xffffffffffffff9c, 18446744073709551516) and (dfd_int & 0xffffffff) != 0xffffff9c and 0 <= dfd_int < 65536:
                         dirfd_path = self.tracker.get_fd_path(pid, dfd_int)
                         if dirfd_path:
                             clean_dir = dirfd_path[:-10] if dirfd_path.endswith(" (deleted)") else dirfd_path
@@ -7520,7 +7557,13 @@ class AudispStraceApp:
             except Exception:
                 pass
 
-        rectype = au.get_type_name()
+        try:
+            rectype = au.get_type_name()
+        except Exception:
+            try:
+                rectype = f"UNKNOWN[{au.get_type()}]"
+            except Exception:
+                rectype = "UNKNOWN"
         if rectype in IGNORE_RECORD_TYPES:
             return
 
