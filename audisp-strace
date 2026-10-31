@@ -925,8 +925,19 @@ class ProcessTracker:
         self.max_procs = int(max_procs) if max_procs is not None else 10000
         self.procs = {}  # pid -> dict(ppid, comm, exe, cmdline, ses, fds, exited, last_active)
         self.children = collections.defaultdict(set)  # ppid -> set of child pids
+        self.landlock_domains = {}  # domain -> dict(pid, comm, exe, uid, mode)
         self._op_seq = 0
         self.stats = {"pruned": 0, "evicted": 0}
+
+    def set_landlock_domain(self, domain, info):
+        if domain:
+            self.landlock_domains[domain] = info
+
+    def get_landlock_domain(self, domain):
+        return self.landlock_domains.get(domain)
+
+    def remove_landlock_domain(self, domain):
+        self.landlock_domains.pop(domain, None)
 
     def update(self, pid, ppid=None, comm=None, exe=None, cmdline=None, ses=None):
         if pid is None:
@@ -1454,6 +1465,11 @@ class AuditEvent:
         self.mmap = None
         self.avcs = []
         self.subj = None
+        self.anom_abend = None
+        self.anom_link = None
+        self.landlock = None
+        self.landlock_proc_info = None
+        self.user_cmd = None
 
         au.first_record()
         while True:
@@ -1554,6 +1570,19 @@ class AuditEvent:
                     "ino": fields.get("ino"),
                 }
                 self.avcs.append(avc_info)
+            elif rectype == "ANOM_ABEND":
+                self.anom_abend = fields
+                self.subj = fields.get("subj") or self.subj
+            elif rectype == "ANOM_LINK":
+                self.anom_link = fields
+                self.subj = fields.get("subj") or self.subj
+            elif rectype == "USER_CMD":
+                self.user_cmd = fields
+                self.subj = fields.get("subj") or self.subj
+            elif rectype in ("UNKNOWN[1423]", "UNKNOWN[1424]", "LANDLOCK_DENIAL", "LANDLOCK_DOMAIN"):
+                self.landlock = dict(fields)
+                self.landlock["rectype"] = rectype
+                self.subj = fields.get("subj") or self.subj
 
             if not au.next_record():
                 break
@@ -1616,12 +1645,148 @@ class AuditEvent:
         return seen
 
     @property
+    def primary_fields(self):
+        if self.syscall:
+            return self.syscall
+        if self.anom_abend:
+            return self.anom_abend
+        if self.anom_link:
+            return self.anom_link
+        if self.user_cmd:
+            return self.user_cmd
+        if self.landlock:
+            return self.landlock
+        if self.avcs:
+            return self.avcs[0]
+        return {}
+
+    @property
+    def is_anom_abend(self):
+        return self.anom_abend is not None
+
+    @property
+    def is_anom_link(self):
+        return self.anom_link is not None
+
+    @property
+    def is_landlock(self):
+        return self.landlock is not None and self.landlock.get("blockers") is not None
+
+    @property
+    def is_landlock_domain(self):
+        return self.landlock is not None and self.landlock.get("status") is not None
+
+    @property
+    def is_user_cmd(self):
+        return self.user_cmd is not None
+
+    @property
+    def is_standalone_avc(self):
+        return not bool(self.syscall) and bool(self.avcs)
+
+    @property
+    def is_traceable(self):
+        return bool(
+            self.syscall_name or
+            self.is_anom_abend or
+            self.is_anom_link or
+            self.is_landlock or
+            self.is_user_cmd or
+            self.is_standalone_avc
+        )
+
+    @property
+    def signal_num(self):
+        if self.anom_abend:
+            val = self.anom_abend.get("sig")
+            try:
+                return int(val) if val is not None else None
+            except ValueError:
+                return None
+        return None
+
+    @property
+    def signal_name(self):
+        sig = self.signal_num
+        return SIGNALS.get(sig, f"SIG_{sig}" if sig else "SIGSEGV")
+
+    @property
+    def core_dumped(self):
+        if not self.anom_abend:
+            return False
+        res = self.anom_abend.get("res")
+        reason = self.anom_abend.get("reason", "")
+        sig = self.signal_num
+        if res == "1" or "memory violation" in reason:
+            return True
+        return sig in CORE_DUMP_SIGNALS
+
+    @property
+    def anom_link_op(self):
+        if self.anom_link:
+            return self.anom_link.get("op", "follow_link")
+        return None
+
+    @property
+    def landlock_path(self):
+        if self.landlock:
+            p = self.landlock.get("path")
+            return unescape_audit_str(p.strip('"')) if p else None
+        return None
+
+    @property
+    def landlock_blockers(self):
+        if self.landlock:
+            return self.landlock.get("blockers")
+        return None
+
+    @property
+    def user_cmd_str(self):
+        if self.user_cmd:
+            cmd = self.user_cmd.get("cmd")
+            if not cmd and "msg" in self.user_cmd:
+                m = re.search(r'cmd="([^"]+)"|cmd=([^\s]+)', self.user_cmd["msg"])
+                if m:
+                    cmd = m.group(1) or m.group(2)
+            return unescape_audit_str(cmd.strip('"')) if cmd else None
+        return None
+
+    @property
+    def user_cmd_cwd(self):
+        if self.user_cmd:
+            cwd = self.user_cmd.get("cwd")
+            if not cwd and "msg" in self.user_cmd:
+                m = re.search(r'cwd="([^"]+)"|cwd=([^\s]+)', self.user_cmd["msg"])
+                if m:
+                    cwd = m.group(1) or m.group(2)
+            return unescape_audit_str(cwd.strip('"')) if cwd else None
+        return None
+
+    @property
+    def event_type(self):
+        if self.syscall_name:
+            return "syscall"
+        if self.is_anom_abend:
+            return "crash"
+        if self.is_anom_link:
+            return "anom_link"
+        if self.is_landlock:
+            return "landlock"
+        if self.is_standalone_avc:
+            return "avc"
+        if self.is_user_cmd:
+            return "user_cmd"
+        return "event"
+
+    @property
     def syscall_name(self):
         return self.syscall_interp.get("syscall") or self.syscall.get("syscall")
 
     @property
     def pid(self):
-        val = self.syscall.get("pid")
+        val = self.primary_fields.get("pid")
+        if val is None and self.landlock_proc_info:
+            val = self.landlock_proc_info.get("pid")
         try:
             return int(val) if val is not None else None
         except ValueError:
@@ -1629,7 +1794,7 @@ class AuditEvent:
 
     @property
     def ppid(self):
-        val = self.syscall.get("ppid")
+        val = self.primary_fields.get("ppid")
         try:
             return int(val) if val is not None else None
         except ValueError:
@@ -1637,7 +1802,17 @@ class AuditEvent:
 
     @property
     def uid(self):
-        val = self.syscall.get("uid")
+        val = self.primary_fields.get("uid")
+        if val is None and self.landlock_proc_info:
+            val = self.landlock_proc_info.get("uid")
+        try:
+            return int(val) if val is not None else None
+        except ValueError:
+            return None
+
+    @property
+    def gid(self):
+        val = self.primary_fields.get("gid")
         try:
             return int(val) if val is not None else None
         except ValueError:
@@ -1645,7 +1820,7 @@ class AuditEvent:
 
     @property
     def euid(self):
-        val = self.syscall.get("euid")
+        val = self.primary_fields.get("euid") or self.primary_fields.get("uid")
         try:
             return int(val) if val is not None else None
         except ValueError:
@@ -1653,7 +1828,7 @@ class AuditEvent:
 
     @property
     def auid(self):
-        val = self.syscall.get("auid")
+        val = self.primary_fields.get("auid")
         try:
             return int(val) if val is not None else None
         except ValueError:
@@ -1661,22 +1836,22 @@ class AuditEvent:
 
     @property
     def user(self):
-        val = self.syscall.get("UID") or self.syscall_interp.get("uid")
+        val = self.primary_fields.get("UID") or self.syscall_interp.get("uid") or self.primary_fields.get("uid")
         return clean_user_name(val) if val else None
 
     @property
     def euser(self):
-        val = self.syscall.get("EUID") or self.syscall_interp.get("euid")
+        val = self.primary_fields.get("EUID") or self.syscall_interp.get("euid") or self.euid
         return clean_user_name(val) if val else None
 
     @property
     def auser(self):
-        val = self.syscall.get("AUID") or self.syscall_interp.get("auid")
+        val = self.primary_fields.get("AUID") or self.syscall_interp.get("auid") or self.auid
         return clean_user_name(val) if val else None
 
     @property
     def session_id(self):
-        val = self.syscall.get("ses")
+        val = self.primary_fields.get("ses")
         if val is None:
             return None
         try:
@@ -1690,18 +1865,42 @@ class AuditEvent:
 
     @property
     def comm(self):
-        val = self.syscall.get("comm")
-        return val.strip('"') if val else None
+        val = self.primary_fields.get("comm")
+        if not val and self.landlock_proc_info:
+            val = self.landlock_proc_info.get("comm")
+        return unescape_audit_str(val.strip('"')) if val else None
 
     @property
     def exe(self):
-        val = self.syscall.get("exe")
-        return val.strip('"') if val else None
+        val = self.primary_fields.get("exe")
+        if not val and self.landlock_proc_info:
+            val = self.landlock_proc_info.get("exe")
+        return unescape_audit_str(val.strip('"')) if val else None
+
+    @property
+    def key(self):
+        key = self.primary_fields.get("key")
+        if not key or key == "(null)":
+            return None
+        return unescape_audit_str(key.strip('"'))
 
     @property
     def exit_code(self):
         val = self.syscall.get("exit")
-        return int(val) if val is not None else None
+        if val is not None:
+            try:
+                return int(val)
+            except ValueError:
+                return None
+        if self.is_anom_abend:
+            return -1
+        if self.is_anom_link or self.is_landlock:
+            return -13
+        if self.is_standalone_avc:
+            return 0 if self.avc_is_permissive else -13
+        if self.is_user_cmd:
+            return 0 if not self.is_failed else -1
+        return None
 
     @property
     def success(self):
@@ -1709,10 +1908,18 @@ class AuditEvent:
 
     @property
     def is_failed(self):
-        if self.success == "no":
+        if self.syscall:
+            if self.success == "no":
+                return True
+            if self.exit_code is not None and self.exit_code < 0:
+                return True
+            return False
+        if self.is_anom_abend or self.is_anom_link or self.is_landlock:
             return True
-        if self.exit_code is not None and self.exit_code < 0:
-            return True
+        if self.is_standalone_avc:
+            return self.avc_is_denied
+        if self.is_user_cmd:
+            return self.user_cmd.get("res") not in ("success", "1")
         return False
 
     @property
@@ -1721,13 +1928,23 @@ class AuditEvent:
 
     @property
     def exit_str(self):
-        exit_val = self.exit_code
-        if exit_val is None:
-            return "?"
-        if exit_val < 0:
-            interp = self.syscall_interp.get("exit")
-            return f"-1 {interp}" if interp else str(exit_val)
-        return str(exit_val)
+        if self.syscall:
+            exit_val = self.exit_code
+            if exit_val is None:
+                return "?"
+            if exit_val < 0:
+                interp = self.syscall_interp.get("exit")
+                return f"-1 {interp}" if interp else str(exit_val)
+            return str(exit_val)
+        if self.is_anom_abend:
+            return f"killed by {self.signal_name}"
+        if self.is_anom_link or self.is_landlock:
+            return "-1 EACCES (Permission denied)"
+        if self.is_standalone_avc:
+            return "0" if self.avc_is_permissive else "-1 EACCES (Permission denied)"
+        if self.is_user_cmd:
+            return "0" if not self.is_failed else "-1"
+        return ""
 
     @property
     def errno_code(self):
@@ -1958,7 +2175,7 @@ class TraceFormatter:
         return f"{base_ts}{delta_str}"
 
     def get_credentials_dict(self, event):
-        fields = event.syscall
+        fields = event.primary_fields
         interp = event.syscall_interp
         clean_name = clean_user_name
 
@@ -1979,17 +2196,19 @@ class TraceFormatter:
         else:
             agid_name = raw_agid_name or self.resolve_group(agid_str)
 
+        uid_val = str(event.uid) if event.uid is not None else fields.get("uid", "0")
+        gid_val = str(event.gid) if event.gid is not None else fields.get("gid", "0")
         items = [
-            ("uid", fields.get("uid", "0"), clean_name(fields.get("UID") or interp.get("uid"))),
-            ("gid", fields.get("gid", "0"), clean_name(fields.get("GID") or interp.get("gid"))),
+            ("uid", uid_val, clean_name(fields.get("UID") or interp.get("uid"))),
+            ("gid", gid_val, clean_name(fields.get("GID") or interp.get("gid"))),
             ("auid", auid_str, auid_name),
             ("agid", agid_str, agid_name),
-            ("euid", fields.get("euid", "0"), clean_name(fields.get("EUID") or interp.get("euid"))),
-            ("egid", fields.get("egid", "0"), clean_name(fields.get("EGID") or interp.get("egid"))),
-            ("suid", fields.get("suid", "0"), clean_name(fields.get("SUID") or interp.get("suid"))),
-            ("sgid", fields.get("sgid", "0"), clean_name(fields.get("SGID") or interp.get("sgid"))),
-            ("fsuid", fields.get("fsuid", "0"), clean_name(fields.get("FSUID") or interp.get("fsuid"))),
-            ("fsgid", fields.get("fsgid", "0"), clean_name(fields.get("FSGID") or interp.get("fsgid"))),
+            ("euid", fields.get("euid", uid_val), clean_name(fields.get("EUID") or interp.get("euid"))),
+            ("egid", fields.get("egid", gid_val), clean_name(fields.get("EGID") or interp.get("egid"))),
+            ("suid", fields.get("suid", uid_val), clean_name(fields.get("SUID") or interp.get("suid"))),
+            ("sgid", fields.get("sgid", gid_val), clean_name(fields.get("SGID") or interp.get("sgid"))),
+            ("fsuid", fields.get("fsuid", uid_val), clean_name(fields.get("FSUID") or interp.get("fsuid"))),
+            ("fsgid", fields.get("fsgid", gid_val), clean_name(fields.get("FSGID") or interp.get("fsgid"))),
         ]
 
         creds = {}
@@ -2079,12 +2298,29 @@ class TraceFormatter:
         else:
             return f"    avc: scontext={scontext} -> tcontext={tcontext} (tclass={tclass}{perm_suffix})"
 
+    def format_landlock(self, event):
+        info = event.landlock or {}
+        domain = info.get("domain", "unknown")
+        blockers = info.get("blockers", "unknown")
+        mode = "enforcing"
+        if event.landlock_proc_info:
+            mode = event.landlock_proc_info.get("mode", mode)
+        dev = info.get("dev")
+        ino = info.get("ino")
+        dev_clean = dev.strip('"') if dev else None
+        extra = f', dev="{dev_clean}", ino={ino}' if dev_clean and ino else ""
+        if self.theme.enabled:
+            tag_str = self.theme.result_failed("landlock:")
+            dom_str = self.theme.string(domain)
+            return f"    {tag_str} domain={dom_str} (mode={mode}, blockers={blockers}{extra})"
+        return f"    landlock: domain={domain} (mode={mode}, blockers={blockers}{extra})"
+
     def format_compact_tags(self, event, tracker):
-        fields = event.syscall
+        fields = event.primary_fields
         interp = event.syscall_interp
         clean_name = clean_user_name
 
-        uid_str = fields.get("uid", "0")
+        uid_str = str(event.uid) if event.uid is not None else fields.get("uid", "0")
         raw_uid_name = clean_name(fields.get("UID") or interp.get("uid"))
         uid_name = raw_uid_name or self.resolve_user(uid_str)
 
@@ -2279,6 +2515,8 @@ SIGNALS = {
     26: "SIGVTALRM", 27: "SIGPROF", 28: "SIGWINCH", 29: "SIGIO", 30: "SIGPWR",
     31: "SIGSYS"
 }
+
+CORE_DUMP_SIGNALS = {3, 4, 6, 7, 8, 11, 31}
 
 WAIT_OPTIONS = {
     1: "WNOHANG", 2: "WUNTRACED", 4: "WEXITED", 8: "WCONTINUED", 0x1000000: "WNOWAIT",
@@ -6942,29 +7180,97 @@ class SyscallHandler:
     def handle_rseq_slice_yield(self, event):
         return f"rseq_slice_yield() = {event.exit_str}"
 
+    def format_non_syscall_call(self, event, colored=False):
+        theme = self.formatter.theme
+        use_color = bool(colored and theme.enabled)
+        if event.is_anom_abend:
+            sig = event.signal_num
+            sig_name = SIGNALS.get(sig, f"SIG_{sig}" if sig else "SIGSEGV")
+            dump_str = " (core dumped)" if event.core_dumped else ""
+            msg = f"+++ killed by {sig_name}{dump_str} +++"
+            if use_color:
+                return theme.result_failed(msg)
+            return msg
+
+        if event.is_anom_link:
+            op = event.anom_link_op or "follow_link"
+            badge = "[ANOM_LINK: protected_symlink]"
+            res_str = "= -1 EACCES (Permission denied)"
+            if use_color:
+                return f"{theme.warning(badge)} {op}() {theme.result_failed(res_str)}"
+            return f"{badge} {op}() {res_str}"
+
+        if event.is_landlock:
+            blockers = event.landlock_blockers or "access"
+            path = event.landlock_path or "..."
+            badge = f"[Landlock: DENIED {{ {blockers} }}]"
+            res_str = "= -1 EACCES (Permission denied)"
+            if use_color:
+                p_quoted = f'"{path}"'
+                p_str = theme.path(p_quoted)
+                return f"{theme.result_failed(badge)} {p_str} {theme.result_failed(res_str)}"
+            return f'{badge} "{path}" {res_str}'
+
+        if event.is_standalone_avc:
+            perms_str = event.avc_perms_str or "access"
+            path = event.avc_paths[0] if event.avc_paths else None
+            tclass = event.avc_tclass_str or "unknown"
+            if event.avc_is_permissive:
+                badge = f"[SELinux: WOULD DENY {{ {perms_str} }}]"
+                badge_str = theme.warning(badge) if use_color else badge
+            else:
+                badge = f"[SELinux: DENIED {{ {perms_str} }}]"
+                badge_str = theme.result_failed(badge) if use_color else badge
+            if path:
+                p_quoted = f'"{path}"'
+                target_str = f"{theme.path(p_quoted)} " if use_color else f'"{path}" '
+            else:
+                target_str = ""
+            return f"{badge_str} {target_str}(tclass={tclass})"
+
+        if event.is_user_cmd:
+            cmd = event.user_cmd_str or "..."
+            cwd = event.user_cmd_cwd or "/"
+            res = event.user_cmd.get("res")
+            res_val = 0 if res in ("success", "1") else -1
+            if use_color:
+                cwd_q = f'"{cwd}"'
+                cmd_q = f'"{cmd}"'
+                cwd_s = theme.path(cwd_q)
+                cmd_s = theme.string(cmd_q)
+                res_s = theme.result_success(str(res_val)) if res_val == 0 else theme.result_failed(str(res_val))
+                return f"sudo(cwd={cwd_s}, cmd={cmd_s}) = {res_s}"
+            return f'sudo(cwd="{cwd}", cmd="{cmd}") = {res_val}'
+
+        return None
+
     def format_event(self, event, caller_comm=None, compact=None):
+        theme = self.formatter.theme
         scname = event.syscall_name
         if not scname:
-            return None
-
-        handler = self._handlers.get(scname)
-        if handler:
-            call_str = handler(event)
+            call_str = self.format_non_syscall_call(event, colored=theme.enabled)
+            if not call_str:
+                return None
         else:
-            call_str = f"{scname}(...) = {event.exit_str}"
+            handler = self._handlers.get(scname)
+            if handler:
+                call_str = handler(event)
+            else:
+                call_str = f"{scname}(...) = {event.exit_str}"
 
         # Line 1 header: <pid><comm> <timestamp> <call_str>
-        comm = caller_comm or event.comm or self.tracker._resolve_name(event.pid)
-        ts_str = self.formatter.format_timestamp(event.sec, event.milli, event.serial, pid=event.pid)
+        comm = caller_comm or event.comm or (self.tracker._resolve_name(event.pid) if event.pid else "unknown")
+        pid_val = event.pid or 0
+        ts_str = self.formatter.format_timestamp(event.sec, event.milli, event.serial, pid=pid_val)
         theme = self.formatter.theme
         if theme.enabled:
-            pid_colored = theme.pid(event.pid)
+            pid_colored = theme.pid(pid_val)
             comm_colored = theme.comm(comm)
             ts_colored = theme.timestamp(ts_str)
-            call_colored = theme.colorize_call(call_str, is_failed=event.is_failed)
+            call_colored = theme.colorize_call(call_str, is_failed=event.is_failed) if scname else call_str
             line1 = f"{pid_colored}<{comm_colored}> {ts_colored} {call_colored}"
         else:
-            line1 = f"{event.pid}<{comm}> {ts_str} {call_str}"
+            line1 = f"{pid_val}<{comm}> {ts_str} {call_str}"
 
         # Audit rule key tag
         key_tag = ""
@@ -6975,9 +7281,9 @@ class SyscallHandler:
             else:
                 key_tag = f' [key="{event.key}"]'
 
-        # SELinux AVC annotation tag on Line 1
+        # SELinux AVC annotation tag on Line 1 (only for syscalls; standalone AVC already has badge)
         avc_tag = ""
-        if event.has_avc:
+        if event.has_avc and scname:
             perms_str = event.avc_perms_str or "access"
             if event.avc_is_permissive:
                 if theme.enabled:
@@ -7011,29 +7317,54 @@ class SyscallHandler:
         # Line 2b: SELinux AVC context line
         avc_line = self.formatter.format_avc(event) if event.has_avc else ""
 
+        # Line 2c: Landlock context line
+        landlock_line = self.formatter.format_landlock(event) if event.is_landlock else ""
+
         # Line 3: Process ancestry tree
-        ancestry = self.tracker.get_ancestry(event.pid)
+        ancestry = self.tracker.get_ancestry(event.pid) if event.pid else []
         line3 = self.formatter.format_ancestry(ancestry)
 
+        output_lines = [line1, line2]
         if avc_line:
-            return f"{line1}\n{line2}\n{avc_line}\n{line3}"
-        return f"{line1}\n{line2}\n{line3}"
+            output_lines.append(avc_line)
+        if landlock_line:
+            output_lines.append(landlock_line)
+        output_lines.append(line3)
+        return "\n".join(output_lines)
 
     def format_json_event(self, event, caller_comm=None):
         scname = event.syscall_name
-        if not scname:
-            return None
-
-        handler = self._handlers.get(scname)
-        if handler:
-            call_str = handler(event)
+        if scname:
+            handler = self._handlers.get(scname)
+            if handler:
+                call_str = handler(event)
+            else:
+                call_str = f"{scname}(...) = {event.exit_str}"
+            sc_obj = {
+                "name": scname,
+                "call": call_str,
+                "exit": event.exit_code,
+                "exit_str": event.exit_str,
+                "success": not event.is_failed,
+            }
+            if event.is_failed:
+                interp = event.syscall_interp.get("exit", "")
+                if interp and "(" in interp and interp.endswith(")"):
+                    err_name, _, err_desc = interp.partition("(")
+                    sc_obj["errno"] = err_name.strip()
+                    sc_obj["error_desc"] = err_desc.rstrip(")")
+                elif interp:
+                    sc_obj["errno"] = interp
         else:
-            call_str = f"{scname}(...) = {event.exit_str}"
+            call_str = self.format_non_syscall_call(event)
+            if not call_str:
+                return None
+            sc_obj = None
 
-        comm = caller_comm or event.comm or self.tracker._resolve_name(event.pid)
-        proc_info = self.tracker.get_proc(event.pid) if self.tracker else None
+        comm = caller_comm or event.comm or (self.tracker._resolve_name(event.pid) if event.pid else "unknown")
+        proc_info = self.tracker.get_proc(event.pid) if (self.tracker and event.pid) else None
         exe = event.exe or (proc_info.get("exe") if proc_info else None)
-        ses_raw = event.syscall.get("ses")
+        ses_raw = event.primary_fields.get("ses")
         try:
             ses = int(ses_raw) if ses_raw is not None else None
         except ValueError:
@@ -7043,24 +7374,7 @@ class SyscallHandler:
         milli = event.milli
         dt = datetime.datetime.fromtimestamp(sec + milli / 1000.0).astimezone()
 
-        sc_obj = {
-            "name": scname,
-            "call": call_str,
-            "exit": event.exit_code,
-            "exit_str": event.exit_str,
-            "success": not event.is_failed,
-        }
-
-        if event.is_failed:
-            interp = event.syscall_interp.get("exit", "")
-            if interp and "(" in interp and interp.endswith(")"):
-                err_name, _, err_desc = interp.partition("(")
-                sc_obj["errno"] = err_name.strip()
-                sc_obj["error_desc"] = err_desc.rstrip(")")
-            elif interp:
-                sc_obj["errno"] = interp
-
-        ancestry = self.tracker.get_ancestry(event.pid)
+        ancestry = self.tracker.get_ancestry(event.pid) if event.pid else []
         anc_list = [{"pid": p, "comm": c} for p, c in ancestry] if ancestry else []
 
         record = {
@@ -7077,6 +7391,21 @@ class SyscallHandler:
             "credentials": self.formatter.get_credentials_dict(event),
             "ancestry": anc_list,
         }
+        if not scname:
+            record["anomaly"] = {
+                "type": event.event_type,
+                "call": call_str,
+            }
+            if event.is_anom_abend:
+                record["anomaly"]["signal"] = event.signal_name
+                record["anomaly"]["signo"] = event.signal_num
+                record["anomaly"]["core_dumped"] = event.core_dumped
+            elif event.is_anom_link:
+                record["anomaly"]["operation"] = event.anom_link_op
+            elif event.is_landlock:
+                record["anomaly"]["subsystem"] = "landlock"
+                record["anomaly"]["blockers"] = event.landlock_blockers
+                record["anomaly"]["path"] = event.landlock_path
         if event.has_avc:
             record["avc"] = {
                 "denied": event.avc_perms,
@@ -7269,6 +7598,7 @@ class AudispStraceApp:
 
         self.au = auparse.AuParser(auparse.AUSOURCE_FEED)
         self.au.add_callback(_auparse_callback, self)
+        self._pending_landlock = []
 
     def _matches_errno_filter(self, event):
         if not event.is_failed:
@@ -7536,6 +7866,11 @@ class AudispStraceApp:
             if alerts:
                 self._emit_drop_alerts(alerts)
 
+    def flush_pending(self):
+        self.flush_drops()
+        while self._pending_landlock:
+            self._process_event(self._pending_landlock.pop(0))
+
     def check_idle_drops(self, timeout=2.0):
         if self.detect_drops and self.drop_detector:
             alerts = self.drop_detector.check_idle(timeout)
@@ -7568,8 +7903,50 @@ class AudispStraceApp:
             return
 
         event = AuditEvent(au)
-        scname = event.syscall_name
-        if not scname:
+
+        # Track Landlock domain allocations
+        if event.is_landlock_domain:
+            domain = event.landlock.get("domain")
+            if domain:
+                status = event.landlock.get("status")
+                if status == "allocated":
+                    d_info = {
+                        "pid": event.pid,
+                        "comm": event.comm,
+                        "exe": event.exe,
+                        "uid": event.uid,
+                        "mode": event.landlock.get("mode")
+                    }
+                    self.tracker.set_landlock_domain(domain, d_info)
+                    i = 0
+                    while i < len(self._pending_landlock):
+                        p_ev = self._pending_landlock[i]
+                        p_dom = p_ev.landlock.get("domain") if p_ev.landlock else None
+                        if p_dom == domain:
+                            self._pending_landlock.pop(i)
+                            p_ev.landlock_proc_info = d_info
+                            self._process_event(p_ev)
+                        else:
+                            i += 1
+                elif status == "deallocated":
+                    self.tracker.remove_landlock_domain(domain)
+            return
+
+        if event.is_landlock and not event.pid:
+            domain = event.landlock.get("domain")
+            d_info = self.tracker.get_landlock_domain(domain)
+            if d_info:
+                event.landlock_proc_info = d_info
+            else:
+                self._pending_landlock.append(event)
+                if len(self._pending_landlock) > 50:
+                    self._process_event(self._pending_landlock.pop(0))
+                return
+
+        self._process_event(event)
+
+    def _process_event(self, event):
+        if not event.is_traceable:
             return
 
         # In live mode, suppress events generated by audisp-strace itself to prevent feedback loops
@@ -7584,7 +7961,8 @@ class AudispStraceApp:
         ppid = event.ppid
         comm = event.comm
         exe = event.exe
-        ses = event.syscall.get("ses")
+        ses = event.ses
+        scname = event.syscall_name
 
         # For execve, preserve prior caller comm if available
         caller_comm = None
@@ -7595,7 +7973,8 @@ class AudispStraceApp:
             elif event.proctitle:
                 caller_comm = event.proctitle.lstrip('-').split()[0]
 
-        self.tracker.update(pid, ppid=ppid, comm=comm, exe=exe, ses=ses)
+        if pid:
+            self.tracker.update(pid, ppid=ppid, comm=comm, exe=exe, ses=ses)
 
         # Handle clone: child PID is in 'exit' field
         if scname in ('clone', 'clone3', 'fork', 'vfork'):
@@ -7613,18 +7992,25 @@ class AudispStraceApp:
         # Format event FIRST (so calls like close(fd) can resolve the path before removal)
         formatted = None
         should_display = False
-        if scname not in self.exclude_filter:
-            if scname == 'fcntl' and self.locks_only_exclude and is_fcntl_lock_event(event):
-                should_display = False
-            elif self.syscall_filter is not None:
-                if scname == 'fcntl' and self.locks_only_include:
-                    should_display = is_fcntl_lock_event(event)
+        if scname:
+            if scname not in self.exclude_filter:
+                if scname == 'fcntl' and self.locks_only_exclude and is_fcntl_lock_event(event):
+                    should_display = False
+                elif self.syscall_filter is not None:
+                    if scname == 'fcntl' and self.locks_only_include:
+                        should_display = is_fcntl_lock_event(event)
+                    else:
+                        should_display = scname in self.syscall_filter
+                elif self.all_syscalls:
+                    should_display = True
                 else:
-                    should_display = scname in self.syscall_filter
-            elif self.all_syscalls:
-                should_display = True
+                    should_display = scname in DEFAULT_MONITORED_SYSCALLS
+        else:
+            # Tier 1 non-syscall event: display by default unless a specific syscall filter was given
+            if self.syscall_filter is not None:
+                should_display = self.all_syscalls
             else:
-                should_display = scname in DEFAULT_MONITORED_SYSCALLS
+                should_display = True
 
         if should_display:
             if self.failed_only and not event.is_failed:
@@ -7688,11 +8074,12 @@ class AudispStraceApp:
             self.last_event_ts = (event.sec, event.milli, event.serial)
 
             if self.summary or self.summary_only:
-                self.stats[scname]["calls"] += 1
-                if event.is_failed:
-                    self.stats[scname]["errors"] += 1
-                if event.has_avc:
-                    self.stats[scname]["avcs"] += 1
+                if scname:
+                    self.stats[scname]["calls"] += 1
+                    if event.is_failed:
+                        self.stats[scname]["errors"] += 1
+                    if event.has_avc:
+                        self.stats[scname]["avcs"] += 1
 
             if not self.summary_only:
                 if self.json_format:
@@ -7952,6 +8339,7 @@ class AudispStraceApp:
             self.au.flush_feed()
         except OSError:
             pass
+        self.flush_pending()
 
     def process_merged_streams(self, file_paths):
         """
@@ -8043,6 +8431,7 @@ class AudispStraceApp:
                 self.au.flush_feed()
             except OSError:
                 pass
+            self.flush_pending()
             if hasattr(self.out_file, "flush"):
                 try:
                     self.out_file.flush()
@@ -9538,13 +9927,13 @@ def main():
                                 app.process_stream(f)
                         except OSError as e:
                             sys.stderr.write(f"audisp-strace: cannot read {file_path}: {e}\n")
-            app.flush_drops()
+            app.flush_pending()
         else:
             app.process_stream(sys.stdin)
-            app.flush_drops()
+            app.flush_pending()
     except (KeyboardInterrupt, SystemExit):
         try:
-            app.flush_drops()
+            app.flush_pending()
             app.print_summary()
             if close_out_file and not out_file.closed:
                 out_file.flush()
@@ -9556,7 +9945,7 @@ def main():
     except SystemError as e:
         if isinstance(e.__cause__, (KeyboardInterrupt, SystemExit)):
             try:
-                app.flush_drops()
+                app.flush_pending()
                 app.print_summary()
                 if close_out_file and not out_file.closed:
                     out_file.flush()
@@ -9567,7 +9956,7 @@ def main():
             os._exit(0)
         raise
     finally:
-        app.flush_drops()
+        app.flush_pending()
         app.print_summary()
         if close_out_file:
             try:

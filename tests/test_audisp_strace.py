@@ -190,9 +190,8 @@ class TestAudispStrace(unittest.TestCase):
         for line in lines:
             obj = json.loads(line)
             self.assertIn("timestamp", obj)
-            self.assertIn("syscall", obj)
             self.assertIn("credentials", obj)
-            if obj["syscall"]["name"] == "mmap":
+            if obj.get("syscall") and obj["syscall"].get("name") == "mmap":
                 self.assertIn("avc", obj)
                 self.assertTrue(obj["avc"]["permissive"])
                 self.assertIn("map", obj["avc"]["denied"])
@@ -207,11 +206,50 @@ class TestAudispStrace(unittest.TestCase):
         self.assertIn("auditctl -D -k", out)
 
     def test_security_anomalies_and_unknown_types(self):
-        """Verify unknown kernel audit record types (Landlock 1423/1424) and anomalies do not crash parser."""
+        """Verify unknown kernel audit record types (Landlock 1423/1424) and anomalies do not crash parser and are formatted properly."""
         anom_file = os.path.join(DATA_DIR, "security_anomalies.log")
         code, out, err = run_cmd([anom_file])
         self.assertEqual(code, 0, f"Error: {err}")
         self.assertEqual(err.strip(), "")
+
+        # Verify crash formatting (strace style)
+        self.assertIn("+++ killed by SIGSEGV (core dumped) +++", out)
+        self.assertIn("+++ killed by SIGABRT (core dumped) +++", out)
+
+        # Verify ANOM_LINK formatting
+        self.assertIn("[ANOM_LINK: protected_symlink] follow_link() = -1 EACCES (Permission denied)", out)
+
+        # Verify Landlock domain correlation and denial formatting
+        self.assertIn("3415509<xz>", out)
+        self.assertIn('[Landlock: DENIED { fs.read_file }] "/sys/devices/system/cpu/online" = -1 EACCES (Permission denied)', out)
+        self.assertIn('landlock: domain=14abfa4b2 (mode=enforcing, blockers=fs.read_file, dev="sysfs", ino=1165)', out)
+
+    def test_security_anomalies_compact_and_json(self):
+        """Verify anomalies format cleanly in compact and JSON modes, and are excluded from -c tally."""
+        anom_file = os.path.join(DATA_DIR, "security_anomalies.log")
+
+        # Compact strace mode
+        code, out, _ = run_cmd(["-C", "strace", anom_file])
+        self.assertEqual(code, 0)
+        self.assertIn("+++ killed by SIGSEGV (core dumped) +++", out)
+        self.assertNotIn("landlock:", out)
+
+        # JSON mode
+        code, out, _ = run_cmd(["--json", anom_file])
+        self.assertEqual(code, 0)
+        json_objs = [json.loads(line) for line in out.strip().splitlines() if line.strip()]
+        self.assertGreater(len(json_objs), 0)
+        anomaly_types = {obj.get("anomaly", {}).get("type") for obj in json_objs if "anomaly" in obj}
+        self.assertIn("crash", anomaly_types)
+        self.assertIn("anom_link", anomaly_types)
+        self.assertIn("landlock", anomaly_types)
+
+        # Summary mode (-c): crashes/anomalies must NOT be tallied into syscall table
+        code, out, _ = run_cmd(["-c", anom_file])
+        self.assertEqual(code, 0)
+        self.assertIn("total", out)
+        self.assertNotIn("SIGSEGV", out)
+        self.assertNotIn("landlock", out)
 
 
 if __name__ == "__main__":

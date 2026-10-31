@@ -108,6 +108,13 @@ Standard Linux audit records (`/var/log/audit/audit.log`) capture system activit
   - Enriched `mmap` formatting: parses `type=MMAP` records (`fd=...`) and cross-correlates file paths from attached AVC records, rendering `mmap(..., fd<path>, 0)`.
   - Dynamic `avc` column in `-c` summary table: automatically appears when AVCs are encountered, displaying per-syscall denial counts and supporting `-S avc` sorting.
   - Dedicated CLI filter: `--avc` / `--avc-only` / `--selinux` displays only events with SELinux decisions.
+- **Security Anomalies & Process Crash Tracking (ANOM_ABEND, ANOM_LINK, Landlock LSM)**:
+  - Automatically identifies, decodes, and formats critical non-syscall kernel audit events that do not fit standard `SYSCALL` records:
+    - **Process Crashes (`ANOM_ABEND`)**: Formats abnormal terminations mirroring `strace`: `+++ killed by <SIGNAME> (core dumped) +++` (decodes `sig=11` SIGSEGV, `sig=6` SIGABRT, SIGBUS, SIGILL, SIGTRAP, and legacy memory violation records).
+    - **VFS Link Traversal Restrictions (`ANOM_LINK`)**: Highlights `fs.protected_symlinks` and `fs.protected_hardlinks` kernel violations: `[ANOM_LINK: protected_symlink] follow_link() = -1 EACCES (Permission denied)`.
+    - **Landlock LSM Sandboxing (`1423` / `1424`)**: Tracks Landlock domain creation (`1424` status=allocated/deallocated) and attributes domain denials (`1423`) to the process PID and binary: `[Landlock: DENIED { fs.read_file }] "/sys/devices/system/cpu/online" = -1 EACCES (Permission denied)` with dedicated `landlock: domain=...` context lines.
+    - **Standalone SELinux Decisions (`AVC` / `USER_AVC`)**: Formats security denials occurring outside syscall exits: `[SELinux: DENIED { <perms> }] "<path>" (tclass=<tclass>)`.
+    - Integrated with compact modes (`-C`, `-C strace`), JSON export (`"anomaly"` object), and strictly excluded from `-c` syscall counts.
 - **Audit Rule Generator (`--generate-rules` / `--auditctl`)**:
   - Automatically translates active CLI filters (`-s %perm`, `-s %mount`, `-P /etc`, `-u apache`, `-Z`) into exact, copy-pasteable `auditctl` shell scripts or `/etc/audit/rules.d/` rule files.
   - Handles safe syscall chunking, architecture matching (`-F arch=b64`), UID resolution, directory/path classification, session loop suppression, and teardown commands.

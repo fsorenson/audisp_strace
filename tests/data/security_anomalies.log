@@ -1,34 +1,20 @@
-# Linux Security & Kernel Anomaly Events
-# Extracted from workstation bearskin-audit.log
 
-# 1. Landlock LSM Sandboxing (Linux 6.10+ unprivileged application sandboxing)
-# AUDIT_LANDLOCK_DOMAIN (1424) and AUDIT_LANDLOCK_DENIAL (1423)
 type=UNKNOWN[1424] msg=audit(1787595136.993:49108): domain=14abfa4b2 status=allocated mode=enforcing pid=3415509 uid=1000 exe="/usr/bin/xz" comm="xz" UID="sorenson"
 type=UNKNOWN[1423] msg=audit(1787595136.993:49107): domain=14abfa4b2 blockers=fs.read_file path="/sys/devices/system/cpu/online" dev="sysfs" ino=1165
 type=UNKNOWN[1423] msg=audit(1787595136.993:49109): domain=14abfa4b2 blockers=fs.read_file path="/proc/stat" dev="proc" ino=4026532022
 type=UNKNOWN[1424] msg=audit(1787595152.154:49110): domain=14abfa4b2 status=deallocated denials=2
 
-# 2. VFS Link Traversal Security Restrictions (fs.protected_symlinks / fs.protected_hardlinks)
 type=ANOM_LINK msg=audit(1792184943.656:26431): op=follow_link ppid=3677413 pid=3688134 auid=1000 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=pts43 ses=78 comm="ls" exe="/usr/bin/ls" subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 res=0 AUID="sorenson" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
 
-# 3. Abnormal Process Terminations / Crash Signals (ANOM_ABEND)
-# SIGSEGV (11)
 type=ANOM_ABEND msg=audit(1786034977.905:38661): auid=1000 uid=1000 gid=1000 ses=2 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 pid=3531316 comm="will_segfault" exe="/usr/bin/will_segfault" sig=11 res=1 AUID="sorenson" UID="sorenson" GID="sorenson"
-# SIGABRT (6)
 type=ANOM_ABEND msg=audit(1786045045.525:38822): auid=1000 uid=1000 gid=1000 ses=2 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 pid=3578709 comm="dump_core" exe="/home/sorenson/projects/misc/dump_core/dump_core" sig=6 res=1 AUID="sorenson" UID="sorenson" GID="sorenson"
-# SIGILL (4)
 type=ANOM_ABEND msg=audit(1781166850.132:876): auid=1000 uid=1000 gid=1000 ses=4 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 pid=26875 comm="chrome" exe="/opt/google/chrome/chrome" sig=4 res=1 AUID="sorenson" UID="sorenson" GID="sorenson"
-# SIGTRAP (5)
 type=ANOM_ABEND msg=audit(1781201149.603:1063): auid=1000 uid=1000 gid=1000 ses=4 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 pid=25326 comm="sandbox_ipc_thr" exe="/opt/google/chrome/chrome" sig=5 res=1 AUID="sorenson" UID="sorenson" GID="sorenson"
-# SIGBUS (7)
 type=ANOM_ABEND msg=audit(1781201325.007:1072): auid=1000 uid=1000 gid=1000 ses=4 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 pid=542009 comm="chrome" exe="/opt/google/chrome/chrome" sig=7 res=1 AUID="sorenson" UID="sorenson" GID="sorenson"
-# Deleted executable crash (SIGSEGV)
 type=ANOM_ABEND msg=audit(1788552039.059:55043): auid=1000 uid=1000 gid=1000 ses=4 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 pid=29753 comm="Shutdow~minator" exe=2F7573722F6C696236342F7468756E646572626972642F7468756E64657262697264202864656C6574656429 sig=11 res=1 AUID="sorenson" UID="sorenson" GID="sorenson"
 
-# 4. Network Interface Promiscuous Mode Toggles (ANOM_PROMISCUOUS)
 type=ANOM_PROMISCUOUS msg=audit(1785524804.791:33255): dev=vnet13 prom=256 old_prom=0 auid=4294967295 uid=0 gid=0 ses=4294967295 AUID="unset" UID="root" GID="root"
 type=ANOM_PROMISCUOUS msg=audit(1785524820.515:33277): dev=vnet13 prom=0 old_prom=256 auid=4294967295 uid=107 gid=107 ses=4294967295 AUID="unset" UID="qemu" GID="qemu"
 
-# 5. Virtualization Lifecycle (VIRT_CONTROL)
 type=VIRT_CONTROL msg=audit(1785524829.114:33305): pid=31986 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:virtd_t:s0-s0:c0.c1023 msg='virt=kvm op=start reason=booted vm="winxp" uuid=7c6541c0-677b-4895-a5cd-11ec580600f7 vm-pid=716213 exe="/usr/bin/libvirtd" hostname=? addr=? terminal=? res=success' UID="root" AUID="unset"
 type=VIRT_CONTROL msg=audit(1786057128.084:38956): pid=31986 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:virtd_t:s0-s0:c0.c1023 msg='virt=kvm op=stop reason=shutdown vm="win2k22" uuid=6f93d8b0-3793-418b-acb0-837957b15171 vm-pid=0 exe="/usr/bin/libvirtd" hostname=? addr=? terminal=? res=success' UID="root" AUID="unset"
