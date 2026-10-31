@@ -461,9 +461,21 @@ Sample 3-line format per monitored event:
   - Dynamic `avc` column in `-c` summary table: automatically appears when AVCs are encountered, displaying per-syscall denial counts and supporting `-S avc` sorting.
   - Full JSON Lines output integration: exports `"avc"` object with `denied`, `result`, `permissive`, `scontext`, `tcontext`, `tclass`, and `paths`.
 
+- [x] Implemented Security Anomalies, Crashes & Non-Syscall Audit Event Formatting (Tier 1):
+  - Decodes and formats critical non-syscall audit records:
+    - Process crash terminations (`ANOM_ABEND`) matching `strace` (`+++ killed by <SIGNAME> (core dumped) +++`), decoding signal numbers (`SIGSEGV`, `SIGABRT`, `SIGILL`, `SIGTRAP`, `SIGBUS`, etc.) and core dump flags across modern (`res=1`) and legacy (`reason="memory violation"`) kernel audit records.
+    - VFS link traversal restrictions (`ANOM_LINK: protected_symlink`): highlights `fs.protected_symlinks` and `fs.protected_hardlinks` kernel violations.
+    - Landlock LSM sandboxing (`1423` denials with domain-to-PID correlation via `1424` domain tracking): tracks domain allocation/deallocation and attributes denials to process PID and binary.
+    - Standalone SELinux decisions (`AVC`/`USER_AVC`): formatted as `[SELinux: DENIED { <perms> }] "<path>" (tclass=<tclass>)`.
+  - Seamlessly integrated with compact modes (`-C`, `-C strace`), JSON export (`"anomaly"` object), and strictly excluded from `-c` summary table tallies.
+- [x] Packaging, Deployment & RPM Spec (`make install`, `make dist`, `make rpm`, `audisp-strace.spec`):
+  - Standard `make install` / `make uninstall` targets supporting `DESTDIR`, `PREFIX`, `BINDIR`, and `SYSCONFDIR`.
+  - Automatically updates `path = $(BINDIR)/audisp-strace` in the installed `/etc/audit/plugins.d/audisp-strace.conf` (`0640` root:root).
+  - Shipped with `active = no` and `args = --live -o /var/log/audit/audisp-strace.log` for least surprise.
+  - Standalone `LICENSE` file (MIT License) with author copyright header in `audisp-strace`.
+  - Enterprise `noarch` RPM/SRPM spec (`audisp-strace.spec`) with `%check` test suite verification, `%config(noreplace)` protection, and `auditd` service reload triggers.
+
 ### Next Steps / Ideas
 - [ ] **Security & Anomaly Badges / Heuristic Alerts**:
   - Visual badges for SUID/SGID creation, executions from `/tmp` or `/dev/shm`, and sensitive file edits.
-- [ ] **`make install` / Packaging Target**:
-  - Makefile target to install binary to `/usr/local/bin` and plugin config to `/etc/audit/plugins.d/`.
 - [ ] Live integration test on test VM with auditd daemon active.

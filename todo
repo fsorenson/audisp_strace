@@ -33,6 +33,8 @@
       Replaced bulky raw audit log dumps with a lightweight (220 KB), high-density test matrix covering 304 unique syscalls, SELinux enforcing denials & permissive warnings, ghost file tracking, drop detection, multi-file merging, relative timestamps, time-range inspection, and audit rule generation. Fully runnable offline via `make test` or `python3 -m unittest discover tests`.
 • [x] Security Anomalies, Crashes & Non-Syscall Audit Event Formatting (Tier 1):
       Decodes and formats critical non-syscall audit records: process crash terminations (`ANOM_ABEND`) matching `strace` (`+++ killed by <SIGNAME> (core dumped) +++`), VFS link traversal restrictions (`ANOM_LINK: protected_symlink`), Landlock LSM sandboxing (`1423` denials with domain-to-PID correlation via `1424` domain tracking), standalone SELinux decisions (`AVC`/`USER_AVC`), and `USER_CMD` (`sudo(...)`). Compatible with compact modes (`-C`, `-C strace`), JSON export (`"anomaly"` object), and strictly preserved exclusion from `-c` syscall counts.
+• [x] Packaging & Deployment Targets (`make install`, `make dist`, `make rpm`, `audisp-strace.spec`):
+      Full deployment packaging including standard `make install` / `make uninstall` (respecting `DESTDIR`, `PREFIX`, `BINDIR`, `SYSCONFDIR`), dynamic binary path adjustment in `/etc/audit/plugins.d/audisp-strace.conf` (`0640`), release tarball generation (`make dist`), and an enterprise `noarch` RPM/SRPM spec (`audisp-strace.spec`) with `%check` test suite verification, `%config(noreplace)` protection, and `auditd` service reload triggers.
 
 ---
 
@@ -45,8 +47,3 @@
         • Execution from world-writable or temporary directories (`/tmp`, `/dev/shm`, `/var/tmp`).
         • Modification of critical system files (`/etc/ld.so.preload`, `/etc/shadow`, `/etc/sudoers`, `/etc/pam.d/*`).
     • Support Value: Medium. Highlights potential privilege escalation or tampering attempts.
-
-### D. Packaging & Deployment
-• `make install` / Packaging Target:
-    • What it does: Simple Makefile install target to install `audisp-strace` to `/usr/local/bin` (or `/usr/bin`) and install `audisp-strace.conf` into `/etc/audit/plugins.d/` (or `/etc/audisp/plugins.d/` depending on distro release).
-    • Support Value: Convenience for server deployment.
