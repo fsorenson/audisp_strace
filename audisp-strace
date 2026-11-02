@@ -54,6 +54,35 @@ IGNORE_RECORD_TYPES = {
     'USER_MAC_STATUS'
 }
 
+# Kernel IMA and EVM integrity verification record types (1800-1808)
+INTEGRITY_RECORD_TYPES = {
+    'INTEGRITY_DATA',
+    'INTEGRITY_METADATA',
+    'INTEGRITY_STATUS',
+    'INTEGRITY_HASH',
+    'INTEGRITY_PCR',
+    'INTEGRITY_RULE',
+    'INTEGRITY_EVM_XATTR',
+    'INTEGRITY_POLICY_RULE',
+    'INTEGRITY_USERSPACE',
+    'UNKNOWN[1800]',
+    'UNKNOWN[1801]',
+    'UNKNOWN[1802]',
+    'UNKNOWN[1803]',
+    'UNKNOWN[1804]',
+    'UNKNOWN[1805]',
+    'UNKNOWN[1806]',
+    'UNKNOWN[1807]',
+    'UNKNOWN[1808]',
+}
+
+EVM_RECORD_TYPES = {
+    'INTEGRITY_METADATA',
+    'INTEGRITY_EVM_XATTR',
+    'UNKNOWN[1801]',
+    'UNKNOWN[1806]',
+}
+
 # Syscalls tracked for process hierarchy & state
 PROCESS_TRACKING_SYSCALLS = {
     'clone', 'clone3', 'fork', 'vfork', 'execve', 'execveat', 'exit', 'exit_group'
@@ -1482,6 +1511,9 @@ class AuditEvent:
         self.fanotify = None
         self.capset = None
         self.user_cmd = None
+        self.apparmor = None
+        self.integrity = None
+        self.integrity_type = None
 
         au.first_record()
         while True:
@@ -1553,35 +1585,39 @@ class AuditEvent:
             elif rectype == "MMAP":
                 self.mmap = fields
             elif rectype in ("AVC", "USER_AVC"):
-                perms_raw = fields.get("seperms") or ""
-                perms_list = [p.strip() for p in perms_raw.split(",") if p.strip()]
-                seresult = fields.get("seresult", "denied")
-                if not perms_list:
-                    rec_text = au.get_record_text()
-                    m = re.search(r'avc:\s*(\w+)\s*\{\s*([^}]+)\s*\}', rec_text)
-                    if m:
-                        seresult = m.group(1)
-                        perms_list = m.group(2).strip().split()
-                raw_path = fields.get("path") or fields.get("name")
-                path_val = unescape_audit_str(raw_path.strip('"')) if raw_path else None
-                raw_comm = fields.get("comm")
-                comm_val = unescape_audit_str(raw_comm.strip('"')) if raw_comm else None
-                avc_info = {
-                    "rectype": rectype,
-                    "seresult": seresult,
-                    "seperms": perms_list,
-                    "scontext": fields.get("scontext") or self.subj,
-                    "tcontext": fields.get("tcontext"),
-                    "tclass": fields.get("tclass"),
-                    "permissive": fields.get("permissive") == "1",
-                    "path": path_val,
-                    "comm": comm_val,
-                    "pid": fields.get("pid"),
-                    "capability": fields.get("capability"),
-                    "dev": fields.get("dev"),
-                    "ino": fields.get("ino"),
-                }
-                self.avcs.append(avc_info)
+                if "apparmor" in fields:
+                    self.apparmor = fields
+                    self.subj = fields.get("subj") or fields.get("profile") or self.subj
+                else:
+                    perms_raw = fields.get("seperms") or ""
+                    perms_list = [p.strip() for p in perms_raw.split(",") if p.strip()]
+                    seresult = fields.get("seresult", "denied")
+                    if not perms_list:
+                        rec_text = au.get_record_text()
+                        m = re.search(r'avc:\s*(\w+)\s*\{\s*([^}]+)\s*\}', rec_text)
+                        if m:
+                            seresult = m.group(1)
+                            perms_list = m.group(2).strip().split()
+                    raw_path = fields.get("path") or fields.get("name")
+                    path_val = unescape_audit_str(raw_path.strip('"')) if raw_path else None
+                    raw_comm = fields.get("comm")
+                    comm_val = unescape_audit_str(raw_comm.strip('"')) if raw_comm else None
+                    avc_info = {
+                        "rectype": rectype,
+                        "seresult": seresult,
+                        "seperms": perms_list,
+                        "scontext": fields.get("scontext") or self.subj,
+                        "tcontext": fields.get("tcontext"),
+                        "tclass": fields.get("tclass"),
+                        "permissive": fields.get("permissive") == "1",
+                        "path": path_val,
+                        "comm": comm_val,
+                        "pid": fields.get("pid"),
+                        "capability": fields.get("capability"),
+                        "dev": fields.get("dev"),
+                        "ino": fields.get("ino"),
+                    }
+                    self.avcs.append(avc_info)
             elif rectype == "ANOM_ABEND":
                 self.anom_abend = fields
                 self.subj = fields.get("subj") or self.subj
@@ -1615,6 +1651,10 @@ class AuditEvent:
                 self.subj = fields.get("subj") or self.subj
             elif rectype in ("CAPSET", "UNKNOWN[1322]"):
                 self.capset = fields
+                self.subj = fields.get("subj") or self.subj
+            elif rectype in INTEGRITY_RECORD_TYPES:
+                self.integrity = fields
+                self.integrity_type = rectype
                 self.subj = fields.get("subj") or self.subj
 
             if not au.next_record():
@@ -1693,6 +1733,10 @@ class AuditEvent:
             return self.anom_link
         if self.anom_creat:
             return self.anom_creat
+        if self.integrity:
+            return self.integrity
+        if self.apparmor:
+            return self.apparmor
         if self.user_cmd:
             return self.user_cmd
         if self.landlock:
@@ -1814,6 +1858,91 @@ class AuditEvent:
         return not bool(self.syscall) and bool(self.avcs)
 
     @property
+    def is_apparmor(self):
+        return self.apparmor is not None
+
+    @property
+    def apparmor_denied(self):
+        if not self.apparmor:
+            return False
+        return self.apparmor.get("apparmor") == "DENIED" or bool(self.apparmor.get("denied_mask"))
+
+    @property
+    def apparmor_perms(self):
+        if not self.apparmor:
+            return None
+        val = self.apparmor.get("denied_mask") or self.apparmor.get("requested_mask") or self.apparmor.get("operation")
+        return unescape_audit_str(val.strip('"')) if val else None
+
+    @property
+    def apparmor_profile(self):
+        if not self.apparmor:
+            return None
+        p = self.apparmor.get("profile")
+        return unescape_audit_str(p.strip('"')) if p else None
+
+    @property
+    def apparmor_op(self):
+        if not self.apparmor:
+            return None
+        op = self.apparmor.get("operation")
+        return unescape_audit_str(op.strip('"')) if op else None
+
+    @property
+    def apparmor_name(self):
+        if not self.apparmor:
+            return None
+        name = self.apparmor.get("name")
+        return unescape_audit_str(name.strip('"')) if name else None
+
+    @property
+    def is_integrity(self):
+        return self.integrity is not None
+
+    @property
+    def is_evm(self):
+        if not self.integrity:
+            return False
+        if self.integrity_type in EVM_RECORD_TYPES:
+            return True
+        op = self.integrity.get("op", "")
+        return "metadata" in op or "evm" in op
+
+    @property
+    def is_ima(self):
+        return self.is_integrity and not self.is_evm
+
+    @property
+    def integrity_subsystem(self):
+        return "EVM" if self.is_evm else "IMA"
+
+    @property
+    def integrity_cause(self):
+        if not self.integrity:
+            return None
+        return self.integrity.get("cause")
+
+    @property
+    def integrity_op(self):
+        if not self.integrity:
+            return None
+        return self.integrity.get("op")
+
+    @property
+    def integrity_file(self):
+        if not self.integrity:
+            return None
+        p = self.integrity.get("name") or self.integrity.get("file")
+        return unescape_audit_str(p.strip('"')) if p else None
+
+    @property
+    def integrity_is_denied(self):
+        if not self.integrity:
+            return False
+        res = self.integrity.get("res")
+        return res in ("0", "failed", "no") or self.is_failed
+
+    @property
     def is_traceable(self):
         return bool(
             self.syscall_name or
@@ -1824,6 +1953,8 @@ class AuditEvent:
             self.is_seccomp or
             self.is_mac_status or
             self.is_fanotify or
+            self.is_apparmor or
+            self.is_integrity or
             self.is_user_cmd or
             self.is_standalone_avc
         )
@@ -1921,6 +2052,10 @@ class AuditEvent:
             return "fanotify"
         if self.is_standalone_avc:
             return "avc"
+        if self.is_apparmor:
+            return "apparmor"
+        if self.is_integrity:
+            return self.integrity_subsystem.lower()
         if self.is_user_cmd:
             return "user_cmd"
         return "event"
@@ -2043,7 +2178,7 @@ class AuditEvent:
             return -1
         if self.is_anom_link:
             return -1 if self.anom_link_op == "linkat" else -13
-        if self.is_anom_creat or self.is_landlock:
+        if self.is_anom_creat or self.is_landlock or self.is_apparmor or self.is_integrity:
             return -13
         if self.is_standalone_avc:
             return 0 if self.avc_is_permissive else -13
@@ -2071,6 +2206,10 @@ class AuditEvent:
             return False
         if self.is_fanotify:
             return self.fanotify.get("resp") != "1"
+        if self.is_apparmor:
+            return self.apparmor_denied
+        if self.is_integrity:
+            return self.integrity_is_denied
         if self.is_standalone_avc:
             return self.avc_is_denied
         if self.is_user_cmd:
@@ -2098,7 +2237,7 @@ class AuditEvent:
             if op == "linkat":
                 return "-1 EPERM (Operation not permitted)"
             return "-1 EACCES (Permission denied)"
-        if self.is_anom_creat or self.is_landlock:
+        if self.is_anom_creat or self.is_landlock or self.is_apparmor or self.is_integrity:
             return "-1 EACCES (Permission denied)"
         if self.is_standalone_avc:
             return "0" if self.avc_is_permissive else "-1 EACCES (Permission denied)"
@@ -2482,7 +2621,7 @@ class TraceFormatter:
             parts.append(f"ino={info['ino']}")
         details = ", ".join(parts)
         if self.theme.enabled:
-            tag_str = self.theme.result_failed("landlock:")
+            tag_str = self.theme.dim("landlock:")
             dom_str = self.theme.string(domain)
             return f"    {tag_str} domain={dom_str} ({details})"
         return f"    landlock: domain={domain} ({details})"
@@ -7394,7 +7533,7 @@ class SyscallHandler:
             badge = f"[ANOM_LINK: {sub}]"
             res_str = "= -1 EPERM (Operation not permitted)" if op == "linkat" else "= -1 EACCES (Permission denied)"
             if use_color:
-                return f"{theme.warning(badge)} {op}() {theme.result_failed(res_str)}"
+                return f"{theme.result_failed(badge)} {op}() {theme.result_failed(res_str)}"
             return f"{badge} {op}() {res_str}"
 
         if event.is_anom_creat:
@@ -7403,7 +7542,7 @@ class SyscallHandler:
             badge = f"[ANOM_CREAT: {sub}]"
             res_str = "= -1 EACCES (Permission denied)"
             if use_color:
-                return f"{theme.warning(badge)} {op}() {theme.result_failed(res_str)}"
+                return f"{theme.result_failed(badge)} {op}() {theme.result_failed(res_str)}"
             return f"{badge} {op}() {res_str}"
 
         if event.is_landlock:
@@ -7423,7 +7562,7 @@ class SyscallHandler:
                 target = f'"{p}"'
                 res = "= -1 EACCES (Permission denied)"
             res_str = theme.result_failed(res) if use_color else res
-            target_str = theme.path(target) if use_color and target.startswith('"') else target
+            target_str = theme.string(target) if use_color and target.startswith('"') else target
             return f"{badge_str} {target_str} {res_str}"
 
         if event.is_seccomp:
@@ -7453,6 +7592,29 @@ class SyscallHandler:
             dec = event.fanotify_response
             badge = f"[Fanotify: {dec}]"
             return theme.result_failed(badge) if (use_color and dec == "DENIED") else badge
+
+        if event.is_apparmor:
+            perms = event.apparmor_perms or "access"
+            badge = f"[AppArmor: DENIED {{ {perms} }}]"
+            p = event.apparmor_name or "..."
+            target = f'"{p}"'
+            res = "= -1 EACCES (Permission denied)"
+            res_str = theme.result_failed(res) if use_color else res
+            target_str = theme.string(target) if use_color and target.startswith('"') else target
+            badge_str = theme.result_failed(badge) if use_color else badge
+            return f"{badge_str} {target_str} {res_str}"
+
+        if event.is_integrity:
+            subsys = event.integrity_subsystem
+            cause = event.integrity_cause or "appraisal"
+            badge = f"[{subsys}: DENIED {{ {cause} }}]"
+            p = event.integrity_file or "..."
+            target = f'"{p}"'
+            res = "= -1 EACCES (Permission denied)"
+            res_str = theme.result_failed(res) if use_color else res
+            target_str = theme.string(target) if use_color and target.startswith('"') else target
+            badge_str = theme.result_failed(badge) if use_color else badge
+            return f"{badge_str} {target_str} {res_str}"
 
         if event.is_standalone_avc:
             perms_str = event.avc_perms_str or "access"
@@ -7578,7 +7740,7 @@ class SyscallHandler:
             sub = "protected_hardlink" if op == "linkat" else ("protected_symlink" if op == "follow_link" else op)
             badge = f"[ANOM_LINK: {sub}]"
             if theme.enabled:
-                anom_tag = f"  {theme.warning(badge)}"
+                anom_tag = f"  {theme.result_failed(badge)}"
             else:
                 anom_tag = f"  {badge}"
         elif event.is_anom_creat and scname:
@@ -7586,11 +7748,30 @@ class SyscallHandler:
             sub = "protected_fifo" if "fifo" in op else "protected_regular"
             badge = f"[ANOM_CREAT: {sub}]"
             if theme.enabled:
-                anom_tag = f"  {theme.warning(badge)}"
+                anom_tag = f"  {theme.result_failed(badge)}"
             else:
                 anom_tag = f"  {badge}"
 
-        sec_tags = f"{avc_tag}{landlock_tag}{seccomp_tag}{mac_tag}{fanotify_tag}{anom_tag}"
+        apparmor_tag = ""
+        if event.is_apparmor and scname:
+            perms = event.apparmor_perms or "access"
+            badge = f"[AppArmor: DENIED {{ {perms} }}]"
+            if theme.enabled:
+                apparmor_tag = f"  {theme.result_failed(badge)}" if event.apparmor_denied else f"  {theme.warning(badge)}"
+            else:
+                apparmor_tag = f"  {badge}"
+
+        integrity_tag = ""
+        if event.is_integrity and scname:
+            subsys = event.integrity_subsystem
+            cause = event.integrity_cause or "appraisal"
+            badge = f"[{subsys}: DENIED {{ {cause} }}]"
+            if theme.enabled:
+                integrity_tag = f"  {theme.result_failed(badge)}" if event.integrity_is_denied else f"  {theme.warning(badge)}"
+            else:
+                integrity_tag = f"  {badge}"
+
+        sec_tags = f"{avc_tag}{landlock_tag}{seccomp_tag}{mac_tag}{fanotify_tag}{anom_tag}{apparmor_tag}{integrity_tag}"
 
         if compact:
             if compact == "strace":
@@ -7619,24 +7800,49 @@ class SyscallHandler:
         # Line 2d: MAC status context line
         mac_line = ""
         if event.is_mac_status and scname:
-            mac_line = f"    selinux: mode changed ({event.mac_status_change_str})"
+            prefix = theme.dim("selinux:") if theme.enabled else "selinux:"
+            mac_line = f"    {prefix} mode changed ({event.mac_status_change_str})"
 
         # Line 2e: Fanotify context line
         fanotify_line = ""
         if event.is_fanotify and scname:
             dec = event.fanotify_response
-            fanotify_line = f"    fanotify: access {dec.lower()} (resp={event.fanotify.get('resp')})"
+            prefix = theme.dim("fanotify:") if theme.enabled else "fanotify:"
+            fanotify_line = f"    {prefix} access {dec.lower()} (resp={event.fanotify.get('resp')})"
 
         # Line 2f: Anomaly link / creat context line
         anom_line = ""
         if event.is_anom_link and scname:
             op = event.anom_link_op or "linkat"
             sub = "hardlink" if op == "linkat" else ("symlink" if op == "follow_link" else op)
-            anom_line = f"    vfs: protected {sub} blocked (op={op})"
+            prefix = theme.dim("vfs:") if theme.enabled else "vfs:"
+            anom_line = f"    {prefix} protected {sub} blocked (op={op})"
         elif event.is_anom_creat and scname:
             op = event.anom_creat_op or "sticky_create"
             sub = "fifo" if "fifo" in op else "regular file"
-            anom_line = f"    vfs: protected {sub} blocked in sticky directory (op={op})"
+            prefix = theme.dim("vfs:") if theme.enabled else "vfs:"
+            anom_line = f"    {prefix} protected {sub} blocked in sticky directory (op={op})"
+
+        # Line 2g: AppArmor context line
+        apparmor_line = ""
+        if event.is_apparmor and scname:
+            prefix = theme.dim("apparmor:") if theme.enabled else "apparmor:"
+            prof = event.apparmor_profile or "unknown"
+            op = event.apparmor_op or "access"
+            nm = event.apparmor_name or ""
+            name_part = f' name="{nm}"' if nm else ""
+            apparmor_line = f"    {prefix} profile={prof} op={op}{name_part}"
+
+        # Line 2h: IMA / EVM context line
+        integrity_line = ""
+        if event.is_integrity and scname:
+            subsys = event.integrity_subsystem.lower()
+            prefix = theme.dim(f"{subsys}:") if theme.enabled else f"{subsys}:"
+            op = event.integrity_op or "appraise"
+            cause = event.integrity_cause or "unknown"
+            f_val = event.integrity_file or ""
+            f_part = f' file="{f_val}"' if f_val else ""
+            integrity_line = f"    {prefix} op={op} cause={cause}{f_part}"
 
         # Line 3: Process ancestry tree
         ancestry = self.tracker.get_ancestry(event.pid) if event.pid else []
@@ -7653,6 +7859,10 @@ class SyscallHandler:
             output_lines.append(fanotify_line)
         if anom_line:
             output_lines.append(anom_line)
+        if apparmor_line:
+            output_lines.append(apparmor_line)
+        if integrity_line:
+            output_lines.append(integrity_line)
         output_lines.append(line3)
         return "\n".join(output_lines)
 
@@ -7751,6 +7961,19 @@ class SyscallHandler:
                 record["anomaly"]["subsystem"] = "fanotify"
                 record["anomaly"]["decision"] = event.fanotify_response
                 record["anomaly"]["resp"] = (event.fanotify or {}).get("resp")
+            elif event.is_apparmor:
+                record["anomaly"]["subsystem"] = "apparmor"
+                record["anomaly"]["profile"] = event.apparmor_profile
+                record["anomaly"]["operation"] = event.apparmor_op
+                record["anomaly"]["denied"] = event.apparmor_perms
+                if event.apparmor_name:
+                    record["anomaly"]["name"] = event.apparmor_name
+            elif event.is_integrity:
+                record["anomaly"]["subsystem"] = event.integrity_subsystem.lower()
+                record["anomaly"]["op"] = event.integrity_op
+                record["anomaly"]["cause"] = event.integrity_cause
+                if event.integrity_file:
+                    record["anomaly"]["file"] = event.integrity_file
         else:
             if event.is_landlock:
                 record["landlock"] = {
@@ -7778,6 +8001,20 @@ class SyscallHandler:
             if event.is_anom_creat:
                 record["anom_creat"] = {
                     "op": event.anom_creat_op,
+                }
+            if event.is_apparmor:
+                record["apparmor"] = {
+                    "denied": event.apparmor_perms,
+                    "profile": event.apparmor_profile,
+                    "operation": event.apparmor_op,
+                    "name": event.apparmor_name,
+                }
+            if event.is_integrity:
+                record[event.integrity_subsystem.lower()] = {
+                    "op": event.integrity_op,
+                    "cause": event.integrity_cause,
+                    "file": event.integrity_file,
+                    "res": (event.integrity or {}).get("res"),
                 }
         if event.has_avc:
             record["avc"] = {
@@ -8395,7 +8632,9 @@ class AudispStraceApp:
                         event.is_fanotify or
                         event.is_mac_status or
                         event.is_anom_link or
-                        event.is_anom_creat
+                        event.is_anom_creat or
+                        event.is_apparmor or
+                        event.is_integrity
                     )
         else:
             # Tier 1 non-syscall event: display by default unless a specific syscall filter was given

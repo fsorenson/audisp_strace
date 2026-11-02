@@ -244,6 +244,18 @@ class TestAudispStrace(unittest.TestCase):
         self.assertIn('[ANOM_LINK: protected_hardlink]', out)
         self.assertIn('vfs: protected hardlink blocked (op=linkat)', out)
 
+        # Verify IMA appraisal denial
+        self.assertIn('[IMA: DENIED { missing-hash }]', out)
+        self.assertIn('ima: op=appraise_data cause=missing-hash file="/usr/local/bin/untrusted_app"', out)
+
+        # Verify EVM metadata denial
+        self.assertIn('[EVM: DENIED { invalid-signature }]', out)
+        self.assertIn('evm: op=appraise_metadata cause=invalid-signature file="/etc/shadow"', out)
+
+        # Verify AppArmor denial
+        self.assertIn('[AppArmor: DENIED { r }]', out)
+        self.assertIn('apparmor: profile=/usr/bin/daemon op=open name="/etc/shadow"', out)
+
     def test_security_anomalies_compact_and_json(self):
         """Verify anomalies format cleanly in compact and JSON modes, and are excluded from -c tally."""
         anom_file = os.path.join(DATA_DIR, "security_anomalies.log")
@@ -265,6 +277,9 @@ class TestAudispStrace(unittest.TestCase):
         self.assertIn("landlock", anomaly_types)
         self.assertIn("seccomp", anomaly_types)
         self.assertTrue(any("fanotify" in obj for obj in json_objs))
+        self.assertTrue(any("ima" in obj for obj in json_objs))
+        self.assertTrue(any("evm" in obj for obj in json_objs))
+        self.assertTrue(any("apparmor" in obj for obj in json_objs))
 
         # Summary mode (-c): crashes/anomalies must NOT be tallied into syscall table
         code, out, _ = run_cmd(["-c", anom_file])
