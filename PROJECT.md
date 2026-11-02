@@ -461,15 +461,20 @@ Sample 3-line format per monitored event:
   - Dynamic `avc` column in `-c` summary table: automatically appears when AVCs are encountered, displaying per-syscall denial counts and supporting `-S avc` sorting.
   - Full JSON Lines output integration: exports `"avc"` object with `denied`, `result`, `permissive`, `scontext`, `tcontext`, `tclass`, and `paths`.
 
-- [x] Implemented Security Anomalies, Crashes & Non-Syscall Audit Event Formatting (Tier 1):
-  - Decodes and formats critical non-syscall audit records:
+- [x] Comprehensive Security Subsystem & Kernel Anomaly Formatting:
+  - Decodes, correlates, and formats critical non-syscall audit records and kernel security decisions across major Linux security subsystems:
     - Process crash terminations (`ANOM_ABEND`) matching `strace` (`+++ killed by <SIGNAME> (core dumped) +++`), decoding signal numbers (`SIGSEGV`, `SIGABRT`, `SIGILL`, `SIGTRAP`, `SIGBUS`, etc.) and core dump flags across modern (`res=1`) and legacy (`reason="memory violation"`) kernel audit records.
-    - VFS link traversal restrictions (`ANOM_LINK: protected_symlink`): highlights `fs.protected_symlinks` and `fs.protected_hardlinks` kernel violations.
+    - VFS link & file creation restrictions: highlights `fs.protected_hardlinks` and `fs.protected_symlinks` (`type=ANOM_LINK` / 1702: `[ANOM_LINK: protected_hardlink]`, `[ANOM_LINK: protected_symlink]`), and `fs.protected_fifos` and `fs.protected_regular` (`type=ANOM_CREAT` / 1703: `[ANOM_CREAT: protected_fifo]`, `[ANOM_CREAT: protected_regular]`).
     - Landlock LSM sandboxing (`1423` denials with domain-to-PID correlation via `1424` domain tracking): tracks domain allocation/deallocation and attributes denials to process PID and binary; supports filesystem (`fs.read_file`, etc.), network connect/bind (`net.connect_tcp`), and scoped signal restrictions (`scope.signal`). Handles co-located 1423/1424/SYSCALL multi-record audit events seamlessly.
+    - Fanotify access control denials (`type=FANOTIFY` / 1331): parses fanotify audit responses (`resp=2` FAN_DENY) with primary badge `[Fanotify: DENIED]` and multi-line context `fanotify: access denied (resp=2)`.
+    - Linux Integrity Measurement Architecture (IMA) & EVM (`1800`–`1808` / `INTEGRITY_*`): parses appraisal failures, policy violations, and hash/metadata verification errors with badges `[IMA: DENIED { cause }]` and `[EVM: DENIED { cause }]` plus detailed Line 2 metadata context.
+    - AppArmor LSM (`type=AVC` with `apparmor="DENIED"` / `"ALLOWED"`): parses profile decisions, operations, and requested permissions with `[AppArmor: DENIED { perms }]` or `[AppArmor: WOULD DENY { perms }]`.
     - Seccomp BPF action tracking (`type=SECCOMP`): decodes Seccomp actions (`LOG`, `KILL_PROCESS`, `KILL_THREAD`, `TRAP`, `ERRNO`) and resolves syscall names (e.g., `[SECCOMP: LOG] getpid()`, `[SECCOMP: KILL_PROCESS] mkdirat()`).
     - SELinux administrative status & mode transitions (`type=MAC_STATUS`): tracks transitions between Enforcing and Permissive (`[SELinux: MODE] Enforcing -> Permissive`).
     - Standalone SELinux decisions (`AVC`/`USER_AVC`): formatted as `[SELinux: DENIED { <perms> }] "<path>" (tclass=<tclass>)`.
-  - Seamlessly integrated with compact modes (`-C`, `-C strace`), JSON export (`"anomaly"` object), and strictly excluded from `-c` summary table tallies.
+    - Harmonized visual theme: bold red for denials across all subsystems, bold orange for warnings/mode transitions, dim gray for Line 2 metadata context headers, and green for path strings.
+    - Testing & validation: standalone live C anomaly test runner (`tests/test_anomalies.c`), synthetic multi-subsystem audit fixture (`tests/data/security_anomalies.log`), and comprehensive unit tests.
+  - Seamlessly integrated with compact modes (`-C`, `-C strace`), JSON export (`"anomaly"`, `"fanotify"`, `"ima"`, `"evm"`, `"apparmor"` objects), and strictly excluded from `-c` summary table tallies.
 - [x] Packaging, Deployment & RPM Spec (`make install`, `make dist`, `make rpm`, `audisp-strace.spec`):
   - Standard `make install` / `make uninstall` targets supporting `DESTDIR`, `PREFIX`, `BINDIR`, and `SYSCONFDIR`.
   - Automatically updates `path = $(BINDIR)/audisp-strace` in the installed `/etc/audit/plugins.d/audisp-strace.conf` (`0640` root:root).
