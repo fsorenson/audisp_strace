@@ -38,6 +38,7 @@
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <linux/landlock.h>
+#include <poll.h>
 
 #ifdef __has_include
 #if __has_include(<sys/fanotify.h>)
@@ -380,27 +381,36 @@ static void test_protected_links(void) {
 static void test_capabilities(void) {
     print_banner("Capabilities", "AUDIT_CAPSET (1322)");
 
-    struct __user_cap_header_struct hdr = {
-        .version = _LINUX_CAPABILITY_VERSION_3,
-        .pid = 0,
-    };
-    struct __user_cap_data_struct data[2];
-    memset(data, 0, sizeof(data));
-
-    if (syscall(SYS_capget, &hdr, data) == 0) {
-        printf("[+] Current process capabilities: effective=0x%x permitted=0x%x\n",
-               data[0].effective, data[0].permitted);
-        /* Drop all effective capabilities */
-        data[0].effective = 0;
-        data[1].effective = 0;
-        if (syscall(SYS_capset, &hdr, data) == 0) {
-            printf("    capset() successfully cleared effective capabilities.\n");
-        } else {
-            perror("capset");
-        }
-    } else {
-        perror("capget");
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        return;
     }
+    if (pid == 0) {
+        struct __user_cap_header_struct hdr = {
+            .version = _LINUX_CAPABILITY_VERSION_3,
+            .pid = 0,
+        };
+        struct __user_cap_data_struct data[2];
+        memset(data, 0, sizeof(data));
+
+        if (syscall(SYS_capget, &hdr, data) == 0) {
+            printf("[+] Current process capabilities: effective=0x%x permitted=0x%x\n",
+                   data[0].effective, data[0].permitted);
+            /* Drop all effective capabilities in child */
+            data[0].effective = 0;
+            data[1].effective = 0;
+            if (syscall(SYS_capset, &hdr, data) == 0) {
+                printf("    capset() successfully cleared effective capabilities in child.\n");
+            } else {
+                perror("capset");
+            }
+        } else {
+            perror("capget");
+        }
+        _exit(0);
+    }
+    waitpid(pid, NULL, 0);
 }
 
 /* -------------------------------------------------------------------------
@@ -416,20 +426,23 @@ static void *fanotify_responder_thread(void *arg) {
     struct fanotify_worker_arg *warg = (struct fanotify_worker_arg *)arg;
     char buf[4096];
 
-    ssize_t len = read(warg->fan_fd, buf, sizeof(buf));
-    if (len > 0) {
-        struct fanotify_event_metadata *metadata = (struct fanotify_event_metadata *)buf;
-        while (FAN_EVENT_OK(metadata, len)) {
-            if (metadata->mask & FAN_OPEN_PERM) {
-                struct fanotify_response response;
-                response.fd = metadata->fd;
-                /* Reply with FAN_DENY and request kernel AUDIT record */
-                response.response = FAN_DENY | FAN_AUDIT;
-                write(warg->fan_fd, &response, sizeof(response));
-                close(metadata->fd);
-                break;
+    struct pollfd pfd = { .fd = warg->fan_fd, .events = POLLIN };
+    if (poll(&pfd, 1, 5000) > 0) {
+        ssize_t len = read(warg->fan_fd, buf, sizeof(buf));
+        if (len > 0) {
+            struct fanotify_event_metadata *metadata = (struct fanotify_event_metadata *)buf;
+            while (FAN_EVENT_OK(metadata, len)) {
+                if (metadata->mask & FAN_OPEN_PERM) {
+                    struct fanotify_response response;
+                    response.fd = metadata->fd;
+                    /* Reply with FAN_DENY and request kernel AUDIT record */
+                    response.response = FAN_DENY | FAN_AUDIT;
+                    write(warg->fan_fd, &response, sizeof(response));
+                    close(metadata->fd);
+                    break;
+                }
+                metadata = FAN_EVENT_NEXT(metadata, len);
             }
-            metadata = FAN_EVENT_NEXT(metadata, len);
         }
     }
     return NULL;

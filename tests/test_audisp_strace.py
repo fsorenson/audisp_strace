@@ -236,6 +236,14 @@ class TestAudispStrace(unittest.TestCase):
         # Verify SELinux MAC mode change
         self.assertIn("[SELinux: MODE] Enforcing -> Permissive", out)
 
+        # Verify Fanotify access denial
+        self.assertIn('[Fanotify: DENIED]', out)
+        self.assertIn('fanotify: access denied (resp=2)', out)
+
+        # Verify VFS linkat protected hardlink denial
+        self.assertIn('[ANOM_LINK: protected_hardlink]', out)
+        self.assertIn('vfs: protected hardlink blocked (op=linkat)', out)
+
     def test_security_anomalies_compact_and_json(self):
         """Verify anomalies format cleanly in compact and JSON modes, and are excluded from -c tally."""
         anom_file = os.path.join(DATA_DIR, "security_anomalies.log")
@@ -256,6 +264,7 @@ class TestAudispStrace(unittest.TestCase):
         self.assertIn("anom_link", anomaly_types)
         self.assertIn("landlock", anomaly_types)
         self.assertIn("seccomp", anomaly_types)
+        self.assertTrue(any("fanotify" in obj for obj in json_objs))
 
         # Summary mode (-c): crashes/anomalies must NOT be tallied into syscall table
         code, out, _ = run_cmd(["-c", anom_file])

@@ -1471,6 +1471,7 @@ class AuditEvent:
         self.subj = None
         self.anom_abend = None
         self.anom_link = None
+        self.anom_creat = None
         self.landlock_denial = None
         self.landlock_domain = None
         self.landlock_proc_info = None
@@ -1584,8 +1585,11 @@ class AuditEvent:
             elif rectype == "ANOM_ABEND":
                 self.anom_abend = fields
                 self.subj = fields.get("subj") or self.subj
-            elif rectype == "ANOM_LINK":
+            elif rectype in ("ANOM_LINK", "UNKNOWN[1702]"):
                 self.anom_link = fields
+                self.subj = fields.get("subj") or self.subj
+            elif rectype in ("ANOM_CREAT", "UNKNOWN[1703]"):
+                self.anom_creat = fields
                 self.subj = fields.get("subj") or self.subj
             elif rectype == "USER_CMD":
                 self.user_cmd = fields
@@ -1687,6 +1691,8 @@ class AuditEvent:
             return self.anom_abend
         if self.anom_link:
             return self.anom_link
+        if self.anom_creat:
+            return self.anom_creat
         if self.user_cmd:
             return self.user_cmd
         if self.landlock:
@@ -1704,6 +1710,10 @@ class AuditEvent:
     @property
     def is_anom_link(self):
         return self.anom_link is not None
+
+    @property
+    def is_anom_creat(self):
+        return self.anom_creat is not None
 
     @property
     def is_landlock(self):
@@ -1781,6 +1791,17 @@ class AuditEvent:
         return self.fanotify is not None
 
     @property
+    def fanotify_response(self):
+        if not self.fanotify:
+            return None
+        resp_raw = self.fanotify.get("resp")
+        if resp_raw == "2":
+            return "DENIED"
+        elif resp_raw == "1":
+            return "ALLOW"
+        return resp_raw or "UNKNOWN"
+
+    @property
     def is_capset(self):
         return self.capset is not None
 
@@ -1798,9 +1819,11 @@ class AuditEvent:
             self.syscall_name or
             self.is_anom_abend or
             self.is_anom_link or
+            self.is_anom_creat or
             self.is_landlock or
             self.is_seccomp or
             self.is_mac_status or
+            self.is_fanotify or
             self.is_user_cmd or
             self.is_standalone_avc
         )
@@ -1835,6 +1858,12 @@ class AuditEvent:
     def anom_link_op(self):
         if self.anom_link:
             return self.anom_link.get("op", "follow_link")
+        return None
+
+    @property
+    def anom_creat_op(self):
+        if self.anom_creat:
+            return self.anom_creat.get("op", "sticky_create")
         return None
 
     @property
@@ -1880,12 +1909,16 @@ class AuditEvent:
             return "crash"
         if self.is_anom_link:
             return "anom_link"
+        if self.is_anom_creat:
+            return "anom_creat"
         if self.is_seccomp:
             return "seccomp"
         if self.is_landlock:
             return "landlock"
         if self.is_mac_status:
             return "mac_status"
+        if self.is_fanotify:
+            return "fanotify"
         if self.is_standalone_avc:
             return "avc"
         if self.is_user_cmd:
@@ -2008,7 +2041,9 @@ class AuditEvent:
                 return None
         if self.is_anom_abend:
             return -1
-        if self.is_anom_link or self.is_landlock:
+        if self.is_anom_link:
+            return -1 if self.anom_link_op == "linkat" else -13
+        if self.is_anom_creat or self.is_landlock:
             return -13
         if self.is_standalone_avc:
             return 0 if self.avc_is_permissive else -13
@@ -2028,12 +2063,14 @@ class AuditEvent:
             if self.exit_code is not None and self.exit_code < 0:
                 return True
             return False
-        if self.is_anom_abend or self.is_anom_link or self.is_landlock:
+        if self.is_anom_abend or self.is_anom_link or self.is_anom_creat or self.is_landlock:
             return True
         if self.is_seccomp:
             return self.seccomp_action in ("KILL_PROCESS", "KILL_THREAD", "TRAP", "ERRNO")
         if self.is_mac_status:
             return False
+        if self.is_fanotify:
+            return self.fanotify.get("resp") != "1"
         if self.is_standalone_avc:
             return self.avc_is_denied
         if self.is_user_cmd:
@@ -2056,7 +2093,12 @@ class AuditEvent:
             return str(exit_val)
         if self.is_anom_abend:
             return f"killed by {self.signal_name}"
-        if self.is_anom_link or self.is_landlock:
+        if self.is_anom_link:
+            op = self.anom_link_op
+            if op == "linkat":
+                return "-1 EPERM (Operation not permitted)"
+            return "-1 EACCES (Permission denied)"
+        if self.is_anom_creat or self.is_landlock:
             return "-1 EACCES (Permission denied)"
         if self.is_standalone_avc:
             return "0" if self.avc_is_permissive else "-1 EACCES (Permission denied)"
@@ -7348,7 +7390,17 @@ class SyscallHandler:
 
         if event.is_anom_link:
             op = event.anom_link_op or "follow_link"
-            badge = "[ANOM_LINK: protected_symlink]"
+            sub = "protected_hardlink" if op == "linkat" else ("protected_symlink" if op == "follow_link" else op)
+            badge = f"[ANOM_LINK: {sub}]"
+            res_str = "= -1 EPERM (Operation not permitted)" if op == "linkat" else "= -1 EACCES (Permission denied)"
+            if use_color:
+                return f"{theme.warning(badge)} {op}() {theme.result_failed(res_str)}"
+            return f"{badge} {op}() {res_str}"
+
+        if event.is_anom_creat:
+            op = event.anom_creat_op or "sticky_create"
+            sub = "protected_fifo" if "fifo" in op else "protected_regular"
+            badge = f"[ANOM_CREAT: {sub}]"
             res_str = "= -1 EACCES (Permission denied)"
             if use_color:
                 return f"{theme.warning(badge)} {op}() {theme.result_failed(res_str)}"
@@ -7396,6 +7448,11 @@ class SyscallHandler:
         if event.is_mac_status:
             badge = event.mac_status_change_str
             return theme.warning(badge) if use_color else badge
+
+        if event.is_fanotify:
+            dec = event.fanotify_response
+            badge = f"[Fanotify: {dec}]"
+            return theme.result_failed(badge) if (use_color and dec == "DENIED") else badge
 
         if event.is_standalone_avc:
             perms_str = event.avc_perms_str or "access"
@@ -7506,7 +7563,34 @@ class SyscallHandler:
             else:
                 mac_tag = f"  {change}"
 
-        sec_tags = f"{avc_tag}{landlock_tag}{seccomp_tag}{mac_tag}"
+        fanotify_tag = ""
+        if event.is_fanotify and scname:
+            dec = event.fanotify_response
+            badge = f"[Fanotify: {dec}]"
+            if theme.enabled:
+                fanotify_tag = f"  {theme.result_failed(badge)}" if dec == "DENIED" else f"  {theme.dim(badge)}"
+            else:
+                fanotify_tag = f"  {badge}"
+
+        anom_tag = ""
+        if event.is_anom_link and scname:
+            op = event.anom_link_op or "linkat"
+            sub = "protected_hardlink" if op == "linkat" else ("protected_symlink" if op == "follow_link" else op)
+            badge = f"[ANOM_LINK: {sub}]"
+            if theme.enabled:
+                anom_tag = f"  {theme.warning(badge)}"
+            else:
+                anom_tag = f"  {badge}"
+        elif event.is_anom_creat and scname:
+            op = event.anom_creat_op or "sticky_create"
+            sub = "protected_fifo" if "fifo" in op else "protected_regular"
+            badge = f"[ANOM_CREAT: {sub}]"
+            if theme.enabled:
+                anom_tag = f"  {theme.warning(badge)}"
+            else:
+                anom_tag = f"  {badge}"
+
+        sec_tags = f"{avc_tag}{landlock_tag}{seccomp_tag}{mac_tag}{fanotify_tag}{anom_tag}"
 
         if compact:
             if compact == "strace":
@@ -7537,6 +7621,23 @@ class SyscallHandler:
         if event.is_mac_status and scname:
             mac_line = f"    selinux: mode changed ({event.mac_status_change_str})"
 
+        # Line 2e: Fanotify context line
+        fanotify_line = ""
+        if event.is_fanotify and scname:
+            dec = event.fanotify_response
+            fanotify_line = f"    fanotify: access {dec.lower()} (resp={event.fanotify.get('resp')})"
+
+        # Line 2f: Anomaly link / creat context line
+        anom_line = ""
+        if event.is_anom_link and scname:
+            op = event.anom_link_op or "linkat"
+            sub = "hardlink" if op == "linkat" else ("symlink" if op == "follow_link" else op)
+            anom_line = f"    vfs: protected {sub} blocked (op={op})"
+        elif event.is_anom_creat and scname:
+            op = event.anom_creat_op or "sticky_create"
+            sub = "fifo" if "fifo" in op else "regular file"
+            anom_line = f"    vfs: protected {sub} blocked in sticky directory (op={op})"
+
         # Line 3: Process ancestry tree
         ancestry = self.tracker.get_ancestry(event.pid) if event.pid else []
         line3 = self.formatter.format_ancestry(ancestry)
@@ -7548,6 +7649,10 @@ class SyscallHandler:
             output_lines.append(landlock_line)
         if mac_line:
             output_lines.append(mac_line)
+        if fanotify_line:
+            output_lines.append(fanotify_line)
+        if anom_line:
+            output_lines.append(anom_line)
         output_lines.append(line3)
         return "\n".join(output_lines)
 
@@ -7621,6 +7726,8 @@ class SyscallHandler:
                 record["anomaly"]["core_dumped"] = event.core_dumped
             elif event.is_anom_link:
                 record["anomaly"]["operation"] = event.anom_link_op
+            elif event.is_anom_creat:
+                record["anomaly"]["operation"] = event.anom_creat_op
             elif event.is_landlock:
                 record["anomaly"]["subsystem"] = "landlock"
                 record["anomaly"]["blockers"] = event.landlock_blockers
@@ -7640,6 +7747,10 @@ class SyscallHandler:
             elif event.is_mac_status:
                 record["anomaly"]["subsystem"] = "mac_status"
                 record["anomaly"]["status"] = event.mac_status_change_str
+            elif event.is_fanotify:
+                record["anomaly"]["subsystem"] = "fanotify"
+                record["anomaly"]["decision"] = event.fanotify_response
+                record["anomaly"]["resp"] = (event.fanotify or {}).get("resp")
         else:
             if event.is_landlock:
                 record["landlock"] = {
@@ -7654,6 +7765,19 @@ class SyscallHandler:
             if event.is_mac_status:
                 record["mac_status"] = {
                     "status": event.mac_status_change_str,
+                }
+            if event.is_fanotify:
+                record["fanotify"] = {
+                    "decision": event.fanotify_response,
+                    "resp": (event.fanotify or {}).get("resp"),
+                }
+            if event.is_anom_link:
+                record["anom_link"] = {
+                    "op": event.anom_link_op,
+                }
+            if event.is_anom_creat:
+                record["anom_creat"] = {
+                    "op": event.anom_creat_op,
                 }
         if event.has_avc:
             record["avc"] = {
@@ -8268,7 +8392,10 @@ class AudispStraceApp:
                         event.has_avc or
                         event.is_landlock or
                         event.is_seccomp or
-                        event.is_mac_status
+                        event.is_fanotify or
+                        event.is_mac_status or
+                        event.is_anom_link or
+                        event.is_anom_creat
                     )
         else:
             # Tier 1 non-syscall event: display by default unless a specific syscall filter was given
