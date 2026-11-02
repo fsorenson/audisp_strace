@@ -222,7 +222,19 @@ class TestAudispStrace(unittest.TestCase):
         # Verify Landlock domain correlation and denial formatting
         self.assertIn("3415509<xz>", out)
         self.assertIn('[Landlock: DENIED { fs.read_file }] "/sys/devices/system/cpu/online" = -1 EACCES (Permission denied)', out)
-        self.assertIn('landlock: domain=14abfa4b2 (mode=enforcing, blockers=fs.read_file, dev="sysfs", ino=1165)', out)
+        self.assertIn('landlock: domain=14abfa4b2 (mode=enforcing, blockers=fs.read_file, path="/sys/devices/system/cpu/online", dev="sysfs", ino=1165)', out)
+
+        # Verify Seccomp logging and process termination
+        self.assertIn("[SECCOMP: LOG] getpid()", out)
+        self.assertIn("[SECCOMP: KILL_PROCESS] mkdirat()", out)
+        self.assertIn("+++ killed by SIGSYS (core dumped) +++", out)
+
+        # Verify Landlock network and scoped signal denials
+        self.assertIn("[Landlock: DENIED { net.connect_tcp }]", out)
+        self.assertIn("kill(3032733, 0) = -1 EPERM(Operation not permitted)  [Landlock: DENIED { scope.signal }]", out)
+
+        # Verify SELinux MAC mode change
+        self.assertIn("[SELinux: MODE] Enforcing -> Permissive", out)
 
     def test_security_anomalies_compact_and_json(self):
         """Verify anomalies format cleanly in compact and JSON modes, and are excluded from -c tally."""
@@ -243,6 +255,7 @@ class TestAudispStrace(unittest.TestCase):
         self.assertIn("crash", anomaly_types)
         self.assertIn("anom_link", anomaly_types)
         self.assertIn("landlock", anomaly_types)
+        self.assertIn("seccomp", anomaly_types)
 
         # Summary mode (-c): crashes/anomalies must NOT be tallied into syscall table
         code, out, _ = run_cmd(["-c", anom_file])

@@ -15,16 +15,18 @@ INSTALL_PROGRAM ?= $(INSTALL) -m 755
 INSTALL_DATA ?= $(INSTALL) -m 644
 INSTALL_CONF ?= $(INSTALL) -m 640
 
-TARGET = test_syscalls
-SRC = test_syscalls.c
+TARGETS = test_syscalls test_anomalies
 
-all: $(TARGET)
+all: $(TARGETS)
 
-$(TARGET): $(SRC)
-	$(CC) $(CFLAGS) $(SRC) -o $(TARGET)
+test_syscalls: test_syscalls.c
+	$(CC) $(CFLAGS) test_syscalls.c -o test_syscalls
+
+test_anomalies: test_anomalies.c
+	$(CC) $(CFLAGS) test_anomalies.c -o test_anomalies -lpthread
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGETS)
 	rm -rf rpmbuild $(NAME)-*.tar.gz
 
 test:

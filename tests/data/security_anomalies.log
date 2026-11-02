@@ -18,3 +18,26 @@ type=ANOM_PROMISCUOUS msg=audit(1785524820.515:33277): dev=vnet13 prom=0 old_pro
 
 type=VIRT_CONTROL msg=audit(1785524829.114:33305): pid=31986 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:virtd_t:s0-s0:c0.c1023 msg='virt=kvm op=start reason=booted vm="winxp" uuid=7c6541c0-677b-4895-a5cd-11ec580600f7 vm-pid=716213 exe="/usr/bin/libvirtd" hostname=? addr=? terminal=? res=success' UID="root" AUID="unset"
 type=VIRT_CONTROL msg=audit(1786057128.084:38956): pid=31986 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:virtd_t:s0-s0:c0.c1023 msg='virt=kvm op=stop reason=shutdown vm="win2k22" uuid=6f93d8b0-3793-418b-acb0-837957b15171 vm-pid=0 exe="/usr/bin/libvirtd" hostname=? addr=? terminal=? res=success' UID="root" AUID="unset"
+
+type=SECCOMP msg=audit(1793625011.784:8183137): auid=0 uid=0 gid=0 ses=9 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 pid=3032734 comm="test_anomalies" exe="/var/tmp/audisp_strace/test_anomalies" sig=0 arch=c000003e syscall=39 compat=0 ip=0x7f0a860ec94b code=0x7ffc0000 AUID="root" UID="root" GID="root" ARCH=x86_64 SYSCALL=getpid
+type=SECCOMP msg=audit(1793625011.791:8183139): auid=0 uid=0 gid=0 ses=9 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 pid=3032735 comm="test_anomalies" exe="/var/tmp/audisp_strace/test_anomalies" sig=31 arch=c000003e syscall=258 compat=0 ip=0x7f0a8610d11b code=0x80000000 AUID="root" UID="root" GID="root" ARCH=x86_64 SYSCALL=mkdirat
+type=ANOM_ABEND msg=audit(1793625011.791:8183140): auid=0 uid=0 gid=0 ses=9 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 pid=3032735 comm="test_anomalies" exe="/var/tmp/audisp_strace/test_anomalies" sig=31 res=1 AUID="root" UID="root" GID="root"
+
+type=UNKNOWN[1423] msg=audit(1793625012.500:8183147): domain=1c2570751 blockers=fs.read_file path="/etc/hosts" dev="dm-0" ino=135067247
+type=UNKNOWN[1424] msg=audit(1793625012.500:8183147): domain=1c2570751 status=allocated mode=enforcing pid=3032742 uid=0 exe="/var/tmp/audisp_strace/test_anomalies" comm="test_anomalies" UID="root"
+type=SYSCALL msg=audit(1793625012.500:8183147): arch=c000003e syscall=257 success=no exit=-13 a0=ffffff9c a1=4031b4 a2=0 a3=0 items=0 ppid=3032733 pid=3032742 auid=0 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=pts2 ses=9 comm="test_anomalies" exe="/var/tmp/audisp_strace/test_anomalies" subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 key=(null) ARCH=x86_64 SYSCALL=openat AUID="root" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=PROCTITLE msg=audit(1793625012.500:8183147): proctitle="./test_anomalies"
+
+type=UNKNOWN[1423] msg=audit(1793625012.511:8183148): domain=1c257076c blockers=net.connect_tcp daddr=127.0.0.1 dest=9999
+type=UNKNOWN[1424] msg=audit(1793625012.511:8183148): domain=1c257076c status=allocated mode=enforcing pid=3032743 uid=0 exe="/var/tmp/audisp_strace/test_anomalies" comm="test_anomalies" UID="root"
+type=SYSCALL msg=audit(1793625012.511:8183148): arch=c000003e syscall=42 success=no exit=-13 a0=3 a1=7ffd11576030 a2=10 a3=7f0a862395e0 items=0 ppid=3032733 pid=3032743 auid=0 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=pts2 ses=9 comm="test_anomalies" exe="/var/tmp/audisp_strace/test_anomalies" subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 key=(null) ARCH=x86_64 SYSCALL=connect AUID="root" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=PROCTITLE msg=audit(1793625012.511:8183148): proctitle="./test_anomalies"
+
+type=UNKNOWN[1423] msg=audit(1793625012.517:8183149): domain=1c2570782 blockers=scope.signal opid=3032733 ocomm="test_anomalies"
+type=UNKNOWN[1424] msg=audit(1793625012.517:8183149): domain=1c2570782 status=allocated mode=enforcing pid=3032744 uid=0 exe="/var/tmp/audisp_strace/test_anomalies" comm="test_anomalies" UID="root"
+type=SYSCALL msg=audit(1793625012.517:8183149): arch=c000003e syscall=62 success=no exit=-1 a0=2e469d a1=0 a2=0 a3=7f0a862395e0 items=0 ppid=3032733 pid=3032744 auid=0 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=pts2 ses=9 comm="test_anomalies" exe="/var/tmp/audisp_strace/test_anomalies" subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 key=(null) ARCH=x86_64 SYSCALL=kill AUID="root" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=PROCTITLE msg=audit(1793625012.517:8183149): proctitle="./test_anomalies"
+
+type=MAC_STATUS msg=audit(1793625013.477:8183171): enforcing=0 old_enforcing=1 auid=0 ses=9 enabled=1 old-enabled=1 lsm=selinux res=1 AUID="root"
+type=SYSCALL msg=audit(1793625013.477:8183171): arch=c000003e syscall=1 success=yes exit=1 a0=3 a1=7ffd11576010 a2=1 a3=7f0a862395e0 items=0 ppid=2289296 pid=3032733 auid=0 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=pts2 ses=9 comm="test_anomalies" exe="/var/tmp/audisp_strace/test_anomalies" subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 key=(null) ARCH=x86_64 SYSCALL=write AUID="root" UID="root" GID="root" EUID="root" SUID="root" FSUID="root" EGID="root" SGID="root" FSGID="root"
+type=PROCTITLE msg=audit(1793625013.477:8183171): proctitle="./test_anomalies"

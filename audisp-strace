@@ -50,7 +50,8 @@ RE_AUDIT_MSG = re.compile(r'msg=audit\((\d+(?:\.\d+)?):(\d+)\)')
 IGNORE_RECORD_TYPES = {
     'DAEMON_CONFIG', 'USER_END', 'CRED_DISP', 'CRED_ACQ', 'LOGIN',
     'USER_START', 'USER_ACCT', 'CONFIG_CHANGE', 'CRED_REFR',
-    'SERVICE_START', 'SERVICE_STOP', 'SYSTEM_SHUTDOWN', 'USER_ERR'
+    'SERVICE_START', 'SERVICE_STOP', 'SYSTEM_SHUTDOWN', 'USER_ERR',
+    'USER_MAC_STATUS'
 }
 
 # Syscalls tracked for process hierarchy & state
@@ -1470,8 +1471,15 @@ class AuditEvent:
         self.subj = None
         self.anom_abend = None
         self.anom_link = None
-        self.landlock = None
+        self.landlock_denial = None
+        self.landlock_domain = None
         self.landlock_proc_info = None
+        self.seccomp = None
+        self.seccomp_interp = {}
+        self.mac_status = None
+        self.mac_status_interp = {}
+        self.fanotify = None
+        self.capset = None
         self.user_cmd = None
 
         au.first_record()
@@ -1582,9 +1590,27 @@ class AuditEvent:
             elif rectype == "USER_CMD":
                 self.user_cmd = fields
                 self.subj = fields.get("subj") or self.subj
-            elif rectype in ("UNKNOWN[1423]", "UNKNOWN[1424]", "LANDLOCK_DENIAL", "LANDLOCK_DOMAIN"):
-                self.landlock = dict(fields)
-                self.landlock["rectype"] = rectype
+            elif rectype in ("LANDLOCK_ACCESS", "LANDLOCK_DENIAL", "UNKNOWN[1423]"):
+                self.landlock_denial = dict(fields)
+                self.landlock_denial["rectype"] = rectype
+                self.subj = fields.get("subj") or self.subj
+            elif rectype in ("LANDLOCK_DOMAIN", "UNKNOWN[1424]"):
+                self.landlock_domain = dict(fields)
+                self.landlock_domain["rectype"] = rectype
+                self.subj = fields.get("subj") or self.subj
+            elif rectype == "SECCOMP":
+                self.seccomp = fields
+                self.seccomp_interp = interp_fields
+                self.subj = fields.get("subj") or self.subj
+            elif rectype in ("MAC_STATUS", "UNKNOWN[1404]"):
+                self.mac_status = fields
+                self.mac_status_interp = interp_fields
+                self.subj = fields.get("subj") or self.subj
+            elif rectype in ("FANOTIFY", "UNKNOWN[1331]"):
+                self.fanotify = fields
+                self.subj = fields.get("subj") or self.subj
+            elif rectype in ("CAPSET", "UNKNOWN[1322]"):
+                self.capset = fields
                 self.subj = fields.get("subj") or self.subj
 
             if not au.next_record():
@@ -1648,9 +1674,15 @@ class AuditEvent:
         return seen
 
     @property
+    def landlock(self):
+        return self.landlock_denial or self.landlock_domain
+
+    @property
     def primary_fields(self):
         if self.syscall:
             return self.syscall
+        if self.seccomp:
+            return self.seccomp
         if self.anom_abend:
             return self.anom_abend
         if self.anom_link:
@@ -1659,6 +1691,8 @@ class AuditEvent:
             return self.user_cmd
         if self.landlock:
             return self.landlock
+        if self.mac_status:
+            return self.mac_status
         if self.avcs:
             return self.avcs[0]
         return {}
@@ -1673,11 +1707,82 @@ class AuditEvent:
 
     @property
     def is_landlock(self):
-        return self.landlock is not None and self.landlock.get("blockers") is not None
+        return self.landlock_denial is not None or (self.landlock is not None and self.landlock.get("blockers") is not None)
 
     @property
     def is_landlock_domain(self):
-        return self.landlock is not None and self.landlock.get("status") is not None
+        return self.landlock_domain is not None
+
+    @property
+    def is_seccomp(self):
+        return self.seccomp is not None
+
+    @property
+    def seccomp_action(self):
+        if not self.seccomp:
+            return None
+        code_raw = self.seccomp.get("code")
+        if not code_raw:
+            return None
+        try:
+            code_val = int(code_raw, 16) if code_raw.startswith("0x") else int(code_raw)
+            act = code_val & 0xffff0000
+            return SECCOMP_ACTIONS.get(act, f"0x{act:x}")
+        except ValueError:
+            return code_raw
+
+    @property
+    def seccomp_syscall_name(self):
+        if not self.seccomp:
+            return None
+        name = self.seccomp_interp.get("syscall") or self.seccomp.get("SYSCALL")
+        if not name:
+            sc_num = self.seccomp.get("syscall")
+            arch_hex = self.seccomp.get("arch", "c000003e")
+            try:
+                num = int(sc_num)
+                name = get_syscall_name(arch_hex, num)
+            except (ValueError, TypeError):
+                name = f"syscall_{sc_num}"
+        return name
+
+    @property
+    def is_mac_status(self):
+        return self.mac_status is not None
+
+    @property
+    def mac_status_change_str(self):
+        if not self.mac_status:
+            return ""
+        raw_lsm = self.mac_status.get("lsm", "selinux")
+        lsm = "SELinux" if raw_lsm.lower() == "selinux" else raw_lsm.upper()
+        if "enforcing" in self.mac_status:
+            enf = self.mac_status.get("enforcing")
+            old_enf = self.mac_status.get("old_enforcing")
+            enf_map = {"0": "Permissive", "1": "Enforcing"}
+            curr_str = enf_map.get(enf, enf)
+            old_str = enf_map.get(old_enf, old_enf) if old_enf is not None else None
+            if old_str and old_str != curr_str:
+                return f"[{lsm}: MODE] {old_str} -> {curr_str}"
+            return f"[{lsm}: MODE] {curr_str}"
+        elif "enabled" in self.mac_status:
+            en = self.mac_status.get("enabled")
+            old_en = self.mac_status.get("old-enabled")
+            en_map = {"0": "Disabled", "1": "Enabled"}
+            curr_str = en_map.get(en, en)
+            old_str = enf_map.get(old_en, old_en) if old_en is not None else None
+            if old_str and old_str != curr_str:
+                return f"[{lsm}: STATUS] {old_str} -> {curr_str}"
+            return f"[{lsm}: STATUS] {curr_str}"
+        return f"[{lsm}: STATUS]"
+
+    @property
+    def is_fanotify(self):
+        return self.fanotify is not None
+
+    @property
+    def is_capset(self):
+        return self.capset is not None
 
     @property
     def is_user_cmd(self):
@@ -1694,6 +1799,8 @@ class AuditEvent:
             self.is_anom_abend or
             self.is_anom_link or
             self.is_landlock or
+            self.is_seccomp or
+            self.is_mac_status or
             self.is_user_cmd or
             self.is_standalone_avc
         )
@@ -1773,8 +1880,12 @@ class AuditEvent:
             return "crash"
         if self.is_anom_link:
             return "anom_link"
+        if self.is_seccomp:
+            return "seccomp"
         if self.is_landlock:
             return "landlock"
+        if self.is_mac_status:
+            return "mac_status"
         if self.is_standalone_avc:
             return "avc"
         if self.is_user_cmd:
@@ -1919,6 +2030,10 @@ class AuditEvent:
             return False
         if self.is_anom_abend or self.is_anom_link or self.is_landlock:
             return True
+        if self.is_seccomp:
+            return self.seccomp_action in ("KILL_PROCESS", "KILL_THREAD", "TRAP", "ERRNO")
+        if self.is_mac_status:
+            return False
         if self.is_standalone_avc:
             return self.avc_is_denied
         if self.is_user_cmd:
@@ -2308,15 +2423,27 @@ class TraceFormatter:
         mode = "enforcing"
         if event.landlock_proc_info:
             mode = event.landlock_proc_info.get("mode", mode)
-        dev = info.get("dev")
-        ino = info.get("ino")
-        dev_clean = dev.strip('"') if dev else None
-        extra = f', dev="{dev_clean}", ino={ino}' if dev_clean and ino else ""
+        parts = [f"mode={mode}", f"blockers={blockers}"]
+        if "path" in info:
+            p = info["path"].strip('"')
+            parts.append(f'path="{p}"')
+        if "daddr" in info and "dest" in info:
+            parts.append(f"daddr={info['daddr']}")
+            parts.append(f"dest={info['dest']}")
+        if "opid" in info:
+            parts.append(f"opid={info['opid']}")
+            if "ocomm" in info:
+                parts.append(f"ocomm={info['ocomm']}")
+        if "dev" in info and "ino" in info:
+            dev_clean = info["dev"].strip('"')
+            parts.append(f'dev="{dev_clean}"')
+            parts.append(f"ino={info['ino']}")
+        details = ", ".join(parts)
         if self.theme.enabled:
             tag_str = self.theme.result_failed("landlock:")
             dom_str = self.theme.string(domain)
-            return f"    {tag_str} domain={dom_str} (mode={mode}, blockers={blockers}{extra})"
-        return f"    landlock: domain={domain} (mode={mode}, blockers={blockers}{extra})"
+            return f"    {tag_str} domain={dom_str} ({details})"
+        return f"    landlock: domain={domain} ({details})"
 
     def format_compact_tags(self, event, tracker):
         fields = event.primary_fields
@@ -2520,6 +2647,17 @@ SIGNALS = {
 }
 
 CORE_DUMP_SIGNALS = {3, 4, 6, 7, 8, 11, 31}
+
+SECCOMP_ACTIONS = {
+    0x80000000: "KILL_PROCESS",
+    0x00000000: "KILL_THREAD",
+    0x00030000: "TRAP",
+    0x00050000: "ERRNO",
+    0x7fc00000: "USER_NOTIF",
+    0x7ff00000: "TRACE",
+    0x7ffc0000: "LOG",
+    0x7fff0000: "ALLOW",
+}
 
 WAIT_OPTIONS = {
     1: "WNOHANG", 2: "WUNTRACED", 4: "WEXITED", 8: "WCONTINUED", 0x1000000: "WNOWAIT",
@@ -3771,8 +3909,11 @@ class SyscallHandler:
                 name = event.syscall.get("a0", "")
 
         name = name.strip('"')
-        if (not name or name == "(null)") and event.avc_paths:
-            name = event.avc_paths[0]
+        if (not name or name == "(null)"):
+            if event.landlock_path:
+                name = event.landlock_path
+            elif event.avc_paths:
+                name = event.avc_paths[0]
         if not name:
             return None
 
@@ -3820,8 +3961,11 @@ class SyscallHandler:
             name = self._get_pathname(event, "a0")
 
         name = name.strip('"')
-        if (not name or name == "(null)") and event.avc_paths:
-            name = event.avc_paths[0]
+        if (not name or name == "(null)"):
+            if event.landlock_path:
+                name = event.landlock_path
+            elif event.avc_paths:
+                name = event.avc_paths[0]
         if not name:
             return None
 
@@ -4535,6 +4679,10 @@ class SyscallHandler:
             name = event.paths[0].get("name", "").strip('"')
             if name:
                 return name
+        if event.landlock_path:
+            return event.landlock_path
+        if event.avc_paths:
+            return event.avc_paths[0]
         raw = event.syscall.get(default_arg, "")
         return raw.strip('"')
 
@@ -4853,8 +5001,11 @@ class SyscallHandler:
         if not name and event.paths:
             name = event.paths[0].get("name", "")
         name = name.strip('"')
-        if (not name or name == "(null)") and event.avc_paths:
-            name = event.avc_paths[0]
+        if (not name or name == "(null)"):
+            if event.landlock_path:
+                name = event.landlock_path
+            elif event.avc_paths:
+                name = event.avc_paths[0]
 
         flags_interp = event.syscall_interp.get("a2") or event.syscall.get("a2", "O_RDONLY")
         if "O_CREAT" in flags_interp or "O_TMPFILE" in flags_interp:
@@ -7205,14 +7356,46 @@ class SyscallHandler:
 
         if event.is_landlock:
             blockers = event.landlock_blockers or "access"
-            path = event.landlock_path or "..."
             badge = f"[Landlock: DENIED {{ {blockers} }}]"
-            res_str = "= -1 EACCES (Permission denied)"
-            if use_color:
-                p_quoted = f'"{path}"'
-                p_str = theme.path(p_quoted)
-                return f"{theme.result_failed(badge)} {p_str} {theme.result_failed(res_str)}"
-            return f'{badge} "{path}" {res_str}'
+            badge_str = theme.result_failed(badge) if use_color else badge
+            info = event.landlock or {}
+            if "daddr" in info and "dest" in info:
+                target = f"connect({info['daddr']}:{info['dest']})"
+                res = "= -1 EACCES (Permission denied)"
+            elif "opid" in info:
+                comm_part = f"<{info.get('ocomm', '').strip('\"')}>" if "ocomm" in info else ""
+                target = f"kill({info['opid']}{comm_part}, 0)"
+                res = "= -1 EPERM (Operation not permitted)"
+            else:
+                p = event.landlock_path or "..."
+                target = f'"{p}"'
+                res = "= -1 EACCES (Permission denied)"
+            res_str = theme.result_failed(res) if use_color else res
+            target_str = theme.path(target) if use_color and target.startswith('"') else target
+            return f"{badge_str} {target_str} {res_str}"
+
+        if event.is_seccomp:
+            act = event.seccomp_action or "ACTION"
+            sc = event.seccomp_syscall_name or "syscall"
+            badge = f"[SECCOMP: {act}]"
+            badge_str = theme.result_failed(badge) if (use_color and act != "LOG") else (theme.warning(badge) if use_color else badge)
+            code_raw = event.seccomp.get("code", "")
+            data_suffix = ""
+            try:
+                code_val = int(code_raw, 16) if code_raw.startswith("0x") else int(code_raw)
+                data = code_val & 0x0000ffff
+                if act == "ERRNO" and data:
+                    err_name = errno.errorcode.get(data, str(data))
+                    data_suffix = f" = -1 {err_name}"
+            except ValueError:
+                pass
+            sc_str = theme.syscall(sc) if use_color else sc
+            suffix_str = theme.result_failed(data_suffix) if (use_color and data_suffix) else data_suffix
+            return f"{badge_str} {sc_str}(){suffix_str}"
+
+        if event.is_mac_status:
+            badge = event.mac_status_change_str
+            return theme.warning(badge) if use_color else badge
 
         if event.is_standalone_avc:
             perms_str = event.avc_perms_str or "access"
@@ -7284,7 +7467,7 @@ class SyscallHandler:
             else:
                 key_tag = f' [key="{event.key}"]'
 
-        # SELinux AVC annotation tag on Line 1 (only for syscalls; standalone AVC already has badge)
+        # Security anomaly & MAC tags on Line 1 (only for syscalls; standalone anomalies already have badges)
         avc_tag = ""
         if event.has_avc and scname:
             perms_str = event.avc_perms_str or "access"
@@ -7299,20 +7482,46 @@ class SyscallHandler:
                 else:
                     avc_tag = f"  [SELinux: DENIED {{ {perms_str} }}]"
 
+        landlock_tag = ""
+        if event.is_landlock and scname:
+            blockers = event.landlock_blockers or "access"
+            if theme.enabled:
+                landlock_tag = f"  {theme.result_failed(f'[Landlock: DENIED {{ {blockers} }}]')}"
+            else:
+                landlock_tag = f"  [Landlock: DENIED {{ {blockers} }}]"
+
+        seccomp_tag = ""
+        if event.is_seccomp and scname:
+            act = event.seccomp_action or "ACTION"
+            if theme.enabled:
+                seccomp_tag = f"  {theme.result_failed(f'[SECCOMP: {act}]')}" if act != "LOG" else f"  {theme.warning(f'[SECCOMP: {act}]')}"
+            else:
+                seccomp_tag = f"  [SECCOMP: {act}]"
+
+        mac_tag = ""
+        if event.is_mac_status and scname:
+            change = event.mac_status_change_str
+            if theme.enabled:
+                mac_tag = f"  {theme.warning(change)}"
+            else:
+                mac_tag = f"  {change}"
+
+        sec_tags = f"{avc_tag}{landlock_tag}{seccomp_tag}{mac_tag}"
+
         if compact:
             if compact == "strace":
-                return f"{line1}{avc_tag}{key_tag}"
+                return f"{line1}{sec_tags}{key_tag}"
             compact_tags = self.formatter.format_compact_tags(event, self.tracker)
             parts = [line1]
-            if avc_tag:
-                parts.append(avc_tag.strip())
+            if sec_tags:
+                parts.append(sec_tags.strip())
             if compact_tags:
                 parts.append(compact_tags)
             if key_tag:
                 parts.append(key_tag.strip())
             return " ".join(parts)
 
-        line1 = f"{line1}{avc_tag}{key_tag}"
+        line1 = f"{line1}{sec_tags}{key_tag}"
 
         # Line 2: Process credentials
         line2 = self.formatter.format_credentials(event)
@@ -7323,6 +7532,11 @@ class SyscallHandler:
         # Line 2c: Landlock context line
         landlock_line = self.formatter.format_landlock(event) if event.is_landlock else ""
 
+        # Line 2d: MAC status context line
+        mac_line = ""
+        if event.is_mac_status and scname:
+            mac_line = f"    selinux: mode changed ({event.mac_status_change_str})"
+
         # Line 3: Process ancestry tree
         ancestry = self.tracker.get_ancestry(event.pid) if event.pid else []
         line3 = self.formatter.format_ancestry(ancestry)
@@ -7332,6 +7546,8 @@ class SyscallHandler:
             output_lines.append(avc_line)
         if landlock_line:
             output_lines.append(landlock_line)
+        if mac_line:
+            output_lines.append(mac_line)
         output_lines.append(line3)
         return "\n".join(output_lines)
 
@@ -7408,7 +7624,37 @@ class SyscallHandler:
             elif event.is_landlock:
                 record["anomaly"]["subsystem"] = "landlock"
                 record["anomaly"]["blockers"] = event.landlock_blockers
-                record["anomaly"]["path"] = event.landlock_path
+                if event.landlock_path:
+                    record["anomaly"]["path"] = event.landlock_path
+                info = event.landlock or {}
+                if "daddr" in info:
+                    record["anomaly"]["daddr"] = info["daddr"]
+                    record["anomaly"]["dest"] = info.get("dest")
+                if "opid" in info:
+                    record["anomaly"]["opid"] = info["opid"]
+                    record["anomaly"]["ocomm"] = info.get("ocomm")
+            elif event.is_seccomp:
+                record["anomaly"]["subsystem"] = "seccomp"
+                record["anomaly"]["action"] = event.seccomp_action
+                record["anomaly"]["syscall"] = event.seccomp_syscall_name
+            elif event.is_mac_status:
+                record["anomaly"]["subsystem"] = "mac_status"
+                record["anomaly"]["status"] = event.mac_status_change_str
+        else:
+            if event.is_landlock:
+                record["landlock"] = {
+                    "blockers": event.landlock_blockers,
+                    "domain": (event.landlock or {}).get("domain"),
+                }
+            if event.is_seccomp:
+                record["seccomp"] = {
+                    "action": event.seccomp_action,
+                    "syscall": event.seccomp_syscall_name,
+                }
+            if event.is_mac_status:
+                record["mac_status"] = {
+                    "status": event.mac_status_change_str,
+                }
         if event.has_avc:
             record["avc"] = {
                 "denied": event.avc_perms,
@@ -7909,16 +8155,16 @@ class AudispStraceApp:
 
         # Track Landlock domain allocations
         if event.is_landlock_domain:
-            domain = event.landlock.get("domain")
+            domain = event.landlock_domain.get("domain")
             if domain:
-                status = event.landlock.get("status")
+                status = event.landlock_domain.get("status")
                 if status == "allocated":
                     d_info = {
-                        "pid": event.pid,
-                        "comm": event.comm,
-                        "exe": event.exe,
-                        "uid": event.uid,
-                        "mode": event.landlock.get("mode")
+                        "pid": event.pid or event.landlock_domain.get("pid"),
+                        "comm": event.comm or event.landlock_domain.get("comm"),
+                        "exe": event.exe or event.landlock_domain.get("exe"),
+                        "uid": event.uid or event.landlock_domain.get("uid"),
+                        "mode": event.landlock_domain.get("mode")
                     }
                     self.tracker.set_landlock_domain(domain, d_info)
                     i = 0
@@ -7933,7 +8179,17 @@ class AudispStraceApp:
                             i += 1
                 elif status == "deallocated":
                     self.tracker.remove_landlock_domain(domain)
-            return
+            if not event.is_landlock and not event.syscall:
+                return
+
+        if event.landlock_domain and not event.landlock_proc_info:
+            event.landlock_proc_info = {
+                "pid": event.pid,
+                "comm": event.comm,
+                "exe": event.exe,
+                "uid": event.uid,
+                "mode": event.landlock_domain.get("mode", "enforcing"),
+            }
 
         if event.is_landlock and not event.pid:
             domain = event.landlock.get("domain")
@@ -8007,7 +8263,13 @@ class AudispStraceApp:
                 elif self.all_syscalls:
                     should_display = True
                 else:
-                    should_display = scname in DEFAULT_MONITORED_SYSCALLS
+                    should_display = (
+                        scname in DEFAULT_MONITORED_SYSCALLS or
+                        event.has_avc or
+                        event.is_landlock or
+                        event.is_seccomp or
+                        event.is_mac_status
+                    )
         else:
             # Tier 1 non-syscall event: display by default unless a specific syscall filter was given
             if self.syscall_filter is not None:

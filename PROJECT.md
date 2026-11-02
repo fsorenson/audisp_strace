@@ -465,7 +465,9 @@ Sample 3-line format per monitored event:
   - Decodes and formats critical non-syscall audit records:
     - Process crash terminations (`ANOM_ABEND`) matching `strace` (`+++ killed by <SIGNAME> (core dumped) +++`), decoding signal numbers (`SIGSEGV`, `SIGABRT`, `SIGILL`, `SIGTRAP`, `SIGBUS`, etc.) and core dump flags across modern (`res=1`) and legacy (`reason="memory violation"`) kernel audit records.
     - VFS link traversal restrictions (`ANOM_LINK: protected_symlink`): highlights `fs.protected_symlinks` and `fs.protected_hardlinks` kernel violations.
-    - Landlock LSM sandboxing (`1423` denials with domain-to-PID correlation via `1424` domain tracking): tracks domain allocation/deallocation and attributes denials to process PID and binary.
+    - Landlock LSM sandboxing (`1423` denials with domain-to-PID correlation via `1424` domain tracking): tracks domain allocation/deallocation and attributes denials to process PID and binary; supports filesystem (`fs.read_file`, etc.), network connect/bind (`net.connect_tcp`), and scoped signal restrictions (`scope.signal`). Handles co-located 1423/1424/SYSCALL multi-record audit events seamlessly.
+    - Seccomp BPF action tracking (`type=SECCOMP`): decodes Seccomp actions (`LOG`, `KILL_PROCESS`, `KILL_THREAD`, `TRAP`, `ERRNO`) and resolves syscall names (e.g., `[SECCOMP: LOG] getpid()`, `[SECCOMP: KILL_PROCESS] mkdirat()`).
+    - SELinux administrative status & mode transitions (`type=MAC_STATUS`): tracks transitions between Enforcing and Permissive (`[SELinux: MODE] Enforcing -> Permissive`).
     - Standalone SELinux decisions (`AVC`/`USER_AVC`): formatted as `[SELinux: DENIED { <perms> }] "<path>" (tclass=<tclass>)`.
   - Seamlessly integrated with compact modes (`-C`, `-C strace`), JSON export (`"anomaly"` object), and strictly excluded from `-c` summary table tallies.
 - [x] Packaging, Deployment & RPM Spec (`make install`, `make dist`, `make rpm`, `audisp-strace.spec`):
