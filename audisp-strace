@@ -3059,6 +3059,50 @@ LSEEK_WHENCE = {
     4: "SEEK_HOLE",
 }
 
+STATX_SYNC_FLAGS = {
+    0x0000: "AT_STATX_SYNC_AS_STAT",
+    0x2000: "AT_STATX_FORCE_SYNC",
+    0x4000: "AT_STATX_DONT_SYNC",
+}
+
+STATX_LOOKUP_FLAGS = [
+    (0x0100, "AT_SYMLINK_NOFOLLOW"),
+    (0x0400, "AT_SYMLINK_FOLLOW"),
+    (0x0800, "AT_NO_AUTOMOUNT"),
+    (0x1000, "AT_EMPTY_PATH"),
+]
+
+STATX_MASKS = [
+    (0x0001, "STATX_TYPE"),
+    (0x0002, "STATX_MODE"),
+    (0x0004, "STATX_NLINK"),
+    (0x0008, "STATX_UID"),
+    (0x0010, "STATX_GID"),
+    (0x0020, "STATX_ATIME"),
+    (0x0040, "STATX_MTIME"),
+    (0x0080, "STATX_CTIME"),
+    (0x0100, "STATX_INO"),
+    (0x0200, "STATX_SIZE"),
+    (0x0400, "STATX_BLOCKS"),
+    (0x0800, "STATX_BTIME"),
+    (0x1000, "STATX_MNT_ID"),
+    (0x2000, "STATX_DIOALIGN"),
+    (0x4000, "STATX_MNT_ID_UNIQUE"),
+    (0x8000, "STATX_SUBVOL"),
+    (0x10000, "STATX_WRITE_ATOMIC"),
+    (0x20000, "STATX_DIO_READ_ALIGN"),
+]
+
+STAT_FILE_TYPES = {
+    0o010000: "S_IFIFO",
+    0o020000: "S_IFCHR",
+    0o040000: "S_IFDIR",
+    0o060000: "S_IFBLK",
+    0o100000: "S_IFREG",
+    0o120000: "S_IFLNK",
+    0o140000: "S_IFSOCK",
+}
+
 POSIX_FADV_MODES = {
     0: "POSIX_FADV_NORMAL",
     1: "POSIX_FADV_RANDOM",
@@ -5223,37 +5267,235 @@ class SyscallHandler:
         bufsiz = self._parse_id(event.syscall.get("a3", "1024"))
         return f"readlinkat({dirfd_str}, \"{name}\", ..., {bufsiz}) = {event.exit_str}"
 
+    def _parse_dev_hex(self, dev_str):
+        if not dev_str or ":" not in str(dev_str):
+            return None, None
+        try:
+            parts = str(dev_str).split(":", 1)
+            return int(parts[0], 16), int(parts[1], 16)
+        except (ValueError, IndexError):
+            return None, None
+
+    def _format_stat_mode(self, raw_mode):
+        if raw_mode is None:
+            return None
+        try:
+            mode_val = int(raw_mode, 8) if isinstance(raw_mode, str) else int(raw_mode)
+        except ValueError:
+            return str(raw_mode)
+
+        file_type = mode_val & 0o170000
+        perm_bits = mode_val & 0o7777
+        type_name = STAT_FILE_TYPES.get(file_type)
+        if perm_bits & 0o7000:
+            oct_str = f"0{perm_bits:04o}"
+        elif perm_bits == 0:
+            oct_str = "0"
+        else:
+            oct_str = f"0{perm_bits:03o}"
+
+        if type_name:
+            return f"{type_name}|{oct_str}"
+        return oct_str
+
+    def _get_target_path(self, event):
+        if not event.paths:
+            return None
+        for p in event.paths:
+            if p.get("nametype") != "PARENT" and ("mode" in p or "inode" in p):
+                return p
+        for p in event.paths:
+            if "mode" in p or "inode" in p:
+                return p
+        return event.paths[0] if event.paths else None
+
+    def _format_statx_flags(self, flags_val):
+        if not isinstance(flags_val, int):
+            flags_val = self._parse_id(flags_val)
+        if not isinstance(flags_val, int):
+            return str(flags_val)
+
+        parts = []
+        sync_part = flags_val & 0x6000
+        if sync_part == 0x2000:
+            parts.append("AT_STATX_FORCE_SYNC")
+        elif sync_part == 0x4000:
+            parts.append("AT_STATX_DONT_SYNC")
+        else:
+            parts.append("AT_STATX_SYNC_AS_STAT")
+
+        rem = flags_val & ~0x6000
+        for bit, name in STATX_LOOKUP_FLAGS:
+            if rem & bit:
+                parts.append(name)
+                rem &= ~bit
+
+        if rem:
+            parts.append(f"{rem:#x}")
+
+        return "|".join(parts)
+
+    def _format_statx_mask(self, mask_val):
+        if not isinstance(mask_val, int):
+            mask_val = self._parse_id(mask_val)
+        if not isinstance(mask_val, int):
+            return str(mask_val)
+
+        if mask_val == 0:
+            return "0"
+
+        parts = []
+        rem = mask_val
+
+        if (rem & 0x0fff) == 0x0fff:
+            parts.append("STATX_ALL")
+            rem &= ~0x0fff
+        elif (rem & 0x07ff) == 0x07ff:
+            parts.append("STATX_BASIC_STATS")
+            rem &= ~0x07ff
+
+        for bit, name in STATX_MASKS:
+            if rem & bit:
+                parts.append(name)
+                rem &= ~bit
+
+        if rem:
+            parts.append(f"{rem:#x}")
+
+        return "|".join(parts) if parts else str(mask_val)
+
+    def _format_statxbuf(self, event):
+        if event.exit_code is not None and event.exit_code < 0:
+            return "{...}"
+        p = self._get_target_path(event)
+        if not p:
+            return "{...}"
+
+        fields = []
+        if "ouid" in p:
+            try:
+                uid_val = int(p["ouid"])
+                fields.append(f"stx_uid={uid_val}")
+            except (ValueError, TypeError):
+                pass
+        if "ogid" in p:
+            try:
+                gid_val = int(p["ogid"])
+                fields.append(f"stx_gid={gid_val}")
+            except (ValueError, TypeError):
+                pass
+        if "mode" in p:
+            mode_fmt = self._format_stat_mode(p["mode"])
+            if mode_fmt:
+                fields.append(f"stx_mode={mode_fmt}")
+        if "inode" in p:
+            try:
+                ino_val = int(p["inode"])
+                fields.append(f"stx_ino={ino_val}")
+            except (ValueError, TypeError):
+                pass
+        if "rdev" in p:
+            r_maj, r_min = self._parse_dev_hex(p["rdev"])
+            if r_maj is not None:
+                fields.append(f"stx_rdev_major={r_maj}")
+                fields.append(f"stx_rdev_minor={r_min}")
+        if "dev" in p:
+            dev_maj, dev_min = self._parse_dev_hex(p["dev"])
+            if dev_maj is not None:
+                fields.append(f"stx_dev_major={dev_maj}")
+                fields.append(f"stx_dev_minor={dev_min}")
+
+        if not fields:
+            return "{...}"
+        fields.append("...")
+        return "{" + ", ".join(fields) + "}"
+
+    def _format_statbuf(self, event):
+        if event.exit_code is not None and event.exit_code < 0:
+            return "{...}"
+        p = self._get_target_path(event)
+        if not p:
+            return "{...}"
+
+        fields = []
+        if "dev" in p:
+            dev_maj, dev_min = self._parse_dev_hex(p["dev"])
+            if dev_maj is not None:
+                fields.append(f"st_dev=makedev({dev_maj:#x}, {dev_min:#x})")
+        if "inode" in p:
+            try:
+                ino_val = int(p["inode"])
+                fields.append(f"st_ino={ino_val}")
+            except (ValueError, TypeError):
+                pass
+        if "mode" in p:
+            mode_fmt = self._format_stat_mode(p["mode"])
+            if mode_fmt:
+                fields.append(f"st_mode={mode_fmt}")
+        if "ouid" in p:
+            try:
+                uid_val = int(p["ouid"])
+                fields.append(f"st_uid={uid_val}")
+            except (ValueError, TypeError):
+                pass
+        if "ogid" in p:
+            try:
+                gid_val = int(p["ogid"])
+                fields.append(f"st_gid={gid_val}")
+            except (ValueError, TypeError):
+                pass
+        if "rdev" in p:
+            r_maj, r_min = self._parse_dev_hex(p["rdev"])
+            if r_maj is not None and (r_maj != 0 or r_min != 0):
+                fields.append(f"st_rdev=makedev({r_maj:#x}, {r_min:#x})")
+
+        if not fields:
+            return "{...}"
+        fields.append("...")
+        return "{" + ", ".join(fields) + "}"
+
     def handle_stat_lstat(self, event, scname=None):
         scname = scname or event.syscall_name
         name = self._get_pathname(event, "a0")
-        return f"{scname}(\"{name}\", {{...}}) = {event.exit_str}"
+        statbuf_str = self._format_statbuf(event)
+        return f"{scname}(\"{name}\", {statbuf_str}) = {event.exit_str}"
 
     def handle_fstat(self, event):
         fd_str = self._resolve_fd(event, "a0")
-        return f"fstat({fd_str}, {{...}}) = {event.exit_str}"
+        statbuf_str = self._format_statbuf(event)
+        return f"fstat({fd_str}, {statbuf_str}) = {event.exit_str}"
 
     def handle_newfstatat(self, event, scname=None):
         scname = scname or event.syscall_name or "newfstatat"
         dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
         name = self._get_pathname(event, "a1")
+        statbuf_str = self._format_statbuf(event)
         flags_val = self._parse_id(event.syscall.get("a3", "0"))
-        if flags_val == 0x100:
+        if flags_val == 0:
+            flags_str = "0"
+        elif flags_val == 0x100:
             flags_str = "AT_SYMLINK_NOFOLLOW"
+        elif flags_val == 0x800:
+            flags_str = "AT_NO_AUTOMOUNT"
+        elif flags_val == 0x900:
+            flags_str = "AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT"
         elif flags_val == 0x1000:
             flags_str = "AT_EMPTY_PATH"
         elif flags_val == 0x1100:
             flags_str = "AT_SYMLINK_NOFOLLOW|AT_EMPTY_PATH"
         else:
             flags_str = str(flags_val)
-        return f"{scname}({dirfd_str}, \"{name}\", {{...}}, {flags_str}) = {event.exit_str}"
+        return f"{scname}({dirfd_str}, \"{name}\", {statbuf_str}, {flags_str}) = {event.exit_str}"
 
     def handle_statx(self, event):
         dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
         name = self._get_pathname(event, "a1")
         flags_val = self._parse_id(event.syscall.get("a2", "0"))
         mask_val = self._parse_id(event.syscall.get("a3", "0"))
-        flags_str = "AT_SYMLINK_NOFOLLOW" if flags_val == 0x100 else str(flags_val)
-        return f"statx({dirfd_str}, \"{name}\", {flags_str}, {mask_val:#x}, {{...}}) = {event.exit_str}"
+        flags_str = self._format_statx_flags(flags_val)
+        mask_str = self._format_statx_mask(mask_val)
+        statxbuf_str = self._format_statxbuf(event)
+        return f"statx({dirfd_str}, \"{name}\", {flags_str}, {mask_str}, {statxbuf_str}) = {event.exit_str}"
 
     def handle_statfs(self, event):
         name = self._get_pathname(event, "a0")

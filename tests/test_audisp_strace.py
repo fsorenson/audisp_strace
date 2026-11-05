@@ -288,6 +288,40 @@ class TestAudispStrace(unittest.TestCase):
         self.assertNotIn("SIGSEGV", out)
         self.assertNotIn("landlock", out)
 
+    def test_statx_and_statbuf_decoding(self):
+        """Verify statx argument flag/mask decoding and PATH struct statx/stat field extraction."""
+        statx_log = (
+            'type=SYSCALL msg=audit(1793840164.463:8185748): arch=c000003e syscall=332 success=yes exit=0 '
+            'a0=ffffff9c a1=7ffedf1ee4f7 a2=900 a3=fff items=1 ppid=3203484 pid=3206395 auid=0 uid=0 gid=0 '
+            'comm="stat" exe="/usr/bin/stat"\n'
+            'type=CWD msg=audit(1793840164.463:8185748): cwd="/tmp/secret"\n'
+            'type=PATH msg=audit(1793840164.463:8185748): item=0 name="." inode=201915981 dev=fd:00 mode=040755 '
+            'ouid=0 ogid=0 rdev=00:00 nametype=NORMAL\n'
+            'type=PROCTITLE msg=audit(1793840164.463:8185748): proctitle=73746174002E\n'
+        )
+        proc = subprocess.run(
+            [AUDISP_STRACE, "-"],
+            input=statx_log,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0)
+        out = proc.stdout
+        self.assertIn(
+            'statx(AT_FDCWD</tmp/secret>, ".", AT_STATX_SYNC_AS_STAT|AT_SYMLINK_NOFOLLOW|AT_NO_AUTOMOUNT, STATX_ALL, '
+            '{stx_uid=0, stx_gid=0, stx_mode=S_IFDIR|0755, stx_ino=201915981, stx_rdev_major=0, stx_rdev_minor=0, '
+            'stx_dev_major=253, stx_dev_minor=0, ...}) = 0',
+            out,
+        )
+
+        # Verify newfstatat from existing representative matrix
+        matrix_file = os.path.join(DATA_DIR, "syscall_matrix.log")
+        code, matrix_out, _ = run_cmd(["-s", "newfstatat", matrix_file])
+        self.assertEqual(code, 0)
+        self.assertIn("st_dev=makedev(0xfd, 0x0)", matrix_out)
+        self.assertIn("st_mode=S_IFREG|0644", matrix_out)
+        self.assertIn("st_ino=", matrix_out)
+
 
 if __name__ == "__main__":
     unittest.main()
