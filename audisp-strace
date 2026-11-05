@@ -4241,6 +4241,103 @@ class SyscallHandler:
             flags.append("X_OK")
         return "|".join(flags) if flags else str(m)
 
+    def _format_file_status_flags(self, flags):
+        if flags is None:
+            return "0"
+        try:
+            if isinstance(flags, str):
+                val = int(flags, 16) if flags.startswith(("0x", "0X")) else int(flags)
+            else:
+                val = int(flags)
+        except (ValueError, TypeError):
+            return str(flags)
+
+        if val < 0:
+            return str(val)
+
+        parts = []
+        # Access mode: bits 0-1 (O_ACCMODE = 0o3)
+        acc = val & 0o3
+        if acc == 0:
+            parts.append("O_RDONLY")
+        elif acc == 1:
+            parts.append("O_WRONLY")
+        elif acc == 2:
+            parts.append("O_RDWR")
+        else:
+            parts.append("O_ACCMODE")
+
+        rem = val & ~0o3
+
+        if rem & 0o100:
+            parts.append("O_CREAT")
+            rem &= ~0o100
+        if rem & 0o200:
+            parts.append("O_EXCL")
+            rem &= ~0o200
+        if rem & 0o400:
+            parts.append("O_NOCTTY")
+            rem &= ~0o400
+        if rem & 0o1000:
+            parts.append("O_TRUNC")
+            rem &= ~0o1000
+        if rem & 0o2000:
+            parts.append("O_APPEND")
+            rem &= ~0o2000
+        if rem & 0o4000:
+            parts.append("O_NONBLOCK")
+            rem &= ~0o4000
+
+        if (rem & 0o4010000) == 0o4010000:
+            parts.append("O_SYNC")
+            rem &= ~0o4010000
+        else:
+            if rem & 0o10000:
+                parts.append("O_DSYNC")
+                rem &= ~0o10000
+            if rem & 0o4000000:
+                parts.append("__O_SYNC")
+                rem &= ~0o4000000
+
+        if rem & 0o40000:
+            parts.append("O_DIRECT")
+            rem &= ~0o40000
+        if rem & 0o100000:
+            parts.append("O_LARGEFILE")
+            rem &= ~0o100000
+        if rem & 0o400000:
+            parts.append("O_NOFOLLOW")
+            rem &= ~0o400000
+        if rem & 0o1000000:
+            parts.append("O_NOATIME")
+            rem &= ~0o1000000
+        if rem & 0o2000000:
+            parts.append("O_CLOEXEC")
+            rem &= ~0o2000000
+        if rem & 0o10000000:
+            parts.append("O_PATH")
+            rem &= ~0o10000000
+
+        if (rem & 0o20200000) == 0o20200000:
+            parts.append("O_TMPFILE")
+            rem &= ~0o20200000
+        else:
+            if rem & 0o200000:
+                parts.append("O_DIRECTORY")
+                rem &= ~0o200000
+            if rem & 0o20000000:
+                parts.append("__O_TMPFILE")
+                rem &= ~0o20000000
+
+        if rem & 0o20000:
+            parts.append("FASYNC")
+            rem &= ~0o20000
+
+        if rem:
+            parts.append(f"0x{rem:x}")
+
+        return "|".join(parts) if parts else "0"
+
     def _format_dev(self, dev_val):
         try:
             d = int(str(dev_val), 16) if not str(dev_val).startswith("-") else int(dev_val)
@@ -5219,7 +5316,10 @@ class SyscallHandler:
     def handle_open(self, event):
         name = event.paths[0].get("name", "") if event.paths else event.syscall.get("a0", "")
         name = name.strip('"')
-        flags_interp = event.syscall_interp.get("a1") or event.syscall.get("a1", "O_RDONLY")
+        flags_interp = event.syscall_interp.get("a1")
+        if not flags_interp or flags_interp.isdigit() or flags_interp.startswith(("0x", "0X")):
+            raw_a1 = self._parse_id(event.syscall.get("a1", "0"))
+            flags_interp = self._format_file_status_flags(raw_a1)
         if "O_CREAT" in flags_interp or "O_TMPFILE" in flags_interp:
             mode_str = self._resolve_mode(event.syscall.get("a2", "0"), event.syscall_interp.get("a2"))
             call_str = f"open(\"{name}\", {flags_interp}, {mode_str}) = {event.exit_str}"
@@ -5243,7 +5343,10 @@ class SyscallHandler:
             elif event.avc_paths:
                 name = event.avc_paths[0]
 
-        flags_interp = event.syscall_interp.get("a2") or event.syscall.get("a2", "O_RDONLY")
+        flags_interp = event.syscall_interp.get("a2")
+        if not flags_interp or flags_interp.isdigit() or flags_interp.startswith(("0x", "0X")):
+            raw_a2 = self._parse_id(event.syscall.get("a2", "0"))
+            flags_interp = self._format_file_status_flags(raw_a2)
         if "O_CREAT" in flags_interp or "O_TMPFILE" in flags_interp:
             mode_str = self._resolve_mode(event.syscall.get("a3", "0"), event.syscall_interp.get("a3"))
             call_str = f"openat({dirfd_str}, \"{name}\", {flags_interp}, {mode_str}) = {event.exit_str}"
@@ -6536,10 +6639,35 @@ class SyscallHandler:
 
         if cmd_str == "F_SETFD":
             arg_str = "FD_CLOEXEC" if arg_val == 1 else str(arg_val)
-        elif cmd_str in ("F_GETFD", "F_GETFL", "F_GETPIPE_SZ", "F_GETOWN"):
+        elif cmd_str == "F_GETFD":
+            if event.exit_code is not None and event.exit_code >= 0:
+                if event.exit_code == 0:
+                    exit_res = "0"
+                elif event.exit_code == 1:
+                    exit_res = "0x1 (flags FD_CLOEXEC)"
+                else:
+                    cloexec = "FD_CLOEXEC" if (event.exit_code & 1) else ""
+                    extra = event.exit_code & ~1
+                    extra_str = f"|0x{extra:x}" if extra else ""
+                    inner = cloexec + extra_str if (cloexec or extra_str) else f"0x{event.exit_code:x}"
+                    exit_res = f"0x{event.exit_code:x} (flags {inner})"
+            else:
+                exit_res = event.exit_str
+            return f"fcntl({fd_str}, {cmd_str}) = {exit_res}"
+        elif cmd_str == "F_GETFL":
+            if event.exit_code is not None and event.exit_code >= 0:
+                if event.exit_code == 0:
+                    exit_res = "0 (flags O_RDONLY)"
+                else:
+                    flags_str = self._format_file_status_flags(event.exit_code)
+                    exit_res = f"0x{event.exit_code:x} (flags {flags_str})"
+            else:
+                exit_res = event.exit_str
+            return f"fcntl({fd_str}, {cmd_str}) = {exit_res}"
+        elif cmd_str in ("F_GETPIPE_SZ", "F_GETOWN", "F_GETSIG", "F_GETLEASE", "F_GET_SEALS"):
             return f"fcntl({fd_str}, {cmd_str}) = {event.exit_str}"
         elif cmd_str == "F_SETFL":
-            arg_str = event.syscall_interp.get("a2") or str(arg_val)
+            arg_str = self._format_file_status_flags(arg_val)
         elif cmd_str in ("F_SETLK", "F_SETLKW", "F_GETLK", "F_SETLK64", "F_SETLKW64", "F_GETLK64",
                          "F_OFD_SETLK", "F_OFD_SETLKW", "F_OFD_GETLK"):
             arg_str = "NULL" if arg_val == 0 else "{...}"

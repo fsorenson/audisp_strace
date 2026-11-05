@@ -352,6 +352,42 @@ class TestAudispStrace(unittest.TestCase):
         self.assertIn("fallocate(3, FALLOC_FL_KEEP_SIZE|FALLOC_FL_ZERO_RANGE, 0, 4096)", proc.stdout)
         self.assertIn("fallocate(3, FALLOC_FL_KEEP_SIZE|FALLOC_FL_UNSHARE_RANGE, 0, 4096)", proc.stdout)
 
+    def test_fcntl_flag_decoding(self):
+        """Verify fcntl file status flags and descriptor flags decoding for F_GETFL, F_SETFL, F_GETFD, F_SETFD."""
+        matrix_file = os.path.join(DATA_DIR, "syscall_matrix.log")
+
+        # F_GETFL from actual syscall matrix
+        code, out, _ = run_cmd(["-s", "fcntl", matrix_file])
+        self.assertEqual(code, 0)
+        self.assertIn("fcntl(4</tmp/audisp_test_cmK4v2/creat_file.txt>, F_GETFL) = 0x8002 (flags O_RDWR|O_LARGEFILE)", out)
+
+        # Synthetic tests for F_GETFL, F_SETFL, F_GETFD, F_SETFD
+        synth_log = (
+            'type=SYSCALL msg=audit(1793840164.463:201): arch=c000003e syscall=72 success=yes exit=0 '
+            'a0=3 a1=3 a2=0 a3=0 items=0 comm="test" exe="/test"\n'
+            'type=SYSCALL msg=audit(1793840164.463:202): arch=c000003e syscall=72 success=yes exit=34818 '
+            'a0=3 a1=3 a2=0 a3=0 items=0 comm="test" exe="/test"\n'
+            'type=SYSCALL msg=audit(1793840164.463:203): arch=c000003e syscall=72 success=yes exit=0 '
+            'a0=3 a1=4 a2=0 a3=0 items=0 comm="test" exe="/test"\n'
+            'type=SYSCALL msg=audit(1793840164.463:204): arch=c000003e syscall=72 success=yes exit=0 '
+            'a0=3 a1=4 a2=802 a3=0 items=0 comm="test" exe="/test"\n'
+            'type=SYSCALL msg=audit(1793840164.463:205): arch=c000003e syscall=72 success=yes exit=0 '
+            'a0=3 a1=1 a2=0 a3=0 items=0 comm="test" exe="/test"\n'
+            'type=SYSCALL msg=audit(1793840164.463:206): arch=c000003e syscall=72 success=yes exit=1 '
+            'a0=3 a1=1 a2=0 a3=0 items=0 comm="test" exe="/test"\n'
+            'type=SYSCALL msg=audit(1793840164.463:207): arch=c000003e syscall=72 success=yes exit=0 '
+            'a0=3 a1=2 a2=1 a3=0 items=0 comm="test" exe="/test"\n'
+        )
+        proc = subprocess.run([AUDISP_STRACE, "-"], input=synth_log, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("fcntl(3, F_GETFL) = 0 (flags O_RDONLY)", proc.stdout)
+        self.assertIn("fcntl(3, F_GETFL) = 0x8802 (flags O_RDWR|O_NONBLOCK|O_LARGEFILE)", proc.stdout)
+        self.assertIn("fcntl(3, F_SETFL, O_RDONLY) = 0", proc.stdout)
+        self.assertIn("fcntl(3, F_SETFL, O_RDWR|O_NONBLOCK) = 0", proc.stdout)
+        self.assertIn("fcntl(3, F_GETFD) = 0", proc.stdout)
+        self.assertIn("fcntl(3, F_GETFD) = 0x1 (flags FD_CLOEXEC)", proc.stdout)
+        self.assertIn("fcntl(3, F_SETFD, FD_CLOEXEC) = 0", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
