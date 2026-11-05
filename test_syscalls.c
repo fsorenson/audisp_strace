@@ -717,12 +717,22 @@ static void run_worker_tests(const char *base_dir) {
     res = utimensat(dir_fd, "openat_dirfd_rel.txt", NULL, 0);
     log_op("utimensat", "dir_fd + 'openat_dirfd_rel.txt'", res);
 
+#ifdef SYS_time
+    time_t t = (time_t)syscall(SYS_time, NULL);
+    log_op("time", "raw syscall(SYS_time, NULL)", (t != (time_t)-1) ? 0 : -1);
+#else
     time_t t = time(NULL);
     log_op("time", "time(NULL)", (t != (time_t)-1) ? 0 : -1);
+#endif
 
     struct timeval tv;
+#ifdef SYS_gettimeofday
+    res = (int)syscall(SYS_gettimeofday, &tv, NULL);
+    log_op("gettimeofday", "raw syscall(SYS_gettimeofday, &tv, NULL)", res);
+#else
     res = gettimeofday(&tv, NULL);
     log_op("gettimeofday", "gettimeofday(&tv, NULL)", res);
+#endif
 
     struct timex tmx;
     memset(&tmx, 0, sizeof(tmx));
@@ -730,14 +740,27 @@ static void run_worker_tests(const char *base_dir) {
     log_op("adjtimex", "adjtimex query state", res);
 
     struct timespec ts;
+#ifdef SYS_clock_gettime
+    res = (int)syscall(SYS_clock_gettime, CLOCK_REALTIME, &ts);
+    log_op("clock_gettime", "raw syscall(SYS_clock_gettime, CLOCK_REALTIME, &ts)", res);
+
+    res = (int)syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &ts);
+    log_op("clock_gettime", "raw syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &ts)", res);
+#else
     res = clock_gettime(CLOCK_REALTIME, &ts);
     log_op("clock_gettime", "CLOCK_REALTIME", res);
 
     res = clock_gettime(CLOCK_MONOTONIC, &ts);
     log_op("clock_gettime", "CLOCK_MONOTONIC", res);
+#endif
 
+#ifdef SYS_clock_getres
+    res = (int)syscall(SYS_clock_getres, CLOCK_MONOTONIC, &ts);
+    log_op("clock_getres", "raw syscall(SYS_clock_getres, CLOCK_MONOTONIC, &ts)", res);
+#else
     res = clock_getres(CLOCK_MONOTONIC, &ts);
     log_op("clock_getres", "CLOCK_MONOTONIC", res);
+#endif
 
     /* -------------------------------------------------------------
      * 10. RENAMING: rename, renameat, renameat2
