@@ -405,7 +405,11 @@ static void run_worker_tests(const char *base_dir) {
     log_op("mkdir", "subdir_rel, mode 0755", res);
 
     /* Open directory fd for dir_fd tests */
+#ifdef SYS_open
+    dir_fd = (int)syscall(SYS_open, "subdir_rel", O_RDONLY | O_DIRECTORY);
+#else
     dir_fd = open("subdir_rel", O_RDONLY | O_DIRECTORY);
+#endif
     log_op("open", "subdir_rel as dir_fd", dir_fd);
 
     /* mkdirat: AT_FDCWD + relative path */
@@ -437,7 +441,11 @@ static void run_worker_tests(const char *base_dir) {
     if (file_fd >= 0) close(file_fd);
 
     /* open (relative) */
+#ifdef SYS_open
+    file_fd = (int)syscall(SYS_open, "open_file.txt", O_RDWR | O_CREAT | O_TRUNC, 0644);
+#else
     file_fd = open("open_file.txt", O_RDWR | O_CREAT | O_TRUNC, 0644);
+#endif
     log_op("open", "open_file.txt O_RDWR|O_CREAT", file_fd);
     if (file_fd >= 0) close(file_fd);
 
@@ -482,10 +490,18 @@ static void run_worker_tests(const char *base_dir) {
     printf("\n--- Stat & Access Family ---\n");
     {
         struct stat st;
+#ifdef SYS_stat
+        res = (int)syscall(SYS_stat, "creat_file.txt", &st);
+#else
         res = stat("creat_file.txt", &st);
+#endif
         log_op("stat", "creat_file.txt", res);
 
+#ifdef SYS_lstat
+        res = (int)syscall(SYS_lstat, "creat_file.txt", &st);
+#else
         res = lstat("creat_file.txt", &st);
+#endif
         log_op("lstat", "creat_file.txt", res);
 
         if (file_fd >= 0) {
@@ -493,7 +509,13 @@ static void run_worker_tests(const char *base_dir) {
             log_op("fstat", "open file_fd", res);
         }
 
+#ifdef SYS_newfstatat
+        res = (int)syscall(SYS_newfstatat, dir_fd, "openat_dirfd_rel.txt", &st, 0);
+#elif defined(SYS_fstatat)
+        res = (int)syscall(SYS_fstatat, dir_fd, "openat_dirfd_rel.txt", &st, 0);
+#else
         res = fstatat(dir_fd, "openat_dirfd_rel.txt", &st, 0);
+#endif
         log_op("fstatat", "dir_fd + 'openat_dirfd_rel.txt'", res);
 
         struct statfs stfs;
@@ -688,7 +710,11 @@ static void run_worker_tests(const char *base_dir) {
      * ------------------------------------------------------------- */
     printf("\n--- Special Nodes, Pipes & Timestamps ---\n");
 
+#ifdef SYS_mknod
+    res = (int)syscall(SYS_mknod, "fifo_test.pipe", S_IFIFO | 0644, 0);
+#else
     res = mknod("fifo_test.pipe", S_IFIFO | 0644, 0);
+#endif
     log_op("mknod", "fifo_test.pipe S_IFIFO", res);
 
     res = mknodat(dir_fd, "fifo_in_dirfd.pipe", S_IFIFO | 0644, 0);
@@ -696,7 +722,11 @@ static void run_worker_tests(const char *base_dir) {
 
     {
         int p_fds[2];
+#ifdef SYS_pipe
+        res = (int)syscall(SYS_pipe, p_fds);
+#else
         res = pipe(p_fds);
+#endif
         log_op("pipe", "create pipe pair", res);
         if (res >= 0) { close(p_fds[0]); close(p_fds[1]); }
 
@@ -705,13 +735,25 @@ static void run_worker_tests(const char *base_dir) {
         if (res >= 0) { close(p_fds[0]); close(p_fds[1]); }
     }
 
+#ifdef SYS_utime
+    res = (int)syscall(SYS_utime, "open_file.txt", NULL);
+#else
     res = utime("open_file.txt", NULL);
+#endif
     log_op("utime", "open_file.txt", res);
 
+#ifdef SYS_utimes
+    res = (int)syscall(SYS_utimes, "open_file.txt", NULL);
+#else
     res = utimes("open_file.txt", NULL);
+#endif
     log_op("utimes", "open_file.txt", res);
 
+#ifdef SYS_futimesat
+    res = (int)syscall(SYS_futimesat, dir_fd, "openat_dirfd_rel.txt", NULL);
+#else
     res = futimesat(dir_fd, "openat_dirfd_rel.txt", NULL);
+#endif
     log_op("futimesat", "dir_fd + 'openat_dirfd_rel.txt'", res);
 
     res = utimensat(dir_fd, "openat_dirfd_rel.txt", NULL, 0);
@@ -1626,7 +1668,11 @@ static void run_worker_tests(const char *base_dir) {
      * ------------------------------------------------------------- */
     printf("\n--- Time, Timers & Clocks (non-%%clock) ---\n");
     struct timespec ns_req = {0, 1000};
+#ifdef SYS_nanosleep
+    res = (int)syscall(SYS_nanosleep, &ns_req, NULL);
+#else
     res = nanosleep(&ns_req, NULL);
+#endif
     log_op("nanosleep", "nanosleep 1us", res);
 
     res = clock_nanosleep(CLOCK_REALTIME, 0, &ns_req, NULL);
@@ -2081,7 +2127,11 @@ static void run_worker_tests(const char *base_dir) {
      * 18. UNLINKED-WHILE-OPEN / GHOST FILE VERIFICATION
      * ------------------------------------------------------------- */
     printf("\n--- Unlinked-While-Open / Ghost File Verification ---\n");
+#ifdef SYS_open
+    int ghost_fd = (int)syscall(SYS_open, "unlinked_while_open.txt", O_RDWR | O_CREAT | O_TRUNC, 0644);
+#else
     int ghost_fd = open("unlinked_while_open.txt", O_RDWR | O_CREAT | O_TRUNC, 0644);
+#endif
     log_op("open", "unlinked_while_open.txt created", ghost_fd);
 
     if (ghost_fd >= 0) {
