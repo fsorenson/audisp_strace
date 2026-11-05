@@ -3112,6 +3112,17 @@ POSIX_FADV_MODES = {
     5: "POSIX_FADV_NOREUSE",
 }
 
+FALLOCATE_FLAGS = [
+    (0x01, "FALLOC_FL_KEEP_SIZE"),
+    (0x02, "FALLOC_FL_PUNCH_HOLE"),
+    (0x04, "FALLOC_FL_NO_HIDE_STALE"),
+    (0x08, "FALLOC_FL_COLLAPSE_RANGE"),
+    (0x10, "FALLOC_FL_ZERO_RANGE"),
+    (0x20, "FALLOC_FL_INSERT_RANGE"),
+    (0x40, "FALLOC_FL_UNSHARE_RANGE"),
+    (0x80, "FALLOC_FL_WRITE_ZEROES"),
+]
+
 BPF_CMDS = {
     0: "BPF_MAP_CREATE", 1: "BPF_MAP_LOOKUP_ELEM", 2: "BPF_MAP_UPDATE_ELEM",
     3: "BPF_MAP_DELETE_ELEM", 4: "BPF_MAP_GET_NEXT_KEY", 5: "BPF_PROG_LOAD",
@@ -5563,15 +5574,25 @@ class SyscallHandler:
         length = self._parse_id(event.syscall.get("a1", "0"))
         return f"ftruncate({fd_str}, {length}) = {event.exit_str}"
 
+    def _format_fallocate_mode(self, mode):
+        if not isinstance(mode, int):
+            mode = self._parse_id(mode)
+        if not isinstance(mode, int) or mode == 0:
+            return "0"
+        parts = []
+        rem = mode
+        for bit, name in FALLOCATE_FLAGS:
+            if rem & bit:
+                parts.append(name)
+                rem &= ~bit
+        if rem:
+            parts.append(f"{rem:#x}")
+        return "|".join(parts) if parts else str(mode)
+
     def handle_fallocate(self, event):
         fd_str = self._resolve_fd(event, "a0")
         mode = self._parse_id(event.syscall.get("a1", "0"))
-        if mode == 1:
-            mode_str = "FALLOC_FL_KEEP_SIZE"
-        elif mode == 3:
-            mode_str = "FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE"
-        else:
-            mode_str = str(mode)
+        mode_str = self._format_fallocate_mode(mode)
         offset = self._parse_id(event.syscall.get("a2", "0"))
         length = self._parse_id(event.syscall.get("a3", "0"))
         return f"fallocate({fd_str}, {mode_str}, {offset}, {length}) = {event.exit_str}"
@@ -5615,12 +5636,31 @@ class SyscallHandler:
             dirfd_str = self._resolve_dirfd(event, event.syscall.get("a0"))
             name = self._get_pathname(event, "a1")
             target_str = f'{dirfd_str}, "{name}"'
-        elif scname.startswith("f"):
+            if "list" in scname:
+                size = self._parse_id(event.syscall.get("a3", "0"))
+                return f"{scname}({target_str}, ..., {size}, ...) = {event.exit_str}"
+            elif "remove" in scname:
+                return f"{scname}({target_str}, ..., ...) = {event.exit_str}"
+            else:
+                return f"{scname}({target_str}, ..., ..., ...) = {event.exit_str}"
+
+        if scname.startswith("f"):
             target_str = self._resolve_fd(event, "a0")
         else:
-            target_str = f'"{self._get_pathname(event, "a0")}"'
-        if "get" in scname or "set" in scname:
-            return f"{scname}({target_str}, ..., ...) = {event.exit_str}"
+            name = self._get_pathname(event, "a0")
+            target_str = f'"{name}"'
+
+        if "set" in scname:
+            size = self._parse_id(event.syscall.get("a3", "0"))
+            return f"{scname}({target_str}, ..., ..., {size}, ...) = {event.exit_str}"
+        elif "get" in scname:
+            size = self._parse_id(event.syscall.get("a3", "0"))
+            return f"{scname}({target_str}, ..., ..., {size}) = {event.exit_str}"
+        elif "list" in scname:
+            size = self._parse_id(event.syscall.get("a2", "0"))
+            return f"{scname}({target_str}, ..., {size}) = {event.exit_str}"
+        elif "remove" in scname:
+            return f"{scname}({target_str}, ...) = {event.exit_str}"
         return f"{scname}({target_str}, ...) = {event.exit_str}"
 
     def handle_chdir(self, event):

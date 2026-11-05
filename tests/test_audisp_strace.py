@@ -322,6 +322,36 @@ class TestAudispStrace(unittest.TestCase):
         self.assertIn("st_mode=S_IFREG|0644", matrix_out)
         self.assertIn("st_ino=", matrix_out)
 
+    def test_fallocate_and_xattr_decoding(self):
+        """Verify fallocate bitmask decoding and extended attribute size/flag argument decoding."""
+        matrix_file = os.path.join(DATA_DIR, "syscall_matrix.log")
+
+        # fallocate mode decoding
+        code, out, _ = run_cmd(["-s", "fallocate", matrix_file])
+        self.assertEqual(code, 0)
+        self.assertIn("fallocate(4</tmp/audisp_test_cmK4v2/creat_file.txt>, 0, 0, 1024) = 0", out)
+
+        # extended attributes decoding with size argument
+        code, out, _ = run_cmd(["-s", "setxattr,fsetxattr,lsetxattr,getxattr,listxattr", matrix_file])
+        self.assertEqual(code, 0)
+        self.assertIn('setxattr("open_file.txt", ..., ..., 4, ...) = 0', out)
+        self.assertIn('getxattr("open_file.txt", ..., ..., 256) = 4', out)
+        self.assertIn('listxattr("open_file.txt", ..., 256) = 34', out)
+        self.assertIn('fsetxattr(4</tmp/audisp_test_cmK4v2/creat_file.txt>, ..., ..., 4, ...) = 0', out)
+        self.assertIn('lsetxattr("symlink_open.txt", ..., ..., 4, ...) = -1 EPERM(Operation not permitted)', out)
+
+        # Synthetic test for composite fallocate modes
+        synth_log = (
+            'type=SYSCALL msg=audit(1793840164.463:101): arch=c000003e syscall=285 success=yes exit=0 '
+            'a0=3 a1=11 a2=0 a3=1000 items=0 comm="test" exe="/test"\n'
+            'type=SYSCALL msg=audit(1793840164.463:102): arch=c000003e syscall=285 success=yes exit=0 '
+            'a0=3 a1=41 a2=0 a3=1000 items=0 comm="test" exe="/test"\n'
+        )
+        proc = subprocess.run([AUDISP_STRACE, "-"], input=synth_log, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("fallocate(3, FALLOC_FL_KEEP_SIZE|FALLOC_FL_ZERO_RANGE, 0, 4096)", proc.stdout)
+        self.assertIn("fallocate(3, FALLOC_FL_KEEP_SIZE|FALLOC_FL_UNSHARE_RANGE, 0, 4096)", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
