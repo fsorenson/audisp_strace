@@ -8045,7 +8045,8 @@ class SyscallHandler:
                 target = f"connect({info['daddr']}:{info['dest']})"
                 res = "= -1 EACCES (Permission denied)"
             elif "opid" in info:
-                comm_part = f"<{info.get('ocomm', '').strip('\"')}>" if "ocomm" in info else ""
+                ocomm = info.get("ocomm", "").strip('"')
+                comm_part = f"<{ocomm}>" if "ocomm" in info else ""
                 target = f"kill({info['opid']}{comm_part}, 0)"
                 res = "= -1 EPERM (Operation not permitted)"
             else:
