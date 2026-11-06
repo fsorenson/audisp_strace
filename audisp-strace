@@ -6463,8 +6463,19 @@ class SyscallHandler:
         return f"set_mempolicy({mode_str}, [...], {maxnode}) = {event.exit_str}"
 
     def handle_get_mempolicy(self, event):
+        maxnode = self._parse_id(event.syscall.get("a2", "0"))
+        addr = self._parse_id(event.syscall.get("a3", "0"))
+        addr_str = "NULL" if addr == 0 else f"0x{addr:x}"
         flags = self._parse_id(event.syscall.get("a4", "0"))
-        return f"get_mempolicy([...], [...], ..., ..., {flags}) = {event.exit_str}"
+        f_list = []
+        if flags & 1:
+            f_list.append("MPOL_F_NODE")
+        if flags & 2:
+            f_list.append("MPOL_F_ADDR")
+        if flags & 4:
+            f_list.append("MPOL_F_MEMS_ALLOWED")
+        flags_str = "|".join(f_list) if f_list else (str(flags) if flags else "0")
+        return f"get_mempolicy([...], [...], {maxnode}, {addr_str}, {flags_str}) = {event.exit_str}"
 
     def handle_migrate_pages(self, event):
         pid_val = self._parse_id(event.syscall.get("a0", "0"))
@@ -6474,8 +6485,16 @@ class SyscallHandler:
     def handle_move_pages(self, event):
         pid_val = self._parse_id(event.syscall.get("a0", "0"))
         count = self._parse_id(event.syscall.get("a1", "0"))
+        nodes_ptr = self._parse_id(event.syscall.get("a3", "0"))
+        nodes_str = "NULL" if nodes_ptr == 0 else "[...]"
         flags = self._parse_id(event.syscall.get("a5", "0"))
-        return f"move_pages({pid_val}, {count}, [...], [...], [...], {flags}) = {event.exit_str}"
+        f_list = []
+        if flags & 2:
+            f_list.append("MPOL_MF_MOVE")
+        if flags & 4:
+            f_list.append("MPOL_MF_MOVE_ALL")
+        flags_str = "|".join(f_list) if f_list else (str(flags) if flags else "0")
+        return f"move_pages({pid_val}, {count}, [...], {nodes_str}, [...], {flags_str}) = {event.exit_str}"
 
     def handle_map_shadow_stack(self, event):
         addr_val = self._parse_id(event.syscall.get("a0", "0"))
