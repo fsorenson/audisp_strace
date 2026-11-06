@@ -388,6 +388,40 @@ class TestAudispStrace(unittest.TestCase):
         self.assertIn("fcntl(3, F_GETFD) = 0x1 (flags FD_CLOEXEC)", proc.stdout)
         self.assertIn("fcntl(3, F_SETFD, FD_CLOEXEC) = 0", proc.stdout)
 
+    def test_clone_clone3_and_mmap2_decoding(self):
+        """Verify clone argument flag decoding, clone3 size decoding, and mmap2 decoding."""
+        matrix_file = os.path.join(DATA_DIR, "syscall_matrix.log")
+
+        # clone from actual matrix
+        code, out, _ = run_cmd(["-s", "clone", matrix_file])
+        self.assertEqual(code, 0)
+        self.assertIn("clone(CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, NULL, NULL, 0x7fa7754eaa10) = 2643382", out)
+
+        synth_log = (
+            # clone with 3rd argument as flags
+            'type=SYSCALL msg=audit(1793840164.463:301): arch=c000003e syscall=56 success=yes exit=1234 '
+            'a0=401000 a1=7ffe000 a2=1200011 a3=0 items=0 comm="test" exe="/test"\n'
+            # clone3 with 3 args (3rd arg size)
+            'type=SYSCALL msg=audit(1793840164.463:302): arch=c000003e syscall=435 success=yes exit=1235 '
+            'a0=7ffe100 a1=7ffe200 a2=58 a3=0 items=0 comm="test" exe="/test"\n'
+            # clone3 with 2 args (2nd arg size)
+            'type=SYSCALL msg=audit(1793840164.463:303): arch=c000003e syscall=435 success=yes exit=1236 '
+            'a0=7ffe100 a1=58 a2=0 a3=0 items=0 comm="test" exe="/test"\n'
+            # mmap2 decoding (arch=40000003 for i386, syscall=192 is mmap2)
+            'type=SYSCALL msg=audit(1793840164.463:304): arch=40000003 syscall=192 success=yes exit=1074790400 '
+            'a0=0 a1=1000 a2=3 a3=22 items=0 comm="test" exe="/test"\n'
+            # waitpid (arch=40000003 for i386, syscall=7 is waitpid; a0=4ce is 1230)
+            'type=SYSCALL msg=audit(1793840164.463:305): arch=40000003 syscall=7 success=yes exit=1230 '
+            'a0=4ce a1=7ffe300 a2=0 a3=0 items=0 comm="test" exe="/test"\n'
+        )
+        proc = subprocess.run([AUDISP_STRACE, "-a", "-"], input=synth_log, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("clone(0x401000, 0x7ffe000, CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, NULL) = 1234", proc.stdout)
+        self.assertIn("clone3(0x7ffe100, 0x7ffe200, 88) = 1235", proc.stdout)
+        self.assertIn("clone3(0x7ffe100, 88) = 1236", proc.stdout)
+        self.assertIn("mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x40100000", proc.stdout)
+        self.assertIn("waitpid(1230, [{...}], 0) = 1230", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

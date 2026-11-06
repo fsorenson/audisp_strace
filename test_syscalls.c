@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sched.h>
+#include <linux/sched.h>
 #include <signal.h>
 #include <utime.h>
 #include <sys/types.h>
@@ -361,7 +362,7 @@
 /* Stack size for clone() */
 #define CLONE_STACK_SIZE (64 * 1024)
 
-static int clone_child_func(void *arg) {
+static int __attribute__((unused)) clone_child_func(void *arg) {
     (void)arg;
     return 0;
 }
@@ -944,6 +945,15 @@ static void run_worker_tests(const char *base_dir) {
         res = sigaltstack(&old_ss, NULL);
         log_op("sigaltstack", "sigaltstack(restore, NULL)", res);
 
+#ifdef SYS_signalfd
+        sigset_t sfd_mask_leg;
+        sigemptyset(&sfd_mask_leg);
+        sigaddset(&sfd_mask_leg, SIGUSR1);
+        int sfd_leg = (int)syscall(SYS_signalfd, -1, &sfd_mask_leg, 8);
+        log_op("signalfd", "signalfd(-1, [USR1])", sfd_leg);
+        if (sfd_leg >= 0) close(sfd_leg);
+#endif
+
 #ifdef SYS_signalfd4
         sigset_t sfd_mask;
         sigemptyset(&sfd_mask);
@@ -969,9 +979,46 @@ static void run_worker_tests(const char *base_dir) {
             _exit(0);
         } else if (child_w4 > 0) {
             int wstatus = 0;
+#ifdef SYS_wait4
+            res = (int)syscall(SYS_wait4, child_w4, &wstatus, 0, NULL);
+#else
             res = (int)wait4(child_w4, &wstatus, 0, NULL);
+#endif
             log_op("wait4", "wait4 on child", res);
         }
+
+#ifdef SYS_wait
+        pid_t child_w = fork();
+        if (child_w == 0) {
+            _exit(0);
+        } else if (child_w > 0) {
+            int w_stat = 0;
+            res = (int)syscall(SYS_wait, &w_stat);
+            log_op("wait", "raw syscall(SYS_wait)", res);
+        }
+#endif
+
+#ifdef SYS_wait3
+        pid_t child_w3 = fork();
+        if (child_w3 == 0) {
+            _exit(0);
+        } else if (child_w3 > 0) {
+            int w3_stat = 0;
+            res = (int)syscall(SYS_wait3, &w3_stat, 0, NULL);
+            log_op("wait3", "raw syscall(SYS_wait3)", res);
+        }
+#endif
+
+#ifdef SYS_waitpid
+        pid_t child_wp = fork();
+        if (child_wp == 0) {
+            _exit(0);
+        } else if (child_wp > 0) {
+            int wp_stat = 0;
+            res = (int)syscall(SYS_waitpid, child_wp, &wp_stat, 0);
+            log_op("waitpid", "raw syscall(SYS_waitpid)", res);
+        }
+#endif
 
         /* Test waitid */
         pid_t child_wid = fork();
@@ -986,7 +1033,14 @@ static void run_worker_tests(const char *base_dir) {
 
         char *stack = malloc(CLONE_STACK_SIZE);
         if (stack) {
+#ifdef SYS_clone
+            pid_t clone_pid = (pid_t)syscall(SYS_clone, SIGCHLD, 0, 0, 0, 0);
+            if (clone_pid == 0) {
+                _exit(0);
+            }
+#else
             pid_t clone_pid = clone(clone_child_func, stack + CLONE_STACK_SIZE, SIGCHLD, NULL);
+#endif
             log_op("clone", "direct clone() invocation", clone_pid);
             if (clone_pid > 0) {
                 waitpid(clone_pid, NULL, 0);
@@ -1015,6 +1069,14 @@ static void run_worker_tests(const char *base_dir) {
             res = munmap(m, 4096);
             log_op("munmap", "unmap 4096 bytes", res);
         }
+
+#ifdef SYS_mmap2
+        void *m2 = (void *)syscall(SYS_mmap2, NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        log_op("mmap2", "anonymous mmap2 4096 bytes", (m2 != MAP_FAILED && m2 != (void *)-1) ? 0 : -1);
+        if (m2 != MAP_FAILED && m2 != (void *)-1) {
+            munmap(m2, 4096);
+        }
+#endif
 
         /* mremap */
         void *mr = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -1085,7 +1147,11 @@ static void run_worker_tests(const char *base_dir) {
         log_op("semget", "IPC_PRIVATE semget 1 sem", semid);
         if (semid >= 0) {
             struct sembuf sb = {0, 0, IPC_NOWAIT};
+#ifdef SYS_semop
+            res = (int)syscall(SYS_semop, semid, &sb, 1);
+#else
             res = semop(semid, &sb, 1);
+#endif
             log_op("semop", "semop zero test", res);
 
             struct timespec sem_to = {0, 1000};
@@ -1309,11 +1375,25 @@ static void run_worker_tests(const char *base_dir) {
             res = (int)sendto(s_udp, "ping", 4, 0, (struct sockaddr *)&sin, sizeof(sin));
             log_op("sendto", "sendto 127.0.0.1:9999 UDP", res);
 
-            /* sendmmsg */
+            /* sendmsg & sendmmsg */
             struct iovec iov_mmsg;
             char msg_buf[] = "mmsg ping";
             iov_mmsg.iov_base = msg_buf;
             iov_mmsg.iov_len = sizeof(msg_buf);
+
+            struct msghdr msg;
+            memset(&msg, 0, sizeof(msg));
+            msg.msg_name = &sin;
+            msg.msg_namelen = sizeof(sin);
+            msg.msg_iov = &iov_mmsg;
+            msg.msg_iovlen = 1;
+#ifdef SYS_sendmsg
+            res = (int)syscall(SYS_sendmsg, s_udp, &msg, 0);
+#else
+            res = (int)sendmsg(s_udp, &msg, 0);
+#endif
+            log_op("sendmsg", "sendmsg to 127.0.0.1:9999 UDP", res);
+
             struct mmsghdr msgvec[1];
             memset(msgvec, 0, sizeof(msgvec));
             msgvec[0].msg_hdr.msg_name = &sin;
@@ -2017,8 +2097,19 @@ static void run_worker_tests(const char *base_dir) {
     res = (int)syscall(SYS_fsmount, -1, 0, 0);
     log_op("fsmount", "dummy fsmount", res);
 
-    res = (int)syscall(SYS_clone3, NULL, 0);
-    log_op("clone3", "dummy clone3", res);
+#ifdef SYS_clone3
+    struct clone_args cl_args;
+    memset(&cl_args, 0, sizeof(cl_args));
+    cl_args.exit_signal = SIGCHLD;
+    res = (int)syscall(SYS_clone3, &cl_args, sizeof(cl_args));
+    if (res == 0) {
+        _exit(0);
+    }
+    log_op("clone3", "direct SYS_clone3 with struct clone_args", res);
+    if (res > 0) {
+        waitpid(res, NULL, 0);
+    }
+#endif
 
     res = (int)syscall(SYS_pidfd_getfd, -1, -1, 0);
     log_op("pidfd_getfd", "dummy pidfd_getfd", res);
@@ -2380,7 +2471,7 @@ static void run_worker_tests(const char *base_dir) {
 #ifdef SYS_signalfd
     sigset_t smask_leg;
     sigemptyset(&smask_leg);
-    res = (int)syscall(SYS_signalfd, -1, &smask_leg, sizeof(smask_leg));
+    res = (int)syscall(SYS_signalfd, -1, &smask_leg, 8);
     log_op("signalfd", "direct SYS_signalfd fd -1", res);
     if (res >= 0) close(res);
 #endif

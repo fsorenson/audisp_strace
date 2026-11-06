@@ -123,7 +123,7 @@ FILE_MGMT_SYSCALLS = {
 
 # Memory management syscalls
 MEMORY_SYSCALLS = {
-    'mmap', 'munmap', 'mprotect', 'madvise', 'brk'
+    'mmap', 'mmap2', 'munmap', 'mprotect', 'madvise', 'brk'
 }
 
 # Socket & network syscalls
@@ -394,6 +394,7 @@ SYSCALL_CLASSES = {
         "mlock2",
         "mlockall",
         "mmap",
+        "mmap2",
         "move_pages",
         "mprotect",
         "mremap",
@@ -427,8 +428,11 @@ SYSCALL_CLASSES = {
         "tgkill",
         "tkill",
         "vfork",
+        "wait",
+        "wait3",
         "wait4",
         "waitid",
+        "waitpid",
     },
     # %creds (TRACE_CREDS): credential and capability syscalls (19 active, 0 unimplemented)
     "%creds": {
@@ -3634,6 +3638,7 @@ class SyscallHandler:
 
             # Memory Management
             "mmap": self.handle_mmap,
+            "mmap2": self.handle_mmap,
             "munmap": self.handle_munmap,
             "mprotect": self.handle_mprotect,
             "madvise": self.handle_madvise,
@@ -3731,6 +3736,8 @@ class SyscallHandler:
             "sigaltstack": self.handle_sigaltstack,
             "signalfd": self.handle_signalfd,
             "signalfd4": self.handle_signalfd4,
+            "wait": self.handle_wait4,
+            "wait3": self.handle_wait4,
             "wait4": self.handle_wait4,
             "waitpid": self.handle_wait4,
             "waitid": self.handle_waitid,
@@ -4830,14 +4837,48 @@ class SyscallHandler:
         if not isinstance(f, int) or f == 0:
             return "0"
         flags = []
-        if f & 0x20000: flags.append("CLONE_NEWNS")
-        if f & 0x2000000: flags.append("CLONE_NEWCGROUP")
-        if f & 0x4000000: flags.append("CLONE_NEWUTS")
-        if f & 0x8000000: flags.append("CLONE_NEWIPC")
-        if f & 0x10000000: flags.append("CLONE_NEWUSER")
-        if f & 0x20000000: flags.append("CLONE_NEWPID")
-        if f & 0x40000000: flags.append("CLONE_NEWNET")
-        if f & 0x80: flags.append("CLONE_NEWTIME")
+        rem = f
+        clone_flag_table = [
+            (0x100, "CLONE_VM"),
+            (0x200, "CLONE_FS"),
+            (0x400, "CLONE_FILES"),
+            (0x800, "CLONE_SIGHAND"),
+            (0x1000, "CLONE_PIDFD"),
+            (0x2000, "CLONE_PTRACE"),
+            (0x4000, "CLONE_VFORK"),
+            (0x8000, "CLONE_PARENT"),
+            (0x10000, "CLONE_THREAD"),
+            (0x20000, "CLONE_NEWNS"),
+            (0x40000, "CLONE_SYSVSEM"),
+            (0x80000, "CLONE_SETTLS"),
+            (0x100000, "CLONE_PARENT_SETTID"),
+            (0x200000, "CLONE_CHILD_CLEARTID"),
+            (0x400000, "CLONE_DETACHED"),
+            (0x800000, "CLONE_UNTRACED"),
+            (0x1000000, "CLONE_CHILD_SETTID"),
+            (0x2000000, "CLONE_NEWCGROUP"),
+            (0x4000000, "CLONE_NEWUTS"),
+            (0x8000000, "CLONE_NEWIPC"),
+            (0x10000000, "CLONE_NEWUSER"),
+            (0x20000000, "CLONE_NEWPID"),
+            (0x40000000, "CLONE_NEWNET"),
+            (0x80000000, "CLONE_IO"),
+            (0x100000000, "CLONE_CLEAR_SIGHAND"),
+            (0x200000000, "CLONE_INTO_CGROUP"),
+            (0x80, "CLONE_NEWTIME"),
+        ]
+        for mask, name in clone_flag_table:
+            if rem & mask:
+                flags.append(name)
+                rem &= ~mask
+        # Exit signal in bottom 7 bits (0..0x7f)
+        sig_num = rem & 0x7f
+        if sig_num:
+            sig_name = SIGNALS.get(sig_num, str(sig_num))
+            flags.append(sig_name)
+            rem &= ~sig_num
+        if rem:
+            flags.append(hex(rem))
         return "|".join(flags) if flags else hex(f)
 
     def _format_quotactl_cmd(self, cmd_raw):
@@ -6058,7 +6099,35 @@ class SyscallHandler:
         return f"msgctl({msqid}, {cmd_str}, [...]) = {event.exit_str}"
 
     def handle_clone(self, event):
-        return f"clone(...) = {event.exit_str}"
+        scname = event.syscall_name or "clone"
+        if scname in ("fork", "vfork"):
+            return f"{scname}() = {event.exit_str}"
+
+        a0_val = self._parse_id(event.syscall.get("a0", "0"))
+        a1_val = self._parse_id(event.syscall.get("a1", "0"))
+        a2_val = self._parse_id(event.syscall.get("a2", "0"))
+        a3_val = self._parse_id(event.syscall.get("a3", "0"))
+
+        a0_str = f"0x{a0_val:x}" if a0_val else "NULL"
+        a1_str = f"0x{a1_val:x}" if a1_val else "NULL"
+        a3_str = f"0x{a3_val:x}" if a3_val else "NULL"
+
+        if scname == "clone3":
+            if a2_val:
+                return f"clone3({a0_str}, {a1_str}, {a2_val}) = {event.exit_str}"
+            else:
+                return f"clone3({a0_str}, {a1_val}) = {event.exit_str}"
+
+        # scname == "clone"
+        if a2_val:
+            flags_str = self._format_clone_flags(a2_val)
+            return f"clone({a0_str}, {a1_str}, {flags_str}, {a3_str}) = {event.exit_str}"
+        elif a0_val:
+            flags_str = self._format_clone_flags(a0_val)
+            a2_str = f"0x{a2_val:x}" if a2_val else "NULL"
+            return f"clone({flags_str}, {a1_str}, {a2_str}, {a3_str}) = {event.exit_str}"
+        else:
+            return f"clone({a0_str}, {a1_str}, 0, {a3_str}) = {event.exit_str}"
 
     def handle_execve(self, event):
         name = event.paths[0].get("name") if event.paths else event.exe or "unknown"
@@ -6192,6 +6261,17 @@ class SyscallHandler:
         opts_str = self._format_wait_options(event.syscall.get("a2", "0"))
         ru_ptr = self._parse_id(event.syscall.get("a3", "0"))
         ru_str = ", NULL" if ru_ptr == 0 else ", {...}"
+        if scname == "wait":
+            status_ptr0 = self._parse_id(event.syscall.get("a0", "0"))
+            status_str0 = "[{...}]" if status_ptr0 else "NULL"
+            return f"wait({status_str0}) = {event.exit_str}"
+        elif scname == "wait3":
+            opts_str1 = self._format_wait_options(event.syscall.get("a1", "0"))
+            ru_ptr2 = self._parse_id(event.syscall.get("a2", "0"))
+            ru_str2 = "NULL" if ru_ptr2 == 0 else "{...}"
+            return f"wait3({status_str}, {opts_str1}, {ru_str2}) = {event.exit_str}"
+        elif scname == "waitpid":
+            return f"waitpid({pid_val}, {status_str}, {opts_str}) = {event.exit_str}"
         return f"{scname}({pid_val}, {status_str}, {opts_str}{ru_str}) = {event.exit_str}"
 
     def handle_waitid(self, event):
@@ -6206,6 +6286,7 @@ class SyscallHandler:
         return f"waitid({idtype_str}, {id_val}, {infop_str}, {opts_str}{ru_str}) = {event.exit_str}"
 
     def handle_mmap(self, event):
+        scname = event.syscall_name or "mmap"
         addr_val = self._parse_id(event.syscall.get("a0", "0"))
         addr_str = "NULL" if addr_val == 0 else f"0x{addr_val:x}"
         len_val = self._parse_id(event.syscall.get("a1", "0"))
@@ -6243,7 +6324,7 @@ class SyscallHandler:
             ret_str = f"0x{event.exit_code:x}"
         else:
             ret_str = event.exit_str
-        return f"mmap({addr_str}, {len_val}, {prot_str}, {flags_str}, {args_tail}) = {ret_str}"
+        return f"{scname}({addr_str}, {len_val}, {prot_str}, {flags_str}, {args_tail}) = {ret_str}"
 
     def handle_munmap(self, event):
         addr_val = self._parse_id(event.syscall.get("a0", "0"))
