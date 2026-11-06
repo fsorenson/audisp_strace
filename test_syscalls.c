@@ -50,6 +50,7 @@
 #include <sys/times.h>
 #include <sys/utsname.h>
 #include <sys/sysinfo.h>
+#include <linux/capability.h>
 
 #ifdef __has_include
 #  if __has_include(<linux/openat2.h>)
@@ -82,6 +83,22 @@
 #ifndef SYS_signalfd4
 #  if defined(__x86_64__)
 #    define SYS_signalfd4 289
+#  endif
+#endif
+
+#ifndef SYS_migrate_pages
+#  if defined(__x86_64__)
+#    define SYS_migrate_pages 256
+#  elif defined(__aarch64__)
+#    define SYS_migrate_pages 238
+#  endif
+#endif
+
+#ifndef SYS_move_pages
+#  if defined(__x86_64__)
+#    define SYS_move_pages 279
+#  elif defined(__aarch64__)
+#    define SYS_move_pages 239
 #  endif
 #endif
 
@@ -373,6 +390,7 @@ static void log_op(const char *syscall_name, const char *desc, int res) {
     } else {
         printf("  [FAIL] %-12s: %s (errno %d: %s)\n", syscall_name, desc, errno, strerror(errno));
     }
+    fflush(stdout);
 }
 
 static void run_worker_tests(const char *base_dir) {
@@ -779,8 +797,17 @@ static void run_worker_tests(const char *base_dir) {
 
     struct timex tmx;
     memset(&tmx, 0, sizeof(tmx));
+#ifdef SYS_adjtimex
+    res = (int)syscall(SYS_adjtimex, &tmx);
+    log_op("adjtimex", "raw syscall(SYS_adjtimex) query state", res);
+#else
     res = adjtimex(&tmx);
     log_op("adjtimex", "adjtimex query state", res);
+#endif
+#ifdef SYS_clock_adjtime
+    res = (int)syscall(SYS_clock_adjtime, CLOCK_REALTIME, &tmx);
+    log_op("clock_adjtime", "raw syscall(SYS_clock_adjtime, CLOCK_REALTIME, &tmx)", res);
+#endif
 
     struct timespec ts;
 #ifdef SYS_clock_gettime
@@ -882,6 +909,37 @@ static void run_worker_tests(const char *base_dir) {
     res = getgroups(16, groups);
     log_op("getgroups", "getgroups(16, groups)", res);
 
+    gid_t grplist[1] = { 0 };
+    res = setgroups(1, grplist);
+    log_op("setgroups", "setgroups(1, [0])", res);
+
+    pid_t sid_child = fork();
+    if (sid_child == 0) {
+        res = (int)setsid();
+        log_op("setsid", "setsid() in child process", res);
+        fflush(stdout);
+        _exit(0);
+    } else if (sid_child > 0) {
+        waitpid(sid_child, NULL, 0);
+    }
+
+#ifdef SYS_capget
+    struct __user_cap_header_struct cap_hdr;
+    struct __user_cap_data_struct cap_data[2];
+    memset(&cap_hdr, 0, sizeof(cap_hdr));
+    memset(cap_data, 0, sizeof(cap_data));
+    cap_hdr.version = _LINUX_CAPABILITY_VERSION_3;
+    cap_hdr.pid = 0;
+    res = (int)syscall(SYS_capget, &cap_hdr, cap_data);
+    log_op("capget", "raw syscall(SYS_capget, &cap_hdr, cap_data)", res);
+#ifdef SYS_capset
+    if (res >= 0) {
+        int cs_res = (int)syscall(SYS_capset, &cap_hdr, cap_data);
+        log_op("capset", "raw syscall(SYS_capset, &cap_hdr, cap_data)", cs_res);
+    }
+#endif
+#endif
+
     res = setgid(gid);
     log_op("setgid", "setgid(current_gid)", res);
 
@@ -968,10 +1026,23 @@ static void run_worker_tests(const char *base_dir) {
         if (pause_child == 0) {
             alarm(1);
             pause();
+            fflush(stdout);
             _exit(0);
         } else if (pause_child > 0) {
             waitpid(pause_child, NULL, 0);
+            log_op("pause", "pause() interrupted by alarm", 0);
         }
+
+#ifdef SYS_exit
+        pid_t child_exit = fork();
+        if (child_exit == 0) {
+            syscall(SYS_exit, 0);
+        } else if (child_exit > 0) {
+            int e_stat = 0;
+            waitpid(child_exit, &e_stat, 0);
+            log_op("exit", "raw syscall(SYS_exit, 0)", 0);
+        }
+#endif
 
         /* Test wait4 */
         pid_t child_w4 = fork();
@@ -1116,6 +1187,54 @@ static void run_worker_tests(const char *base_dir) {
         res = munlockall();
         log_op("munlockall", "munlockall", res);
 
+        /* NUMA memory policies: mbind, set_mempolicy, get_mempolicy, migrate_pages, move_pages */
+        void *numa_mem = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (numa_mem != MAP_FAILED) {
+            memset(numa_mem, 0x42, 4096);
+#ifdef SYS_mbind
+            res = (int)syscall(SYS_mbind, numa_mem, 4096, 0 /* MPOL_DEFAULT */, NULL, 0, 0);
+            log_op("mbind", "raw syscall(SYS_mbind, MPOL_DEFAULT)", res);
+#endif
+#ifdef SYS_set_mempolicy
+            res = (int)syscall(SYS_set_mempolicy, 0 /* MPOL_DEFAULT */, NULL, 0);
+            log_op("set_mempolicy", "raw syscall(SYS_set_mempolicy, MPOL_DEFAULT)", res);
+#endif
+#ifdef SYS_get_mempolicy
+            int mpol_mode = 0;
+            unsigned long nodemask = 0;
+#ifndef MPOL_F_MEMS_ALLOWED
+#  define MPOL_F_MEMS_ALLOWED (1 << 2)
+#endif
+            res = (int)syscall(SYS_get_mempolicy, &mpol_mode, &nodemask, (unsigned long)(sizeof(nodemask) * 8), NULL, (unsigned long)MPOL_F_MEMS_ALLOWED);
+            log_op("get_mempolicy", "raw syscall(SYS_get_mempolicy, MPOL_F_MEMS_ALLOWED)", res);
+
+#ifdef SYS_migrate_pages
+            unsigned long old_nodes = nodemask;
+            unsigned long new_nodes = nodemask;
+            int mig_res = (int)syscall(SYS_migrate_pages, 0, (unsigned long)(sizeof(nodemask) * 8), &old_nodes, &new_nodes);
+            log_op("migrate_pages", "raw syscall(SYS_migrate_pages, pid=0)", mig_res);
+#endif
+#ifdef SYS_move_pages
+#ifndef MPOL_MF_MOVE
+#  define MPOL_MF_MOVE (1 << 1)
+#endif
+            void *pages[1] = { numa_mem };
+            int status[1] = { -1 };
+            /* Query node location */
+            res = (int)syscall(SYS_move_pages, 0, 1, pages, NULL, status, 0);
+            log_op("move_pages", "raw syscall(SYS_move_pages, query mode)", res);
+
+            /* Move page */
+            int curr_node = (res == 0 && status[0] >= 0) ? status[0] : 0;
+            int target_nodes[1] = { (curr_node == 0) ? 1 : 0 };
+            status[0] = -1;
+            res = (int)syscall(SYS_move_pages, 0, 1, pages, target_nodes, status, MPOL_MF_MOVE);
+            log_op("move_pages", "raw syscall(SYS_move_pages, MPOL_MF_MOVE)", res);
+#endif
+#endif
+            munmap(numa_mem, 4096);
+        }
+
 #ifdef SYS_mseal
         void *mseal_mem = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
         if (mseal_mem != MAP_FAILED) {
@@ -1234,6 +1353,23 @@ static void run_worker_tests(const char *base_dir) {
         rw_res = readv(file_fd, iov, 2);
         log_op("readv", "readv 2 buffers", (int)rw_res);
 
+#ifdef SYS_pwritev
+        rw_res = syscall(SYS_pwritev, file_fd, iov, 2, 0);
+        log_op("pwritev", "raw syscall(SYS_pwritev, file_fd, iov, 2, 0)", (int)rw_res);
+#endif
+#ifdef SYS_preadv
+        rw_res = syscall(SYS_preadv, file_fd, iov, 2, 0);
+        log_op("preadv", "raw syscall(SYS_preadv, file_fd, iov, 2, 0)", (int)rw_res);
+#endif
+#ifdef SYS_pwritev2
+        rw_res = syscall(SYS_pwritev2, file_fd, iov, 2, 0, 0);
+        log_op("pwritev2", "raw syscall(SYS_pwritev2, file_fd, iov, 2, 0, 0)", (int)rw_res);
+#endif
+#ifdef SYS_preadv2
+        rw_res = syscall(SYS_preadv2, file_fd, iov, 2, 0, 0);
+        log_op("preadv2", "raw syscall(SYS_preadv2, file_fd, iov, 2, 0, 0)", (int)rw_res);
+#endif
+
         /* sendfile: copy 0 bytes from file_fd to file_fd (safe test) */
         off_t s_off = 0;
         rw_res = sendfile(file_fd, file_fd, &s_off, 0);
@@ -1351,6 +1487,16 @@ static void run_worker_tests(const char *base_dir) {
             res = listen(s_unix, 5);
             log_op("listen", "listen backlog 5", res);
 
+            int uflags = fcntl(s_unix, F_GETFL, 0);
+            if (uflags >= 0) fcntl(s_unix, F_SETFL, uflags | O_NONBLOCK);
+            res = accept(s_unix, NULL, NULL);
+            log_op("accept", "accept non-blocking (EAGAIN)", res);
+
+#ifdef SYS_accept4
+            res = (int)syscall(SYS_accept4, s_unix, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
+            log_op("accept4", "raw syscall(SYS_accept4, SOCK_NONBLOCK|SOCK_CLOEXEC)", res);
+#endif
+
             close(s_unix);
             unlink(sun_addr.sun_path);
         }
@@ -1402,6 +1548,33 @@ static void run_worker_tests(const char *base_dir) {
             msgvec[0].msg_hdr.msg_iovlen = 1;
             res = sendmmsg(s_udp, msgvec, 1, 0);
             log_op("sendmmsg", "sendmmsg 1 message to 127.0.0.1:9999", res);
+
+            /* connect on UDP socket */
+            res = connect(s_udp, (struct sockaddr *)&sin, sizeof(sin));
+            log_op("connect", "connect UDP 127.0.0.1:9999", res);
+
+            /* recvfrom non-blocking */
+            char r_buf[32];
+            res = (int)recvfrom(s_udp, r_buf, sizeof(r_buf), MSG_DONTWAIT, NULL, NULL);
+            log_op("recvfrom", "recvfrom MSG_DONTWAIT (EAGAIN expected)", res);
+
+            /* recvmsg non-blocking */
+            struct msghdr r_msg;
+            struct iovec r_iov = { .iov_base = r_buf, .iov_len = sizeof(r_buf) };
+            memset(&r_msg, 0, sizeof(r_msg));
+            r_msg.msg_iov = &r_iov;
+            r_msg.msg_iovlen = 1;
+            res = (int)recvmsg(s_udp, &r_msg, MSG_DONTWAIT);
+            log_op("recvmsg", "recvmsg MSG_DONTWAIT (EAGAIN expected)", res);
+
+#ifdef SYS_recvmmsg
+            struct mmsghdr r_mmsg;
+            memset(&r_mmsg, 0, sizeof(r_mmsg));
+            r_mmsg.msg_hdr = r_msg;
+            struct timespec r_to = {0, 0};
+            res = (int)syscall(SYS_recvmmsg, s_udp, &r_mmsg, 1, MSG_DONTWAIT, &r_to);
+            log_op("recvmmsg", "raw syscall(SYS_recvmmsg, MSG_DONTWAIT)", res);
+#endif
 
             close(s_udp);
         }
@@ -1557,12 +1730,27 @@ static void run_worker_tests(const char *base_dir) {
         log_op("copy_file_range", "copy_file_range 0 bytes", res);
 #endif
 
+#ifdef SYS_sync_file_range
+        res = (int)syscall(SYS_sync_file_range, file_fd, (off64_t)0, (off64_t)0, 0);
+        log_op("sync_file_range", "raw syscall(SYS_sync_file_range, file_fd, 0, 0, 0)", res);
+#endif
+
         int d3 = dup3(file_fd, 75, O_CLOEXEC);
         log_op("dup3", "dup3 file_fd -> 75 O_CLOEXEC", d3);
         if (d3 >= 0) close(d3);
     }
 
     if (dir_fd >= 0) {
+        char dent_buf[512];
+#ifdef SYS_getdents64
+        res = (int)syscall(SYS_getdents64, dir_fd, dent_buf, sizeof(dent_buf));
+        log_op("getdents64", "raw syscall(SYS_getdents64, dir_fd, buf, 512)", res);
+#endif
+#ifdef SYS_getdents
+        res = (int)syscall(SYS_getdents, dir_fd, dent_buf, sizeof(dent_buf));
+        log_op("getdents", "raw syscall(SYS_getdents, dir_fd, buf, 512)", res);
+#endif
+
         res = fchdir(dir_fd);
         log_op("fchdir", "fchdir dir_fd", res);
         /* Restore cwd to base_dir */
@@ -1577,6 +1765,38 @@ static void run_worker_tests(const char *base_dir) {
         close(p2[0]);
         close(p2[1]);
     }
+
+#if defined(SYS_splice) || defined(SYS_tee) || defined(SYS_vmsplice)
+    int sp_pipe[2];
+    if (pipe2(sp_pipe, O_NONBLOCK) == 0) {
+#ifdef SYS_vmsplice
+        char sp_buf[16] = "splice test";
+        struct iovec sp_iov = { .iov_base = sp_buf, .iov_len = sizeof(sp_buf) };
+        res = (int)syscall(SYS_vmsplice, sp_pipe[1], &sp_iov, 1, SPLICE_F_NONBLOCK);
+        log_op("vmsplice", "raw syscall(SYS_vmsplice, buffer to pipe)", res);
+#endif
+#ifdef SYS_tee
+        int tee_pipe[2];
+        if (pipe2(tee_pipe, O_NONBLOCK) == 0) {
+            res = (int)syscall(SYS_tee, sp_pipe[0], tee_pipe[1], 8, SPLICE_F_NONBLOCK);
+            log_op("tee", "raw syscall(SYS_tee, pipe to pipe)", res);
+            close(tee_pipe[0]);
+            close(tee_pipe[1]);
+        }
+#endif
+#ifdef SYS_splice
+        int out_pipe[2];
+        if (pipe2(out_pipe, O_NONBLOCK) == 0) {
+            res = (int)syscall(SYS_splice, sp_pipe[0], NULL, out_pipe[1], NULL, 8, SPLICE_F_NONBLOCK);
+            log_op("splice", "raw syscall(SYS_splice, pipe to pipe)", res);
+            close(out_pipe[0]);
+            close(out_pipe[1]);
+        }
+#endif
+        close(sp_pipe[0]);
+        close(sp_pipe[1]);
+    }
+#endif
 
     int efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     log_op("eventfd2", "eventfd2 EFD_CLOEXEC|EFD_NONBLOCK", efd);
@@ -1605,6 +1825,10 @@ static void run_worker_tests(const char *base_dir) {
             log_op("epoll_ctl", "epoll_ctl EPOLL_CTL_ADD ep_pipe[0]", res);
             res = epoll_wait(epfd, &ev, 1, 0);
             log_op("epoll_wait", "epoll_wait timeout 0", res);
+#ifdef SYS_epoll_pwait
+            res = (int)syscall(SYS_epoll_pwait, epfd, &ev, 1, 0, NULL);
+            log_op("epoll_pwait", "raw syscall(SYS_epoll_pwait, timeout 0)", res);
+#endif
             close(ep_pipe[0]);
             close(ep_pipe[1]);
         }
@@ -1711,12 +1935,22 @@ static void run_worker_tests(const char *base_dir) {
     log_op("personality", "query personality(0xffffffff)", res);
 
     struct rlimit rlim;
+#ifdef SYS_getrlimit
+    res = (int)syscall(SYS_getrlimit, RLIMIT_NOFILE, &rlim);
+    log_op("getrlimit", "raw syscall(SYS_getrlimit, RLIMIT_NOFILE, &rlim)", res);
+#else
     res = getrlimit(RLIMIT_NOFILE, &rlim);
     log_op("getrlimit", "RLIMIT_NOFILE", res);
+#endif
 
     if (res >= 0) {
+#ifdef SYS_setrlimit
+        res = (int)syscall(SYS_setrlimit, RLIMIT_NOFILE, &rlim);
+        log_op("setrlimit", "raw syscall(SYS_setrlimit, RLIMIT_NOFILE, &rlim)", res);
+#else
         res = setrlimit(RLIMIT_NOFILE, &rlim);
         log_op("setrlimit", "restore RLIMIT_NOFILE", res);
+#endif
 
         res = (int)syscall(SYS_prlimit64, 0, RLIMIT_NOFILE, NULL, &rlim);
         log_op("prlimit64", "query prlimit64 RLIMIT_NOFILE", res);
@@ -1821,6 +2055,7 @@ static void run_worker_tests(const char *base_dir) {
             res = (int)syscall(SYS_setdomainname, (const char *)-1, 0);
             log_op("setdomainname", "dummy setdomainname", res);
         }
+        fflush(stdout);
         _exit(0);
     } else if (uts_child > 0) {
         waitpid(uts_child, NULL, 0);
@@ -1868,6 +2103,7 @@ static void run_worker_tests(const char *base_dir) {
     if (ptr_child == 0) {
         res = (int)syscall(SYS_ptrace, 0 /* PTRACE_TRACEME */, 0, NULL, NULL);
         log_op("ptrace", "ptrace(PTRACE_TRACEME)", res);
+        fflush(stdout);
         _exit(0);
     } else if (ptr_child > 0) {
         waitpid(ptr_child, NULL, 0);
@@ -1913,6 +2149,7 @@ static void run_worker_tests(const char *base_dir) {
     if (rob_child == 0) {
         res = (int)syscall(SYS_set_robust_list, (void *)-1, 0);
         log_op("set_robust_list", "set_robust_list((void *)-1, 0)", res);
+        fflush(stdout);
         _exit(0);
     } else if (rob_child > 0) {
         waitpid(rob_child, NULL, 0);
