@@ -247,7 +247,7 @@ Exclude background root noise:
 sudo tail -n0 -F /var/log/audit/audit.log | audisp-strace --live --exclude-user root
 ```
 
-### 3. As an `audisp` Plugin
+### 4. As an `audisp` Plugin
 
 `audisp-strace` can be configured directly inside auditd's dispatcher:
 
